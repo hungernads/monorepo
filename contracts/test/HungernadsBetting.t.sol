@@ -125,7 +125,7 @@ contract HungernadsBettingTest is Test {
     }
 
     // ──────────────────────────────────────────────
-    //  Settle Battle + Prize Distribution
+    //  Settle Battle + Prize Distribution (85/5/5/3/2)
     // ──────────────────────────────────────────────
 
     function test_settleBattle_prizeDistribution() public {
@@ -140,7 +140,9 @@ contract HungernadsBettingTest is Test {
         uint256 totalPool = 6 ether;
         uint256 expectedTreasury = (totalPool * 500) / 10000; // 0.3 ETH
         uint256 expectedBurn = (totalPool * 500) / 10000; // 0.3 ETH
-        uint256 expectedWinners = totalPool - expectedTreasury - expectedBurn; // 5.4 ETH
+        uint256 expectedJackpot = (totalPool * 300) / 10000; // 0.18 ETH
+        uint256 expectedTopBettor = (totalPool * 200) / 10000; // 0.12 ETH
+        uint256 expectedWinners = totalPool - expectedTreasury - expectedBurn - expectedJackpot - expectedTopBettor; // 5.1 ETH
 
         uint256 treasuryBefore = treasury.balance;
         uint256 burnBefore = betting.BURN_ADDRESS().balance;
@@ -153,12 +155,16 @@ contract HungernadsBettingTest is Test {
         assertEq(treasury.balance - treasuryBefore, expectedTreasury);
         // Check burn received 5%
         assertEq(betting.BURN_ADDRESS().balance - burnBefore, expectedBurn);
+        // Check jackpot accumulated
+        assertEq(betting.jackpotPool(), expectedJackpot);
 
-        // Check claimable amounts
+        // Claimable amounts from the 85% winners pool:
         // Alice bet 1 ETH on agent 1 (total agent 1 pool = 4 ETH), so she gets 1/4 of winners pool
         uint256 aliceExpected = (expectedWinners * 1 ether) / 4 ether;
         // Charlie bet 3 ETH on agent 1, so she gets 3/4 of winners pool
         uint256 charlieExpected = (expectedWinners * 3 ether) / 4 ether;
+        // Charlie is the top bettor (3 ETH > 1 ETH), gets the 2% bonus on top
+        charlieExpected += expectedTopBettor;
 
         assertEq(betting.claimable(battleId, alice), aliceExpected);
         assertEq(betting.claimable(battleId, charlie), charlieExpected);
@@ -207,9 +213,11 @@ contract HungernadsBettingTest is Test {
         uint256 totalPool = 2 ether;
         uint256 expectedTreasury = (totalPool * 500) / 10000;
         uint256 expectedBurn = (totalPool * 500) / 10000;
+        uint256 expectedJackpot = (totalPool * 300) / 10000;
 
         assertEq(treasury.balance - treasuryBefore, expectedTreasury);
         assertEq(betting.BURN_ADDRESS().balance - burnBefore, expectedBurn);
+        assertEq(betting.jackpotPool(), expectedJackpot);
 
         // No one can claim
         assertEq(betting.claimable(battleId, bob), 0);
@@ -222,6 +230,113 @@ contract HungernadsBettingTest is Test {
 
         (,, bool settled,,,) = betting.battles(battleId);
         assertTrue(settled);
+        assertEq(betting.jackpotPool(), 0);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Jackpot Carry-Forward
+    // ──────────────────────────────────────────────
+
+    function test_jackpot_carryForward() public {
+        // Battle 1: 10 ETH pool -> 3% = 0.3 ETH jackpot
+        vm.prank(alice);
+        betting.placeBet{value: 5 ether}(battleId, AGENT_1);
+        vm.prank(bob);
+        betting.placeBet{value: 5 ether}(battleId, AGENT_2);
+
+        vm.prank(oracle);
+        betting.settleBattle(battleId, AGENT_1);
+
+        uint256 expectedJackpot1 = (10 ether * 300) / 10000; // 0.3 ETH
+        assertEq(betting.jackpotPool(), expectedJackpot1);
+
+        // Battle 2: 4 ETH pool + 0.3 ETH incoming jackpot
+        bytes32 battleId2 = keccak256("battle-2");
+        vm.prank(oracle);
+        betting.createBattle(battleId2);
+
+        vm.prank(alice);
+        betting.placeBet{value: 2 ether}(battleId2, AGENT_1);
+        vm.prank(bob);
+        betting.placeBet{value: 2 ether}(battleId2, AGENT_2);
+
+        // Alice is the sole winner on agent 1 (2 ETH stake)
+        vm.prank(oracle);
+        betting.settleBattle(battleId2, AGENT_1);
+
+        // New jackpot = 3% of 4 ETH = 0.12 ETH (old 0.3 ETH was consumed)
+        uint256 expectedJackpot2 = (4 ether * 300) / 10000; // 0.12 ETH
+        assertEq(betting.jackpotPool(), expectedJackpot2);
+
+        // Alice's claimable should include: 85% of 4 ETH + 0.3 ETH incoming jackpot + 2% top bettor bonus
+        uint256 pool2 = 4 ether;
+        uint256 treasuryCut2 = (pool2 * 500) / 10000;
+        uint256 burnCut2 = (pool2 * 500) / 10000;
+        uint256 jackpotCut2 = (pool2 * 300) / 10000;
+        uint256 topBettorCut2 = (pool2 * 200) / 10000;
+        uint256 winnersCut2 = pool2 - treasuryCut2 - burnCut2 - jackpotCut2 - topBettorCut2 + expectedJackpot1;
+        // Alice is sole winner + top bettor
+        uint256 aliceExpected = winnersCut2 + topBettorCut2;
+        assertEq(betting.claimable(battleId2, alice), aliceExpected);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Top Bettor Bonus
+    // ──────────────────────────────────────────────
+
+    function test_topBettorBonus_awardedToHighestStake() public {
+        // Alice bets 1 ETH, Charlie bets 3 ETH on the winner
+        vm.prank(alice);
+        betting.placeBet{value: 1 ether}(battleId, AGENT_1);
+        vm.prank(charlie);
+        betting.placeBet{value: 3 ether}(battleId, AGENT_1);
+        vm.prank(bob);
+        betting.placeBet{value: 2 ether}(battleId, AGENT_2);
+
+        uint256 totalPool = 6 ether;
+        uint256 topBettorCut = (totalPool * 200) / 10000; // 0.12 ETH
+
+        vm.prank(oracle);
+        betting.settleBattle(battleId, AGENT_1);
+
+        // Charlie has the highest winning stake (3 ETH > 1 ETH)
+        // so Charlie's claimable includes the top bettor bonus
+        uint256 treasuryCut = (totalPool * 500) / 10000;
+        uint256 burnCut = (totalPool * 500) / 10000;
+        uint256 jackpotCut = (totalPool * 300) / 10000;
+        uint256 winnersCut = totalPool - treasuryCut - burnCut - jackpotCut - topBettorCut;
+
+        uint256 charlieWinnerShare = (winnersCut * 3 ether) / 4 ether;
+        uint256 charlieTotal = charlieWinnerShare + topBettorCut;
+        assertEq(betting.claimable(battleId, charlie), charlieTotal);
+
+        // Alice only gets winner share, no top bettor bonus
+        uint256 aliceWinnerShare = (winnersCut * 1 ether) / 4 ether;
+        assertEq(betting.claimable(battleId, alice), aliceWinnerShare);
+    }
+
+    function test_topBettorBonus_emitsEvent() public {
+        vm.prank(alice);
+        betting.placeBet{value: 1 ether}(battleId, AGENT_1);
+
+        uint256 topBettorCut = (1 ether * 200) / 10000;
+
+        vm.prank(oracle);
+        vm.expectEmit(true, true, false, true);
+        emit HungernadsBetting.TopBettorBonusAwarded(battleId, alice, topBettorCut);
+        betting.settleBattle(battleId, AGENT_1);
+    }
+
+    function test_jackpotAccumulated_emitsEvent() public {
+        vm.prank(alice);
+        betting.placeBet{value: 1 ether}(battleId, AGENT_1);
+
+        uint256 jackpotCut = (1 ether * 300) / 10000;
+
+        vm.prank(oracle);
+        vm.expectEmit(true, false, false, true);
+        emit HungernadsBetting.JackpotAccumulated(battleId, jackpotCut, jackpotCut);
+        betting.settleBattle(battleId, AGENT_1);
     }
 
     // ──────────────────────────────────────────────
@@ -316,17 +431,29 @@ contract HungernadsBettingTest is Test {
     //  Sponsorship
     // ──────────────────────────────────────────────
 
-    function test_sponsorAgent() public {
+    function test_sponsorAgent_burnNotPool() public {
+        uint256 burnBefore = betting.BURN_ADDRESS().balance;
+
         vm.prank(alice);
         betting.sponsorAgent{value: 1 ether}(battleId, AGENT_1, "Go Agent 1!");
 
-        assertEq(betting.getBattlePool(battleId), 1 ether);
+        // Sponsorship should NOT increase the betting pool
+        assertEq(betting.getBattlePool(battleId), 0);
+        // Sponsorship should be burned (sent to dead address)
+        assertEq(betting.BURN_ADDRESS().balance - burnBefore, 1 ether);
     }
 
-    function test_sponsorAgent_emitsEvent() public {
+    function test_sponsorAgent_emitsSponsorshipSent() public {
         vm.prank(alice);
         vm.expectEmit(true, true, true, true);
         emit HungernadsBetting.SponsorshipSent(battleId, AGENT_1, alice, 1 ether, "Go Agent 1!");
+        betting.sponsorAgent{value: 1 ether}(battleId, AGENT_1, "Go Agent 1!");
+    }
+
+    function test_sponsorAgent_emitsSponsorBurned() public {
+        vm.prank(alice);
+        vm.expectEmit(true, true, true, true);
+        emit HungernadsBetting.SponsorBurned(battleId, AGENT_1, alice, 1 ether);
         betting.sponsorAgent{value: 1 ether}(battleId, AGENT_1, "Go Agent 1!");
     }
 
@@ -391,7 +518,7 @@ contract HungernadsBettingTest is Test {
     }
 
     // ──────────────────────────────────────────────
-    //  End-to-End Flow
+    //  End-to-End Flow (85/5/5/3/2 split)
     // ──────────────────────────────────────────────
 
     function test_endToEnd_fullBettingFlow() public {
@@ -406,37 +533,45 @@ contract HungernadsBettingTest is Test {
         // Pool = 10 ETH. Agent 1 pool = 7 ETH. Agent 2 pool = 3 ETH.
         assertEq(betting.getBattlePool(battleId), 10 ether);
 
-        // 2. Add sponsorship
+        // 2. Add sponsorship - burns tokens, does NOT increase pool
+        uint256 sponsorBurnBefore = betting.BURN_ADDRESS().balance;
         vm.prank(alice);
         betting.sponsorAgent{value: 1 ether}(battleId, AGENT_1, "May the nads be ever in your favor");
 
-        // Pool = 11 ETH
-        assertEq(betting.getBattlePool(battleId), 11 ether);
+        // Pool stays at 10 ETH (sponsorship is burned, not pooled)
+        assertEq(betting.getBattlePool(battleId), 10 ether);
+        // Sponsorship amount sent to burn address
+        assertEq(betting.BURN_ADDRESS().balance - sponsorBurnBefore, 1 ether);
 
         // 3. Settle - Agent 1 wins
         uint256 treasuryBefore = treasury.balance;
-        uint256 burnBefore = betting.BURN_ADDRESS().balance;
+        uint256 settleBurnBefore = betting.BURN_ADDRESS().balance;
 
         vm.prank(oracle);
         betting.settleBattle(battleId, AGENT_1);
 
-        uint256 pool = 11 ether;
-        uint256 treasuryCut = (pool * 500) / 10000; // 0.55 ETH
-        uint256 burnCut = (pool * 500) / 10000; // 0.55 ETH
-        uint256 winnersCut = pool - treasuryCut - burnCut; // 9.9 ETH
+        uint256 pool = 10 ether;
+        uint256 treasuryCut = (pool * 500) / 10000; // 0.5 ETH
+        uint256 burnCut = (pool * 500) / 10000; // 0.5 ETH
+        uint256 jackpotCut = (pool * 300) / 10000; // 0.3 ETH
+        uint256 topBettorCut = (pool * 200) / 10000; // 0.2 ETH
+        uint256 winnersCut = pool - treasuryCut - burnCut - jackpotCut - topBettorCut; // 8.5 ETH
 
         assertEq(treasury.balance - treasuryBefore, treasuryCut);
-        assertEq(betting.BURN_ADDRESS().balance - burnBefore, burnCut);
+        assertEq(betting.BURN_ADDRESS().balance - settleBurnBefore, burnCut);
+        assertEq(betting.jackpotPool(), jackpotCut);
 
-        // 4. Alice claims (2/7 of 9.9 ETH)
-        uint256 aliceExpected = (winnersCut * 2 ether) / 7 ether;
+        // 4. Alice claims (2/7 of 8.5 ETH winners pool)
+        uint256 aliceWinnerShare = (winnersCut * 2 ether) / 7 ether;
         uint256 aliceBefore = alice.balance;
         vm.prank(alice);
         betting.claimPrize(battleId);
-        assertEq(alice.balance - aliceBefore, aliceExpected);
+        assertEq(alice.balance - aliceBefore, aliceWinnerShare);
 
-        // 5. Charlie claims (5/7 of 9.9 ETH)
-        uint256 charlieExpected = (winnersCut * 5 ether) / 7 ether;
+        // 5. Charlie claims (5/7 of 8.5 ETH + 0.2 ETH top bettor bonus)
+        // Charlie is top bettor (5 ETH > 2 ETH on the winning agent)
+        uint256 charlieWinnerShare = (winnersCut * 5 ether) / 7 ether;
+        uint256 charlieExpected = charlieWinnerShare + topBettorCut;
         uint256 charlieBefore = charlie.balance;
         vm.prank(charlie);
         betting.claimPrize(battleId);
@@ -451,6 +586,16 @@ contract HungernadsBettingTest is Test {
         vm.prank(alice);
         vm.expectRevert(HungernadsBetting.BattleAlreadySettled.selector);
         betting.placeBet{value: 1 ether}(battleId, AGENT_1);
+    }
+
+    // ──────────────────────────────────────────────
+    //  BPS Constants Sanity Check
+    // ──────────────────────────────────────────────
+
+    function test_bpsConstants_sumTo10000() public view {
+        uint256 total = betting.WINNERS_BPS() + betting.TREASURY_BPS() + betting.BURN_BPS()
+            + betting.JACKPOT_BPS() + betting.TOP_BETTOR_BPS();
+        assertEq(total, betting.BPS_DENOMINATOR());
     }
 }
 

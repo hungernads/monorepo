@@ -5,7 +5,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 /// @title HungernadsBetting
 /// @notice On-chain betting and sponsorship contract for HUNGERNADS AI gladiator battles.
-/// @dev Withdraw pattern: winners claim prizes after settlement. 90/5/5 split (winners/treasury/burn).
+/// @dev Withdraw pattern: winners claim prizes after settlement.
+///      Split: 85/5/5/3/2 (winners/treasury/burn/jackpot/topBettor).
+///      Sponsorships are BURNED (sent to dead address), not added to the betting pool.
 contract HungernadsBetting is ReentrancyGuard {
     // ──────────────────────────────────────────────
     //  Constants
@@ -13,9 +15,11 @@ contract HungernadsBetting is ReentrancyGuard {
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
-    uint256 public constant WINNERS_BPS = 9000; // 90%
+    uint256 public constant WINNERS_BPS = 8500; // 85%
     uint256 public constant TREASURY_BPS = 500; // 5%
     uint256 public constant BURN_BPS = 500; // 5%
+    uint256 public constant JACKPOT_BPS = 300; // 3%
+    uint256 public constant TOP_BETTOR_BPS = 200; // 2%
     uint256 public constant BPS_DENOMINATOR = 10000;
 
     // ──────────────────────────────────────────────
@@ -24,6 +28,9 @@ contract HungernadsBetting is ReentrancyGuard {
 
     address public oracle;
     address public treasury;
+
+    /// @dev Accumulated jackpot from previous battles (3% carry-forward).
+    uint256 public jackpotPool;
 
     struct Bet {
         uint256 agentId;
@@ -36,7 +43,7 @@ contract HungernadsBetting is ReentrancyGuard {
         bool settled;
         uint256 winnerId;
         uint256 totalPool;
-        uint256 winnersPool; // 90% share allocated to winners after settlement
+        uint256 winnersPool; // 85% share + incoming jackpot, allocated to winners after settlement
     }
 
     /// @dev battleId => Battle
@@ -66,6 +73,9 @@ contract HungernadsBetting is ReentrancyGuard {
     event BattleSettled(bytes32 indexed battleId, uint256 winnerId, uint256 totalPool);
     event PrizeDistributed(bytes32 indexed battleId, address indexed user, uint256 amount);
     event SponsorshipSent(bytes32 indexed battleId, uint256 indexed agentId, address indexed user, uint256 amount, string message);
+    event SponsorBurned(bytes32 indexed battleId, uint256 indexed agentId, address indexed sponsor, uint256 amount);
+    event JackpotAccumulated(bytes32 indexed battleId, uint256 amount, uint256 newJackpotPool);
+    event TopBettorBonusAwarded(bytes32 indexed battleId, address indexed topBettor, uint256 bonus);
 
     // ──────────────────────────────────────────────
     //  Errors
@@ -127,8 +137,8 @@ contract HungernadsBetting is ReentrancyGuard {
         emit BattleCreated(battleId);
     }
 
-    /// @notice Settle a battle by declaring the winning agent. Distributes treasury and burn cuts immediately.
-    ///         Winners must claim their prizes via claimPrize().
+    /// @notice Settle a battle by declaring the winning agent. Distributes treasury, burn,
+    ///         jackpot carry-forward, and top bettor bonus. Winners claim via claimPrize().
     /// @param battleId The battle to settle
     /// @param winnerId The winning agent's ID
     function settleBattle(bytes32 battleId, uint256 winnerId) external onlyOracle battleExists(battleId) {
@@ -144,11 +154,31 @@ contract HungernadsBetting is ReentrancyGuard {
         if (pool > 0) {
             uint256 treasuryCut = (pool * TREASURY_BPS) / BPS_DENOMINATOR;
             uint256 burnCut = (pool * BURN_BPS) / BPS_DENOMINATOR;
-            uint256 winnersCut = pool - treasuryCut - burnCut;
+            uint256 jackpotCut = (pool * JACKPOT_BPS) / BPS_DENOMINATOR;
+            uint256 topBettorCut = (pool * TOP_BETTOR_BPS) / BPS_DENOMINATOR;
+            uint256 winnersCut = pool - treasuryCut - burnCut - jackpotCut - topBettorCut;
+
+            // Add incoming jackpot from previous battles to the winners pool
+            uint256 incomingJackpot = jackpotPool;
+            if (incomingJackpot > 0) {
+                winnersCut += incomingJackpot;
+            }
+
+            // Store new jackpot for next battle
+            jackpotPool = jackpotCut;
+            emit JackpotAccumulated(battleId, jackpotCut, jackpotPool);
+
             b.winnersPool = winnersCut;
 
             // Compute claimable amounts for each winning bettor
             _distributeWinnings(battleId, winnerId, winnersCut);
+
+            // Award top bettor bonus: find the winning bettor with the largest total stake
+            address topBettor = _findTopBettor(battleId, winnerId);
+            if (topBettor != address(0) && topBettorCut > 0) {
+                claimable[battleId][topBettor] += topBettorCut;
+                emit TopBettorBonusAwarded(battleId, topBettor, topBettorCut);
+            }
 
             // Transfer treasury and burn cuts
             _safeTransfer(treasury, treasuryCut);
@@ -203,17 +233,18 @@ contract HungernadsBetting is ReentrancyGuard {
         emit PrizeDistributed(battleId, msg.sender, amount);
     }
 
-    /// @notice Sponsor an agent in a battle. Sponsorship amount goes to the battle pool.
+    /// @notice Sponsor an agent in a battle. Sponsorship amount is BURNED (sent to dead address), not pooled.
     /// @param battleId The battle
     /// @param agentId The agent to sponsor
     /// @param message Public message from the sponsor
     function sponsorAgent(bytes32 battleId, uint256 agentId, string calldata message) external payable battleOpen(battleId) {
         if (msg.value == 0) revert ZeroAmount();
 
-        Battle storage b = battles[battleId];
-        b.totalPool += msg.value;
+        // Burn sponsorship — send to dead address instead of adding to betting pool
+        _safeTransfer(BURN_ADDRESS, msg.value);
 
         emit SponsorshipSent(battleId, agentId, msg.sender, msg.value, message);
+        emit SponsorBurned(battleId, agentId, msg.sender, msg.value);
     }
 
     // ──────────────────────────────────────────────
@@ -265,6 +296,21 @@ contract HungernadsBetting is ReentrancyGuard {
         for (uint256 i = 0; i < bets.length; i++) {
             if (bets[i].agentId == agentId) {
                 total += bets[i].amount;
+            }
+        }
+    }
+
+    /// @dev Find the winning bettor with the largest total stake on the winning agent.
+    ///      Returns address(0) if no one bet on the winner.
+    function _findTopBettor(bytes32 battleId, uint256 winnerId) internal view returns (address topBettor) {
+        address[] storage bettors = _agentBettors[battleId][winnerId];
+        uint256 highestStake = 0;
+
+        for (uint256 i = 0; i < bettors.length; i++) {
+            uint256 stake = _getUserBetOnAgent(battleId, bettors[i], winnerId);
+            if (stake > highestStake) {
+                highestStake = stake;
+                topBettor = bettors[i];
             }
         }
     }
