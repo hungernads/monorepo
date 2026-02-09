@@ -19,7 +19,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["AgentDO", "ArenaDO"]
+new_sqlite_classes = ["AgentDO", "ArenaDO"]
 
 # ─── KV Namespaces ──────────────────────────────────────────────
 [[kv_namespaces]]
@@ -28,7 +28,7 @@ id = "b98c675ff0f442de8f997a714e360cd3"
 
 # ─── Environment Variables (non-secret) ─────────────────────────
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 PYTH_ENDPOINT = "https://hermes.pyth.network"
 
 # ─── Secrets (set via `wrangler secret put`) ──────────────────────
@@ -41,6 +41,7 @@ PYTH_ENDPOINT = "https://hermes.pyth.network"
 # GOOGLE_API_KEY             = Google AI API key
 # OPENROUTER_API_KEY         = OpenRouter API key
 # NADFUN_TOKEN_ADDRESS       = $HNADS token address on nad.fun (set after creation)
+# MOLTBOOK_API_KEY           = Moltbook API key for /m/hungernads submolt posting
 
 # ─── Dev settings ───────────────────────────────────────────────
 [dev]
