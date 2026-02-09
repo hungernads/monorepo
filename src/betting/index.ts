@@ -40,3 +40,25 @@ export type {
   EndSeasonResult,
   BurnResult,
 } from './seasons';
+
+export {
+  ClassTokenManager,
+  CLASS_TOKEN_SYMBOLS,
+  CLASS_IDS,
+  ID_TO_CLASS,
+  ALL_CLASSES,
+  DEFAULT_STRATEGY,
+  CLASS_DEFAULT_STRATEGIES,
+  validateStrategy,
+  computeStrategyModifiers,
+  buildClassTokenPromptContext,
+} from './class-token';
+export type {
+  ClassStrategy,
+  StrategyProposal,
+  ClassTokenStats,
+  ClassRewardEpoch,
+  ClassSponsorshipEvent,
+  ClassRewardResult,
+  StrategyModifiers,
+} from './class-token';
