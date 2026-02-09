@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import TokenInfo from '@/components/TokenInfo';
 import WalletConnect from '@/components/WalletConnect';
+import BurnCounterBadge from '@/components/nav/BurnCounterBadge';
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -259,8 +260,10 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* ── Right: Notification + Token + Wallet/Profile ── */}
+        {/* ── Right: Burn Counter + Notification + Token + Wallet/Profile ── */}
         <div className="flex items-center gap-2">
+          <BurnCounterBadge />
+
           <NotificationBell />
 
           <div className="hidden border-l border-colosseum-surface-light pl-3 lg:block">

@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@nadfun/sdk": "^0.4.3",
     "@tanstack/react-query": "^5.90.20",
     "@tsparticles/react": "^3.0.0",
     "@tsparticles/slim": "^3.9.1",

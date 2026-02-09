@@ -69,6 +69,8 @@ export interface CombatResultEvent {
     blocked: boolean;
     attackerHpAfter: number;
     defenderHpAfter: number;
+    /** True if the attacker betrayed their ally (2x damage). */
+    betrayal?: boolean;
   };
 }
 
@@ -150,6 +152,19 @@ export interface CurveUpdateEvent {
   };
 }
 
+export interface AllianceEventWS {
+  type: 'alliance_event';
+  data: {
+    eventType: 'PROPOSED' | 'FORMED' | 'EXPIRED' | 'BROKEN' | 'BETRAYED';
+    agentId: string;
+    agentName: string;
+    partnerId: string;
+    partnerName: string;
+    description: string;
+    epochsRemaining?: number;
+  };
+}
+
 export interface SponsorBoostEvent {
   type: 'sponsor_boost';
   data: {
@@ -181,7 +196,8 @@ export type BattleEvent =
   | TokenBuyEvent
   | TokenSellEvent
   | CurveUpdateEvent
-  | SponsorBoostEvent;
+  | SponsorBoostEvent
+  | AllianceEventWS;
 
 export type BattleEventHandler = (event: BattleEvent) => void;
 export type ConnectionHandler = (connected: boolean) => void;

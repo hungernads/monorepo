@@ -183,6 +183,22 @@ const config: Config = {
           "15%": { backgroundColor: "rgba(220,38,38,0.25)" },
           "100%": { backgroundColor: "rgba(220,38,38,0)" },
         },
+        /* Burn counter flash: red/orange glow when new tokens are burned */
+        "burn-flash": {
+          "0%": {
+            backgroundColor: "rgba(220,38,38,0)",
+            boxShadow: "0 0 0 rgba(220,38,38,0)",
+          },
+          "20%": {
+            backgroundColor: "rgba(220,38,38,0.2)",
+            boxShadow:
+              "0 0 12px rgba(220,38,38,0.4), 0 0 24px rgba(245,158,11,0.15)",
+          },
+          "100%": {
+            backgroundColor: "rgba(220,38,38,0)",
+            boxShadow: "0 0 0 rgba(220,38,38,0)",
+          },
+        },
       },
       animation: {
         "rekt-glow": "rekt-glow 2s ease-in-out infinite",
@@ -197,6 +213,7 @@ const config: Config = {
         "sponsor-enter": "sponsor-enter 0.6s ease-out forwards",
         "price-flash-up": "price-flash-up 0.8s ease-out forwards",
         "price-flash-down": "price-flash-down 0.8s ease-out forwards",
+        "burn-flash": "burn-flash 1.2s ease-out forwards",
       },
     },
   },

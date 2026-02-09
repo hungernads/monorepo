@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useAccount } from "wagmi";
 import {
   HexBattleArena,
   ActionFeed,
@@ -11,7 +12,17 @@ import {
 } from "@/components/battle";
 import type { BattleAgent, FeedEntry } from "@/components/battle";
 import { BettingPanel, SponsorModal, SponsorFeed } from "@/components/betting";
+import {
+  BattleChat,
+  ShareButton,
+  ToastContainer,
+  WatcherCount,
+  FavoriteButton,
+} from "@/components/social";
 import { useBattleStream } from "@/hooks/useBattleStream";
+import { useFavoriteAgents } from "@/hooks/useFavoriteAgents";
+import { useToast } from "@/hooks/useToast";
+import { useBurnCounter } from "@/contexts/BurnCounterContext";
 import type {
   BattleEvent,
   AgentActionEvent,
@@ -20,6 +31,7 @@ import type {
   AgentDeathEvent,
   EpochStartEvent,
   OddsUpdateEvent,
+  SponsorBoostEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 
@@ -258,7 +270,37 @@ export default function BattleView({ battleId }: BattleViewProps) {
     winner,
   } = useBattleStream(battleId);
 
+  const { address, isConnected: walletConnected } = useAccount();
+  const { favorites, toggle: toggleFavorite, isFavorite } = useFavoriteAgents();
+  const { toasts, addToast, removeToast } = useToast();
+  const { addBurn } = useBurnCounter();
   const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
+
+  // Wallet display name for chat
+  const userDisplayName = useMemo(() => {
+    if (!address) return "anon";
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  }, [address]);
+
+  // Push sponsor_boost WS events into the global burn counter
+  const processedSponsorCountRef = useRef(0);
+  useEffect(() => {
+    const sponsorEvents = events.filter(
+      (e): e is SponsorBoostEvent => e.type === "sponsor_boost",
+    );
+    // Only process new sponsor events (avoid double-counting on re-renders)
+    const newEvents = sponsorEvents.slice(processedSponsorCountRef.current);
+    for (const event of newEvents) {
+      const amount =
+        event.data.amount ??
+        // Fallback: derive cost from tier if amount not present
+        ({ BREAD_RATION: 10, MEDICINE_KIT: 25, ARMOR_PLATING: 50, WEAPON_CACHE: 75, CORNUCOPIA: 150 }[
+          event.data.tier
+        ] ?? 0);
+      if (amount > 0) addBurn(amount);
+    }
+    processedSponsorCountRef.current = sponsorEvents.length;
+  }, [events, addBurn]);
 
   // Build agent metadata lookup from events (for names/classes in feed)
   const agentMeta = useMemo(() => {
@@ -395,12 +437,66 @@ export default function BattleView({ battleId }: BattleViewProps) {
     [feed],
   );
 
-  // Mobile sidebar tabs
-  type SidebarTab = "bets" | "sponsors" | "markets" | "log";
+  // ─── Favorite agent toast notifications ────────────────────────────
+  // Track feed length to detect new entries and fire toasts for favorites
+  const prevFeedLenRef = useRef(feed.length);
+
+  useEffect(() => {
+    if (favorites.size === 0) return;
+    if (feed.length <= prevFeedLenRef.current) {
+      prevFeedLenRef.current = feed.length;
+      return;
+    }
+
+    // Process only the new feed entries since last check
+    const newEntries = feed.slice(prevFeedLenRef.current);
+    prevFeedLenRef.current = feed.length;
+
+    for (const entry of newEntries) {
+      if (!entry.agentId || !isFavorite(entry.agentId)) continue;
+
+      const name = entry.agentName ?? "Your favorite";
+
+      switch (entry.type) {
+        case "ATTACK":
+          addToast(`${name} is in combat!`, "danger");
+          break;
+        case "DEFEND":
+          addToast(`${name} raised defenses!`, "info");
+          break;
+        case "DEATH":
+          addToast(`${name} has been REKT!`, "danger");
+          break;
+        case "PREDICTION":
+          if (entry.message.includes("CORRECT")) {
+            addToast(`${name} nailed the prediction!`, "success");
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }, [feed, favorites, isFavorite, addToast]);
+
+  // Fire toast when a favorite agent wins
+  const prevWinnerRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!winner) return;
+    if (prevWinnerRef.current === winner.winnerId) return;
+    prevWinnerRef.current = winner.winnerId;
+
+    if (isFavorite(winner.winnerId)) {
+      addToast(`${winner.winnerName} WINS THE BATTLE!`, "gold");
+    }
+  }, [winner, isFavorite, addToast]);
+
+  // Mobile sidebar tabs -- add "chat" tab
+  type SidebarTab = "bets" | "sponsors" | "markets" | "log" | "chat";
   const [mobileSidebarTab, setMobileSidebarTab] = useState<SidebarTab>("bets");
 
   const sidebarTabs: { key: SidebarTab; label: string }[] = [
     { key: "bets", label: "Bets" },
+    { key: "chat", label: "Chat" },
     { key: "sponsors", label: "Sponsors" },
     { key: "markets", label: "Markets" },
     { key: "log", label: "Log" },
@@ -408,6 +504,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
       {/* Battle header */}
       <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
         <div className="flex items-center gap-2 sm:gap-3">
@@ -438,6 +537,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
           </span>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-gray-500 sm:gap-4 sm:text-xs">
+          {/* Watcher count */}
+          <WatcherCount isLive={!winner} />
+          <span className="hidden text-gray-700 sm:inline">|</span>
           <span>
             Epoch <span className="text-white">{currentEpoch}</span>/20
           </span>
@@ -447,6 +549,12 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <span className="hidden sm:inline text-gray-700">
             Pool: <span className="text-gold">2,450 $HNADS</span>
           </span>
+          {/* Share button */}
+          <ShareButton
+            battleId={battleId}
+            winner={winner}
+            agents={agents}
+          />
         </div>
       </div>
 
@@ -459,6 +567,13 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <div className="mt-1 text-xs text-white sm:text-sm">
             <span className="font-bold">{winner.winnerName}</span> is the last
             nad standing after {winner.totalEpochs} epochs!
+          </div>
+          <div className="mt-2 flex justify-center">
+            <ShareButton
+              battleId={battleId}
+              winner={winner}
+              agents={agents}
+            />
           </div>
         </div>
       )}
@@ -488,6 +603,51 @@ export default function BattleView({ battleId }: BattleViewProps) {
           </button>
         </div>
       </div>
+
+      {/* Favorite agents bar */}
+      {agents.length > 0 && (
+        <div className="card">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+            Favorite Gladiators
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {agents.map((agent) => {
+              const fav = isFavorite(agent.id);
+              return (
+                <button
+                  key={agent.id}
+                  onClick={() => {
+                    const added = toggleFavorite(agent.id);
+                    if (added) {
+                      addToast(`${agent.name} added to favorites`, "gold");
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs transition-all ${
+                    fav
+                      ? "border-blood/40 bg-blood/10 text-blood-light"
+                      : "border-colosseum-surface-light bg-colosseum-surface text-gray-500 hover:border-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  <FavoriteButton
+                    agentId={agent.id}
+                    isFavorite={fav}
+                    onToggle={toggleFavorite}
+                    size="sm"
+                  />
+                  <span className={`font-bold ${fav ? "text-white" : ""}`}>
+                    {agent.name}
+                  </span>
+                  {!agent.alive && (
+                    <span className="text-[9px] font-bold tracking-wider text-blood/60">
+                      REKT
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Main layout: arena + sidebar */}
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
@@ -521,6 +681,15 @@ export default function BattleView({ battleId }: BattleViewProps) {
           {/* Betting panel */}
           <div className={`card ${mobileSidebarTab !== "bets" ? "hidden lg:block" : ""}`}>
             <BettingPanel agents={agents} battleId={battleId} winner={winner} />
+          </div>
+
+          {/* Battle chat */}
+          <div className={`card ${mobileSidebarTab !== "chat" ? "hidden lg:block" : ""}`}>
+            <BattleChat
+              battleId={battleId}
+              isConnected={walletConnected}
+              userDisplayName={userDisplayName}
+            />
           </div>
 
           {/* Sponsor feed */}
