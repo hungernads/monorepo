@@ -116,6 +116,8 @@ export interface EpochResult {
   trapTriggers: TrapTriggerResult[];
   /** Items spawned this epoch (after combat). */
   itemsSpawned: number;
+  /** Detailed item spawn data for WebSocket broadcasting. */
+  spawnedItems: { id: string; type: import('../arena/types/hex').ItemType; coord: { q: number; r: number }; epochNumber: number; isCornucopia: boolean }[];
   /** Buff tick results (expired/active buffs at end of epoch). */
   buffTicks: BuffTickResult[];
   /** Sponsor HP boosts applied this epoch (before predictions). */
@@ -376,6 +378,13 @@ export async function processEpoch(
     console.log(`[Items] Spawned ${newItems.length} items on epoch ${epochNumber}`);
   }
   const itemsSpawned = newItems.length;
+  const spawnedItems = newItems.map(item => ({
+    id: item.id,
+    type: item.type,
+    coord: { q: item.coord.q, r: item.coord.r },
+    epochNumber: item.spawnedAtEpoch,
+    isCornucopia: item.isCornucopia,
+  }));
 
   // ── Step 4.7: Tick item buffs (decrement durations, remove expired) ───
   const buffTicks = arena.tickBuffs();
@@ -532,6 +541,7 @@ export async function processEpoch(
     itemPickups,
     trapTriggers,
     itemsSpawned,
+    spawnedItems,
     buffTicks,
     sponsorBoosts,
     skillActivations,

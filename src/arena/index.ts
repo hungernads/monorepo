@@ -53,6 +53,76 @@ export {
 } from './grid';
 export type { HexCoord, ArenaHex, MoveResult } from './grid';
 
+// 19-tile hex grid (expanded arena with tile types, pathfinding, items)
+export {
+  GRID_RADIUS,
+  DIRECTION_OFFSETS,
+  DIRECTION_LIST,
+  createGrid,
+  isInGrid,
+  getTile,
+  getEmptyTiles,
+  getTilesInRange,
+  getTilesByType,
+  findPath,
+  getDirection,
+  oppositeDirection,
+  placeAgent,
+  removeAgent,
+  moveAgent,
+  serializeGrid,
+  deserializeGrid,
+  // Re-exported coordinate helpers (also available from ./grid)
+  hexKey as hexGridKey,
+  parseHexKey as hexGridParseKey,
+  hexEquals as hexGridEquals,
+  getDistance,
+  isAdjacent as hexGridIsAdjacent,
+  getNeighbors as hexGridGetNeighbors,
+  getNeighborInDirection as hexGridGetNeighborInDirection,
+} from './hex-grid';
+export type {
+  HexCoord as HexGridCoord,
+  HexTile,
+  TileType,
+  Direction as HexDirection,
+  HexGridState,
+  MovementAction,
+  MovementResult,
+  ItemDrop,
+  ItemType,
+} from './hex-grid';
+
+// Item system (rations, weapons, shields, traps, oracle)
+export {
+  spawnItems,
+  spawnCornucopiaItems,
+  pickupItem,
+  checkTraps,
+  tickItemBuffs,
+  hasActiveBuff,
+  getWeaponBonus,
+  hasShieldBuff,
+  hasOracleBuff,
+  addBuff,
+  addItemToTile,
+  removeItemFromTile,
+  addItemsToGrid,
+  getAllItems,
+  getPickupableItems,
+  buildItemContext,
+  buildBuffContext,
+  resetItemCounter,
+  WEAPON_ATK_BONUS,
+  CORNUCOPIA_END_EPOCH,
+} from './items';
+export type {
+  ItemPickupResult,
+  ItemBuff,
+  TrapTriggerResult,
+  BuffTickResult,
+} from './items';
+
 // Price feed
 export { PriceFeed, ASSETS } from './price-feed';
 export type { Asset, MarketData as PriceFeedMarketData } from './price-feed';
