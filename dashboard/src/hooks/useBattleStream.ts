@@ -22,6 +22,9 @@ import {
   type EpochEndEvent,
   type EpochStartEvent,
   type BattleEndEvent,
+  type GridStateEvent,
+  type ItemType,
+  type TileType,
 } from '@/lib/websocket';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -40,6 +43,18 @@ export interface StreamMarketData {
   timestamp: number;
 }
 
+/** Grid tile state from the grid_state WebSocket event. */
+export interface StreamGridTile {
+  q: number;
+  r: number;
+  type: TileType;
+  occupantId: string | null;
+  items: { id: string; type: ItemType }[];
+}
+
+/** Agent position from the grid_state event (agentId -> hex coord). */
+export type StreamAgentPositions = Record<string, { q: number; r: number }>;
+
 export interface UseBattleStreamResult {
   /** Whether the WebSocket is currently connected. */
   connected: boolean;
@@ -53,6 +68,10 @@ export interface UseBattleStreamResult {
   latestEpoch: number;
   /** The winner info, if the battle has ended. */
   winner: BattleEndEvent['data'] | null;
+  /** Latest grid tile states from the most recent grid_state event. */
+  gridTiles: StreamGridTile[];
+  /** Agent positions from the most recent grid_state event. */
+  agentPositions: StreamAgentPositions;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -69,6 +88,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
   const [marketData, setMarketData] = useState<StreamMarketData | null>(null);
   const [latestEpoch, setLatestEpoch] = useState(0);
   const [winner, setWinner] = useState<BattleEndEvent['data'] | null>(null);
+  const [gridTiles, setGridTiles] = useState<StreamGridTile[]>([]);
+  const [agentPositions, setAgentPositions] = useState<StreamAgentPositions>({});
 
   const wsRef = useRef<BattleWebSocket | null>(null);
 
@@ -100,9 +121,17 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
         break;
       }
 
+      case 'grid_state': {
+        const e = event as GridStateEvent;
+        setGridTiles(e.data.tiles);
+        setAgentPositions(e.data.agentPositions);
+        break;
+      }
+
       // Other event types (agent_action, prediction_result, combat_result,
-      // agent_death, odds_update) are stored in the events array for
-      // the ActionFeed component to consume. No derived state needed.
+      // agent_death, odds_update, agent_moved, item_spawned, item_picked_up,
+      // trap_triggered) are stored in the events array for the ActionFeed
+      // and BattleView components to consume. No derived state needed.
       default:
         break;
     }
@@ -135,6 +164,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
     marketData,
     latestEpoch,
     winner,
+    gridTiles,
+    agentPositions,
   };
 }
 

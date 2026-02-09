@@ -9,6 +9,8 @@ import {
   MarketTicker,
   MOCK_AGENTS,
   MOCK_FEED,
+  MOCK_AGENT_POSITIONS,
+  MOCK_TILE_ITEMS,
 } from "@/components/battle";
 import type { BattleAgent, FeedEntry } from "@/components/battle";
 import { BettingPanel, SponsorModal, SponsorFeed } from "@/components/betting";
@@ -32,6 +34,10 @@ import type {
   EpochStartEvent,
   OddsUpdateEvent,
   SponsorBoostEvent,
+  AgentMovedEvent,
+  ItemSpawnedEvent,
+  ItemPickedUpEvent,
+  TrapTriggeredEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 
@@ -249,7 +255,88 @@ function eventToFeedEntries(
       ];
     }
 
-    // epoch_end and battle_end don't generate feed entries (handled by state)
+    case "agent_moved": {
+      const e = event as AgentMovedEvent;
+      if (!e.data.success) {
+        return [
+          {
+            id: `ws-${index}`,
+            timestamp: ts,
+            epoch: latestEpoch,
+            type: "MARKET",
+            agentId: e.data.agentId,
+            agentName: e.data.agentName,
+            agentClass: agentMeta.get(e.data.agentId)?.class,
+            message: `${e.data.agentName} tried to move but failed: ${e.data.reason ?? "blocked"}.`,
+          },
+        ];
+      }
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "MARKET",
+          agentId: e.data.agentId,
+          agentName: e.data.agentName,
+          agentClass: agentMeta.get(e.data.agentId)?.class,
+          message: `${e.data.agentName} moved to (${e.data.to.q},${e.data.to.r}).`,
+        },
+      ];
+    }
+
+    case "item_spawned": {
+      const e = event as ItemSpawnedEvent;
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "MARKET",
+          message: `${e.data.itemType} appeared at (${e.data.coord.q},${e.data.coord.r})${e.data.isCornucopia ? " [Cornucopia]" : ""}.`,
+        },
+      ];
+    }
+
+    case "item_picked_up": {
+      const e = event as ItemPickedUpEvent;
+      const hpStr =
+        e.data.hpChange > 0
+          ? ` (+${e.data.hpChange} HP)`
+          : e.data.hpChange < 0
+            ? ` (${e.data.hpChange} HP)`
+            : "";
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "SPONSOR",
+          agentId: e.data.agentId,
+          agentName: e.data.agentName,
+          agentClass: agentMeta.get(e.data.agentId)?.class,
+          message: `${e.data.agentName} picked up ${e.data.itemType}${hpStr}. ${e.data.effect}`,
+        },
+      ];
+    }
+
+    case "trap_triggered": {
+      const e = event as TrapTriggeredEvent;
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "ATTACK",
+          agentId: e.data.agentId,
+          agentName: e.data.agentName,
+          agentClass: agentMeta.get(e.data.agentId)?.class,
+          message: `${e.data.agentName} triggered a TRAP at (${e.data.coord.q},${e.data.coord.r}) for ${e.data.damage} damage!`,
+        },
+      ];
+    }
+
+    // epoch_end, battle_end, grid_state don't generate feed entries (handled by state)
     default:
       return [];
   }
@@ -268,6 +355,8 @@ export default function BattleView({ battleId }: BattleViewProps) {
     agentStates,
     latestEpoch,
     winner,
+    gridTiles,
+    agentPositions: streamAgentPositions,
   } = useBattleStream(battleId);
 
   const { address, isConnected: walletConnected } = useAccount();
@@ -427,6 +516,46 @@ export default function BattleView({ battleId }: BattleViewProps) {
       } satisfies BattleAgent;
     });
   }, [agentStates, events, agentMeta, winner]);
+
+  // ─── Transform grid state → Map<agentId, HexCoord> + Map<hexKey, TileItem[]>
+  // TileItem type from HexBattleArena: { id: string; type: ItemType }
+  // where ItemType = "RATION" | "WEAPON" | "SHIELD" | "TRAP" | "ORACLE"
+  type HexItemType = "RATION" | "WEAPON" | "SHIELD" | "TRAP" | "ORACLE";
+  type HexTileItem = { id: string; type: HexItemType };
+
+  const { hexAgentPositions, hexTileItems } = useMemo(() => {
+    // Use WebSocket stream data if available
+    const hasStreamData = Object.keys(streamAgentPositions).length > 0;
+    if (hasStreamData) {
+      const positions = new Map<string, { q: number; r: number }>();
+      for (const [agentId, coord] of Object.entries(streamAgentPositions)) {
+        positions.set(agentId, coord);
+      }
+      const items = new Map<string, HexTileItem[]>();
+      for (const tile of gridTiles) {
+        if (tile.items.length > 0) {
+          items.set(
+            `${tile.q},${tile.r}`,
+            tile.items.map((i) => ({ id: i.id, type: i.type as HexItemType })),
+          );
+        }
+      }
+      return { hexAgentPositions: positions, hexTileItems: items };
+    }
+
+    // Fall back to mock data in dev mode
+    if (isDev) {
+      return {
+        hexAgentPositions: MOCK_AGENT_POSITIONS,
+        hexTileItems: MOCK_TILE_ITEMS as Map<string, HexTileItem[]>,
+      };
+    }
+
+    return {
+      hexAgentPositions: new Map<string, { q: number; r: number }>(),
+      hexTileItems: new Map<string, HexTileItem[]>(),
+    };
+  }, [streamAgentPositions, gridTiles]);
 
   const currentEpoch = latestEpoch || (isDev ? 3 : 0);
   const aliveCount = agents.filter((a) => a.alive).length;
@@ -653,7 +782,13 @@ export default function BattleView({ battleId }: BattleViewProps) {
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Arena */}
         <div className="card lg:col-span-2">
-          <HexBattleArena agents={agents} currentEpoch={currentEpoch} sponsorEventCount={sponsorEventCount} />
+          <HexBattleArena
+            agents={agents}
+            currentEpoch={currentEpoch}
+            sponsorEventCount={sponsorEventCount}
+            agentPositions={hexAgentPositions}
+            tileItems={hexTileItems}
+          />
         </div>
 
         {/* Sidebar: desktop shows all panels stacked, mobile uses tabs */}

@@ -34,40 +34,70 @@ export interface HexGridViewerProps {
 }
 
 // ---------------------------------------------------------------------------
-// Arena hex definitions (mirrored from src/arena/grid.ts for frontend use)
+// 19-tile hex grid (mirrored from src/arena/hex-grid.ts)
 // ---------------------------------------------------------------------------
+
+type TileType = "NORMAL" | "CORNUCOPIA" | "EDGE";
 
 interface ArenaHex extends HexCoord {
   label: string;
+  tileType: TileType;
 }
 
-const ARENA_HEXES: ArenaHex[] = [
-  { q: 0, r: 0, label: "CENTER" },
-  { q: 1, r: 0, label: "E" },
-  { q: 0, r: 1, label: "SE" },
-  { q: -1, r: 1, label: "SW" },
-  { q: -1, r: 0, label: "W" },
-  { q: 0, r: -1, label: "NW" },
-  { q: 1, r: -1, label: "NE" },
-];
+const GRID_RADIUS = 2;
 
-// Default placement order: outer ring (E, NE, NW, W, SW, SE) then center.
-// This spreads agents out for maximum readability.
-const DEFAULT_PLACEMENT_ORDER = [
+function classifyTile(q: number, r: number): TileType {
+  const s = -q - r;
+  const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+  if (dist <= 1) return "CORNUCOPIA";
+  return "EDGE";
+}
+
+function tileLabel(q: number, r: number): string {
+  if (q === 0 && r === 0) return "C";
+  const s = -q - r;
+  const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+  if (dist === 1) {
+    const labels: Record<string, string> = {
+      "0,-1": "N", "1,-1": "NE", "1,0": "E",
+      "0,1": "S", "-1,1": "SW", "-1,0": "W",
+    };
+    return labels[`${q},${r}`] || "";
+  }
+  return "";
+}
+
+function generateArenaHexes(): ArenaHex[] {
+  const hexes: ArenaHex[] = [];
+  for (let q = -GRID_RADIUS; q <= GRID_RADIUS; q++) {
+    for (let r = -GRID_RADIUS; r <= GRID_RADIUS; r++) {
+      const s = -q - r;
+      if (Math.abs(s) <= GRID_RADIUS) {
+        hexes.push({ q, r, label: tileLabel(q, r), tileType: classifyTile(q, r) });
+      }
+    }
+  }
+  return hexes;
+}
+
+const ARENA_HEXES = generateArenaHexes();
+
+// Default placement order: ring-1 cardinal directions + center
+const DEFAULT_PLACEMENT_ORDER: HexCoord[] = [
   { q: 1, r: 0 },   // E
   { q: -1, r: 0 },  // W
+  { q: 0, r: -1 },  // N
+  { q: 0, r: 1 },   // S
   { q: 1, r: -1 },  // NE
   { q: -1, r: 1 },  // SW
-  { q: 0, r: -1 },  // NW
-  { q: 0, r: 1 },   // SE
   { q: 0, r: 0 },   // CENTER
 ];
 
 // ---------------------------------------------------------------------------
-// Geometry helpers — flat-top hexagons
+// Geometry helpers -- flat-top hexagons
 // ---------------------------------------------------------------------------
 
-const HEX_SIZE = 38; // Radius of each hex (corner-to-center)
+const HEX_SIZE = 26; // Radius of each hex (corner-to-center) -- smaller for minimap
 const SQRT3 = Math.sqrt(3);
 
 /** Convert axial (q, r) to pixel (x, y) for flat-top hexagons. */
@@ -94,7 +124,6 @@ function hexPoints(cx: number, cy: number, size: number): string {
 // Color helpers
 // ---------------------------------------------------------------------------
 
-/** Hex fill color based on agent class (muted version for the hex background). */
 function classHexFill(agentClass: AgentClass): string {
   const fills: Record<AgentClass, string> = {
     WARRIOR: "rgba(220,38,38,0.15)",
@@ -106,7 +135,6 @@ function classHexFill(agentClass: AgentClass): string {
   return fills[agentClass];
 }
 
-/** Agent dot fill color (solid). */
 function classDotFill(agentClass: AgentClass): string {
   const fills: Record<AgentClass, string> = {
     WARRIOR: "#dc2626",
@@ -118,14 +146,25 @@ function classDotFill(agentClass: AgentClass): string {
   return fills[agentClass];
 }
 
-/** HP percentage to ring color. */
 function hpColor(hp: number, maxHp: number): string {
   const pct = (hp / maxHp) * 100;
-  if (pct <= 0) return "#374151";     // gray-700 (dead)
-  if (pct <= 30) return "#dc2626";    // blood
-  if (pct <= 60) return "#f59e0b";    // gold
-  return "#22c55e";                    // green
+  if (pct <= 0) return "#374151";
+  if (pct <= 30) return "#dc2626";
+  if (pct <= 60) return "#f59e0b";
+  return "#22c55e";
 }
+
+const TILE_FILLS: Record<TileType, string> = {
+  NORMAL: "rgba(26,26,46,0.6)",
+  CORNUCOPIA: "rgba(245,158,11,0.04)",
+  EDGE: "rgba(15,15,25,0.5)",
+};
+
+const TILE_STROKES: Record<TileType, { color: string; dash?: string }> = {
+  NORMAL: { color: "rgba(37,37,64,0.8)" },
+  CORNUCOPIA: { color: "rgba(245,158,11,0.2)" },
+  EDGE: { color: "rgba(37,37,64,0.4)", dash: "4,2" },
+};
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -151,13 +190,19 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
     }
   }, [agent, onSelect]);
 
-  // Hex polygon fill
-  let fill = "rgba(26,26,46,0.6)"; // colosseum-surface with alpha
-  let strokeColor = "rgba(37,37,64,0.8)"; // surface-light
+  // Hex polygon fill -- tile type based for empty, class based for occupied
+  const tileFill = TILE_FILLS[hex.tileType];
+  const tileStroke = TILE_STROKES[hex.tileType];
+
+  let fill = tileFill;
+  let strokeColor = tileStroke.color;
   let strokeWidth = 1;
+  let strokeDash = tileStroke.dash;
 
   if (agent) {
     fill = classHexFill(agent.class);
+    strokeColor = classDotFill(agent.class);
+    strokeDash = undefined;
     if (isDead) {
       fill = "rgba(26,26,46,0.3)";
       strokeColor = "rgba(55,65,81,0.5)";
@@ -165,7 +210,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
   }
 
   if (isSelected) {
-    strokeColor = "#f59e0b"; // gold
+    strokeColor = "#f59e0b";
     strokeWidth = 2;
   }
 
@@ -188,6 +233,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
         fill={fill}
         stroke={strokeColor}
         strokeWidth={strokeWidth}
+        strokeDasharray={strokeDash}
         className="transition-all duration-200"
       />
 
@@ -203,58 +249,70 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
 
       {agent && !isDead && (
         <>
-          {/* HP ring — circular arc behind the agent dot */}
+          {/* HP ring */}
           <circle
             cx={cx}
             cy={cy}
-            r={14}
+            r={10}
             fill="none"
             stroke="rgba(55,65,81,0.4)"
-            strokeWidth={2.5}
+            strokeWidth={2}
           />
           <circle
             cx={cx}
             cy={cy}
-            r={14}
+            r={10}
             fill="none"
             stroke={hpColor(agent.hp, agent.maxHp)}
-            strokeWidth={2.5}
-            strokeDasharray={`${(hpPct / 100) * 2 * Math.PI * 14} ${2 * Math.PI * 14}`}
+            strokeWidth={2}
+            strokeDasharray={`${(hpPct / 100) * 2 * Math.PI * 10} ${2 * Math.PI * 10}`}
             strokeDashoffset={0}
             strokeLinecap="round"
             transform={`rotate(-90 ${cx} ${cy})`}
             className="transition-all duration-500"
           />
 
-          {/* Agent class emoji (centered) */}
-          <text
-            x={cx}
-            y={cy + 1}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={14}
-            className="pointer-events-none select-none"
-          >
-            {cfg?.emoji}
-          </text>
+          {/* Agent portrait */}
+          {(() => {
+            const pSize = 14;
+            const clipId = `hex-clip-grid-${agent.id}`;
+            return (
+              <g className="pointer-events-none">
+                <defs>
+                  <clipPath id={clipId}>
+                    <circle cx={cx} cy={cy} r={pSize / 2} />
+                  </clipPath>
+                </defs>
+                <image
+                  href={cfg?.image}
+                  x={cx - pSize / 2}
+                  y={cy - pSize / 2}
+                  width={pSize}
+                  height={pSize}
+                  clipPath={`url(#${clipId})`}
+                  preserveAspectRatio="xMidYMid slice"
+                />
+              </g>
+            );
+          })()}
 
-          {/* Agent name (below) */}
+          {/* Agent name */}
           <text
             x={cx}
-            y={cy + 22}
+            y={cy + 16}
             textAnchor="middle"
-            fontSize={7}
+            fontSize={5}
             fontWeight="bold"
             fill="rgba(255,255,255,0.8)"
             letterSpacing="0.5"
             className="pointer-events-none select-none uppercase"
           >
-            {agent.name.length > 8 ? agent.name.slice(0, 7) + "." : agent.name}
+            {agent.name.length > 6 ? agent.name.slice(0, 5) + "." : agent.name}
           </text>
         </>
       )}
 
-      {/* Dead agent — skull + faded */}
+      {/* Dead agent */}
       {agent && isDead && (
         <>
           <text
@@ -262,7 +320,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
             y={cy + 1}
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={14}
+            fontSize={10}
             className="pointer-events-none select-none"
             opacity={0.4}
           >
@@ -270,28 +328,28 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
           </text>
           <text
             x={cx}
-            y={cy + 22}
+            y={cy + 16}
             textAnchor="middle"
-            fontSize={7}
+            fontSize={5}
             fontWeight="bold"
             fill="rgba(255,255,255,0.25)"
             letterSpacing="0.5"
             className="pointer-events-none select-none uppercase"
           >
-            {agent.name.length > 8 ? agent.name.slice(0, 7) + "." : agent.name}
+            {agent.name.length > 6 ? agent.name.slice(0, 5) + "." : agent.name}
           </text>
         </>
       )}
 
-      {/* Empty hex label (e.g. "NW", "CENTER") */}
-      {isEmpty && showLabel && (
+      {/* Empty hex label */}
+      {isEmpty && showLabel && hex.label && (
         <text
           x={cx}
           y={cy + 1}
           textAnchor="middle"
           dominantBaseline="central"
-          fontSize={7}
-          fill="rgba(107,114,128,0.4)"
+          fontSize={5}
+          fill={hex.tileType === "CORNUCOPIA" ? "rgba(245,158,11,0.25)" : "rgba(107,114,128,0.3)"}
           letterSpacing="1"
           className="pointer-events-none select-none uppercase"
         >
@@ -304,25 +362,25 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
         <circle
           cx={cx}
           cy={cy}
-          r={17}
+          r={13}
           fill="none"
           stroke="rgba(124,58,237,0.6)"
-          strokeWidth={1.5}
-          strokeDasharray="4 3"
+          strokeWidth={1}
+          strokeDasharray="3 2"
           className="animate-spin"
           style={{ animationDuration: "4s" }}
         />
       )}
 
-      {/* Attacking indicator (pulsing outer ring) */}
+      {/* Attacking indicator */}
       {agent?.attacking && !isDead && (
         <circle
           cx={cx}
           cy={cy}
-          r={17}
+          r={13}
           fill="none"
           stroke="rgba(220,38,38,0.5)"
-          strokeWidth={1.5}
+          strokeWidth={1}
           className="animate-ping"
           style={{ animationDuration: "1.5s" }}
         />
@@ -379,17 +437,14 @@ export default function HexGridViewer({
     return map;
   }, [agents, positionMap]);
 
-  // Compute SVG viewBox: find the bounding box of all hex centers, add padding
+  // Compute SVG viewBox
   const { viewBox, centers } = useMemo(() => {
     const c: { hex: ArenaHex; x: number; y: number }[] = ARENA_HEXES.map((hex) => {
       const { x, y } = axialToPixel(hex.q, hex.r);
       return { hex, x, y };
     });
 
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const { x, y } of c) {
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
@@ -397,7 +452,7 @@ export default function HexGridViewer({
       maxY = Math.max(maxY, y);
     }
 
-    const pad = HEX_SIZE + 16;
+    const pad = HEX_SIZE + 12;
     return {
       viewBox: `${minX - pad} ${minY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`,
       centers: c,
@@ -427,14 +482,14 @@ export default function HexGridViewer({
       <svg
         viewBox={viewBox}
         className="mx-auto w-full"
-        style={{ maxWidth: compact ? "180px" : "240px" }}
+        style={{ maxWidth: compact ? "220px" : "300px" }}
         role="img"
         aria-label={`Arena hex grid with ${agents.length} agents, ${aliveCount} alive`}
       >
         {/* Subtle center glow */}
         <defs>
           <radialGradient id="hex-grid-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(220,38,38,0.08)" />
+            <stop offset="0%" stopColor="rgba(245,158,11,0.06)" />
             <stop offset="100%" stopColor="transparent" />
           </radialGradient>
         </defs>
@@ -445,7 +500,7 @@ export default function HexGridViewer({
           fill="url(#hex-grid-glow)"
         />
 
-        {/* Adjacency lines (subtle connections between hexes) */}
+        {/* Adjacency lines */}
         {centers.map((a, i) =>
           centers
             .slice(i + 1)
@@ -462,7 +517,11 @@ export default function HexGridViewer({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="rgba(37,37,64,0.4)"
+                stroke={
+                  a.hex.tileType === "CORNUCOPIA" && b.hex.tileType === "CORNUCOPIA"
+                    ? "rgba(245,158,11,0.08)"
+                    : "rgba(37,37,64,0.3)"
+                }
                 strokeWidth={0.5}
               />
             )),

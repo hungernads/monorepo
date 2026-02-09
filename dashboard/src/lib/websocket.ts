@@ -165,6 +165,83 @@ export interface AllianceEventWS {
   };
 }
 
+// ─── Grid / Item Events ────────────────────────────────────────────
+
+/** Tile type classification from the backend hex grid system. */
+export type TileType = 'NORMAL' | 'CORNUCOPIA' | 'EDGE';
+
+/** Item types from the arena system. */
+export type ItemType = 'RATION' | 'WEAPON' | 'SHIELD' | 'TRAP' | 'ORACLE';
+
+/**
+ * Full grid state snapshot. Sent on initial WebSocket connect and after
+ * each epoch for a consistent view of the 19-tile arena.
+ */
+export interface GridStateEvent {
+  type: 'grid_state';
+  data: {
+    tiles: {
+      q: number;
+      r: number;
+      type: TileType;
+      occupantId: string | null;
+      items: { id: string; type: ItemType }[];
+    }[];
+    agentPositions: Record<string, { q: number; r: number }>;
+  };
+}
+
+/** Agent moved to a new hex during the movement phase. */
+export interface AgentMovedEvent {
+  type: 'agent_moved';
+  data: {
+    agentId: string;
+    agentName: string;
+    from: { q: number; r: number };
+    to: { q: number; r: number };
+    success: boolean;
+    reason?: string;
+  };
+}
+
+/** New item spawned on the grid. */
+export interface ItemSpawnedEvent {
+  type: 'item_spawned';
+  data: {
+    itemId: string;
+    itemType: ItemType;
+    coord: { q: number; r: number };
+    epochNumber: number;
+    isCornucopia: boolean;
+  };
+}
+
+/** Agent picked up an item from a tile. */
+export interface ItemPickedUpEvent {
+  type: 'item_picked_up';
+  data: {
+    agentId: string;
+    agentName: string;
+    itemId: string;
+    itemType: ItemType;
+    coord: { q: number; r: number };
+    effect: string;
+    hpChange: number;
+  };
+}
+
+/** Agent triggered a TRAP on a hex tile. */
+export interface TrapTriggeredEvent {
+  type: 'trap_triggered';
+  data: {
+    agentId: string;
+    agentName: string;
+    coord: { q: number; r: number };
+    damage: number;
+    itemId: string;
+  };
+}
+
 export interface SponsorBoostEvent {
   type: 'sponsor_boost';
   data: {
@@ -197,7 +274,12 @@ export type BattleEvent =
   | TokenSellEvent
   | CurveUpdateEvent
   | SponsorBoostEvent
-  | AllianceEventWS;
+  | AllianceEventWS
+  | GridStateEvent
+  | AgentMovedEvent
+  | ItemSpawnedEvent
+  | ItemPickedUpEvent
+  | TrapTriggeredEvent;
 
 export type BattleEventHandler = (event: BattleEvent) => void;
 export type ConnectionHandler = (connected: boolean) => void;
