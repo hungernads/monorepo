@@ -39,6 +39,8 @@ import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
 import { updateBattle } from '../db/schema';
 import { createChainClient, type AgentResult as ChainAgentResult } from '../chain/client';
+import { createMoltbookPoster } from '../moltbook';
+import { RatingManager, extractBattlePerformances } from '../ranking';
 
 // Re-export BattleEvent for consumers that import from arena.ts
 export type { BattleEvent } from '../api/websocket';
@@ -519,8 +521,8 @@ export class ArenaDO implements DurableObject {
 
       // ── Auto-settle bets ────────────────────────────────────────
       // Settle all bets in D1: losers get payout=0, winners get
-      // proportional share of the 85% pool + any incoming jackpot.
-      // 3% carries forward as jackpot, 2% goes to top bettor bonus.
+      // proportional share of the 85% pool. 3% goes to Schadenfreude,
+      // 2% accumulates in the streak bonus pool.
       if (winnerId) {
         try {
           const pool = new BettingPool(this.env.DB);
@@ -529,11 +531,12 @@ export class ArenaDO implements DurableObject {
             `[ArenaDO] Bets settled for battle ${battleState.battleId}: ` +
             `${settlement.payouts.length} winner(s), ` +
             `treasury=${settlement.treasury}, burn=${settlement.burn}, ` +
-            `jackpot=${settlement.jackpotCarryForward}, topBettor=${settlement.topBettorBonus?.bonus ?? 0}`,
+            `schadenfreude=${settlement.schadenfreudeContribution}, ` +
+            `streakBonuses=${settlement.streakBonuses.length}, streakPool=${settlement.streakPoolBalance}`,
           );
 
           // Broadcast settlement results to spectators before closing connections
-          if (settlement.payouts.length > 0) {
+          if (settlement.payouts.length > 0 || settlement.streakBonuses.length > 0) {
             const poolSummary = await pool.getBattlePool(battleState.battleId);
             const sockets = this.state.getWebSockets();
             broadcastEvent(sockets, {
@@ -545,8 +548,10 @@ export class ArenaDO implements DurableObject {
                 payouts: settlement.payouts,
                 treasury: settlement.treasury,
                 burn: settlement.burn,
-                jackpotCarryForward: settlement.jackpotCarryForward,
-                jackpotApplied: settlement.jackpotApplied,
+                schadenfreudeContribution: settlement.schadenfreudeContribution,
+                schadenfreude: settlement.schadenfreude,
+                streakBonuses: settlement.streakBonuses,
+                streakPoolBalance: settlement.streakPoolBalance,
                 topBettorBonus: settlement.topBettorBonus,
               },
             });
@@ -620,6 +625,34 @@ export class ArenaDO implements DurableObject {
         });
       } catch (err) {
         console.error(`[ArenaDO] Failed to update D1 battle row:`, err);
+      }
+
+      // ── Post battle results to Moltbook /m/hungernads ─────────
+      // Fire-and-forget: Moltbook posting is non-blocking and non-fatal.
+      // Posts a summary + agent reaction comments to the submolt.
+      const moltbookPoster = createMoltbookPoster(this.env);
+      if (moltbookPoster) {
+        // Don't await — let it run in the background
+        moltbookPoster.postBattleResults(battleState).catch((err) => {
+          console.error(`[ArenaDO] Moltbook posting failed for ${battleState.battleId}:`, err);
+        });
+      }
+
+      // ── Update TrueSkill ratings ──────────────────────────────
+      // Fire-and-forget: Extract battle performances from D1 and update
+      // the multi-dimensional TrueSkill ratings for all participating agents.
+      // Non-blocking and non-fatal — rating updates can be recomputed later.
+      try {
+        const ratingMgr = new RatingManager(this.env.DB);
+        const performances = await extractBattlePerformances(this.env.DB, battleState.battleId);
+        if (performances.length >= 2) {
+          await ratingMgr.updateBattleRatings(battleState.battleId, performances);
+          console.log(
+            `[ArenaDO] TrueSkill ratings updated for ${performances.length} agents in battle ${battleState.battleId}`,
+          );
+        }
+      } catch (err) {
+        console.error(`[ArenaDO] TrueSkill rating update failed for ${battleState.battleId}:`, err);
       }
 
       // Stop the curve stream — no more spectators after this

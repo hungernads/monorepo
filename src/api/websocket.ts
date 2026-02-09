@@ -21,7 +21,7 @@ import type { EpochResult } from '../arena/epoch';
 import type { PredictionResult } from '../arena/prediction';
 import type { CombatResult } from '../arena/combat';
 import type { DeathEvent } from '../arena/death';
-import type { MarketData } from '../agents/schemas';
+import type { MarketData, AllianceEvent as AllianceEventData } from '../agents/schemas';
 import type { CurveEvent } from '../chain/nadfun';
 
 // ─── Event Types ──────────────────────────────────────────────────────────────
@@ -157,12 +157,27 @@ export interface BetsSettledEvent {
     }[];
     treasury: number;
     burn: number;
-    /** 3% carry-forward to next battle's jackpot. */
-    jackpotCarryForward: number;
-    /** Jackpot from previous battles applied to this winners pool. */
-    jackpotApplied: number;
-    /** Top bettor bonus info (null if no winning bets). */
-    topBettorBonus: {
+    /** 3% sent to Schadenfreude season pool. */
+    schadenfreudeContribution?: number;
+    /** Schadenfreude season info (null if accumulation failed). */
+    schadenfreude?: {
+      seasonNumber: number;
+      poolTotal: number;
+      battleCount: number;
+      seasonEnded: boolean;
+    } | null;
+    /** Streak bonuses awarded this settlement. */
+    streakBonuses?: {
+      userAddress: string;
+      streakLength: number;
+      threshold: number;
+      bonusPercent: number;
+      bonusAmount: number;
+    }[];
+    /** Streak pool balance after this settlement. */
+    streakPoolBalance?: number;
+    /** @deprecated Use streakBonuses instead. Kept for backward compat. */
+    topBettorBonus?: {
       userAddress: string;
       winningBetAmount: number;
       bonus: number;
@@ -202,6 +217,15 @@ export interface TimeoutWinEvent {
 }
 
 /**
+ * Emitted when an alliance event occurs (formation, betrayal, break, expiration).
+ * Creates dramatic spectator moments.
+ */
+export interface AllianceEvent {
+  type: 'alliance_event';
+  data: AllianceEventData;
+}
+
+/**
  * Emitted when a sponsor boost is applied to an agent during epoch processing.
  * Includes the tier, HP change, and any combat modifiers granted.
  */
@@ -236,7 +260,8 @@ export type BattleEvent =
   | BetsSettledEvent
   | TimeoutWinEvent
   | BettingPhaseChangeEvent
-  | SponsorBoostEvent;
+  | SponsorBoostEvent
+  | AllianceEvent;
 
 // ─── Broadcast Helper ─────────────────────────────────────────────────────────
 
@@ -447,6 +472,16 @@ export function epochToEvents(result: EpochResult): BattleEvent[] {
         reasoning: actions.reasoning,
       },
     });
+  }
+
+  // ── 2.5. Alliance events (proposals, formations, betrayals, breaks) ──
+  if (result.allianceEvents) {
+    for (const allianceEvt of result.allianceEvents) {
+      events.push({
+        type: 'alliance_event',
+        data: allianceEvt,
+      });
+    }
   }
 
   // ── 3. Prediction results ─────────────────────────────────────────

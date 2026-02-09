@@ -2,7 +2,7 @@
  * HUNGERNADS - Betting Pool Logic (D1-backed)
  *
  * Manages the betting pool for a battle. All state is persisted in D1.
- * Distribution: 85% winners, 5% treasury, 5% burn, 3% next-battle jackpot, 2% top bettor bonus.
+ * Distribution: 85% winners, 5% treasury, 5% burn, 3% Schadenfreude pool, 2% streak bonus pool.
  */
 
 import {
@@ -13,8 +13,13 @@ import {
   settleBattleBets,
   getJackpotPool,
   setJackpotPool,
+  getStreakPool,
+  setStreakPool,
+  getStreakTracking,
+  upsertStreakTracking,
   type BetRow,
 } from '../db/schema';
+import { SeasonManager } from './seasons';
 
 // ─── Betting Phase ───────────────────────────────────────────────
 
@@ -40,8 +45,14 @@ export const POOL_DISTRIBUTION = {
   WINNERS: 0.85,
   TREASURY: 0.05,
   BURN: 0.05,
-  JACKPOT: 0.03,
-  TOP_BETTOR: 0.02,
+  SCHADENFREUDE: 0.03,
+  STREAK_BONUS: 0.02,
+} as const;
+
+/** Streak bonus thresholds: streak length -> percentage of streak pool awarded. */
+export const STREAK_THRESHOLDS = {
+  3: 0.10, // 3-win streak = 10% of streak pool
+  5: 0.25, // 5-win streak = 25% of streak pool
 } as const;
 
 /** Minimum bet amount (prevents spam / dust bets). */
@@ -62,6 +73,19 @@ export interface TopBettorBonus {
   winningBetAmount: number;
   /** The 2% bonus awarded. */
   bonus: number;
+}
+
+/** Streak bonus awarded to a bettor who hit a streak threshold. */
+export interface StreakBonus {
+  userAddress: string;
+  /** Current streak length after this battle. */
+  streakLength: number;
+  /** Threshold that was crossed (3 or 5). */
+  threshold: number;
+  /** Percentage of streak pool awarded (0.10 or 0.25). */
+  bonusPercent: number;
+  /** Actual amount awarded from the streak pool. */
+  bonusAmount: number;
 }
 
 export interface PoolSummary {
@@ -155,11 +179,11 @@ export class BettingPool {
    * Settle a battle. Call once when a winner is determined.
    *
    * 1. Marks all losing bets as settled (payout = 0).
-   * 2. Splits the pool: 85% winners (+incoming jackpot), 5% treasury,
-   *    5% burn, 3% next-battle jackpot, 2% top bettor bonus.
+   * 2. Splits the pool: 85% winners, 5% treasury, 5% burn,
+   *    3% Schadenfreude pool (season accumulation), 2% streak bonus.
    * 3. Persists each winning payout to D1.
-   * 4. Carries jackpot forward for the next battle.
-   * 5. Returns the payout list + treasury/burn/jackpot/topBettor amounts.
+   * 4. Accumulates 3% into the current season's Schadenfreude pool.
+   * 5. Returns the payout list + treasury/burn/schadenfreude amounts.
    */
   async settleBattle(
     battleId: string,
@@ -168,21 +192,32 @@ export class BettingPool {
     payouts: Payout[];
     treasury: number;
     burn: number;
-    /** 3% of this battle's pool, carried forward for the next battle. */
-    jackpotCarryForward: number;
-    /** Incoming jackpot from previous battles that was added to the winners pool. */
-    jackpotApplied: number;
-    /** Top bettor bonus info (null if no winning bets). */
+    /** 3% of this battle's pool, sent to the Schadenfreude season pool. */
+    schadenfreudeContribution: number;
+    /** Season info from the Schadenfreude accumulation (null if accumulation failed). */
+    schadenfreude: {
+      seasonNumber: number;
+      poolTotal: number;
+      battleCount: number;
+      seasonEnded: boolean;
+    } | null;
+    /** @deprecated Use streakBonuses instead. Kept for backward compat. */
     topBettorBonus: TopBettorBonus | null;
+    /** Streak bonuses awarded this settlement. */
+    streakBonuses: StreakBonus[];
+    /** Streak pool balance after this settlement (post-accumulation, post-payouts). */
+    streakPoolBalance: number;
   }> {
     const bets = await getBetsByBattle(this.db, battleId);
     const emptyResult = {
       payouts: [] as Payout[],
       treasury: 0,
       burn: 0,
-      jackpotCarryForward: 0,
-      jackpotApplied: 0,
+      schadenfreudeContribution: 0,
+      schadenfreude: null,
       topBettorBonus: null,
+      streakBonuses: [] as StreakBonus[],
+      streakPoolBalance: 0,
     };
 
     if (bets.length === 0) {
@@ -201,27 +236,47 @@ export class BettingPool {
     // ── Pool split: 85/5/5/3/2 ──────────────────────────────────
     const treasury = totalPool * POOL_DISTRIBUTION.TREASURY;
     const burn = totalPool * POOL_DISTRIBUTION.BURN;
-    const jackpotCarryForward = totalPool * POOL_DISTRIBUTION.JACKPOT;
-    const topBettorCut = totalPool * POOL_DISTRIBUTION.TOP_BETTOR;
+    const schadenfreudeContribution = totalPool * POOL_DISTRIBUTION.SCHADENFREUDE;
+    const streakCut = totalPool * POOL_DISTRIBUTION.STREAK_BONUS;
 
     // Base winners pool = 85% of this battle's pool
-    let winnerPool = totalPool * POOL_DISTRIBUTION.WINNERS;
+    const winnerPool = totalPool * POOL_DISTRIBUTION.WINNERS;
 
-    // ── Jackpot carry-forward ────────────────────────────────────
-    // Read any accumulated jackpot from previous battles and add
-    // it to this battle's winners pool. Then store the new 3% for next time.
-    let jackpotApplied = 0;
+    // ── Schadenfreude pool accumulation ───────────────────────────
+    let schadenfreude: {
+      seasonNumber: number;
+      poolTotal: number;
+      battleCount: number;
+      seasonEnded: boolean;
+    } | null = null;
+
     try {
-      jackpotApplied = await getJackpotPool(this.db);
-      if (jackpotApplied > 0) {
-        winnerPool += jackpotApplied;
-        console.log(`[BettingPool] Applied jackpot of ${jackpotApplied} to winners pool`);
-      }
-      // Store the new jackpot for the next battle
-      await setJackpotPool(this.db, jackpotCarryForward);
+      const seasonManager = new SeasonManager(this.db);
+      const result = await seasonManager.accumulate(schadenfreudeContribution);
+      schadenfreude = {
+        seasonNumber: result.seasonNumber,
+        poolTotal: result.newPoolTotal,
+        battleCount: result.battleCount,
+        seasonEnded: result.seasonEnded,
+      };
+      console.log(
+        `[BettingPool] Schadenfreude: +${schadenfreudeContribution} to season ${result.seasonNumber} (total: ${result.newPoolTotal}, battle ${result.battleCount})`,
+      );
     } catch (err) {
-      console.error('[BettingPool] Jackpot read/write failed:', err);
-      // Non-fatal: proceed without jackpot
+      console.error('[BettingPool] Schadenfreude accumulation failed:', err);
+    }
+
+    // ── Streak pool: accumulate 2% ───────────────────────────────
+    let streakPoolBalance = 0;
+    try {
+      const existingPool = await getStreakPool(this.db);
+      streakPoolBalance = existingPool + streakCut;
+      console.log(
+        `[BettingPool] Streak pool: ${existingPool} + ${streakCut} = ${streakPoolBalance}`,
+      );
+    } catch (err) {
+      console.error('[BettingPool] Streak pool read failed:', err);
+      streakPoolBalance = streakCut;
     }
 
     // Mark losers first (bulk update).
@@ -232,7 +287,6 @@ export class BettingPool {
     const totalWinningStake = winningBets.reduce((sum, b) => sum + b.amount, 0);
 
     const payouts: Payout[] = [];
-    let topBettorBonus: TopBettorBonus | null = null;
 
     if (totalWinningStake > 0) {
       // Aggregate per-user (a user can have multiple bets on the winner).
@@ -245,33 +299,10 @@ export class BettingPool {
         userStakes.set(bet.user_address, entry);
       }
 
-      // ── Top bettor bonus (2%) ──────────────────────────────────
-      // Awarded to the single winning bettor with the largest total stake.
-      // Ties broken by first-come (Map iteration order = insertion order).
-      let topBettorAddress: string | null = null;
-      let topBettorStake = 0;
-      for (const [addr, { total }] of userStakes) {
-        if (total > topBettorStake) {
-          topBettorStake = total;
-          topBettorAddress = addr;
-        }
-      }
-
       // ── Distribute winner pool proportionally ──────────────────
       for (const [userAddress, { total, betIds }] of userStakes) {
         const share = total / totalWinningStake;
-        let userPayout = Math.floor(winnerPool * share * 100) / 100; // floor to 2 dp
-
-        // Add top bettor bonus if this user qualifies
-        if (userAddress === topBettorAddress) {
-          const bonus = Math.floor(topBettorCut * 100) / 100;
-          userPayout += bonus;
-          topBettorBonus = {
-            userAddress,
-            winningBetAmount: topBettorStake,
-            bonus,
-          };
-        }
+        const userPayout = Math.floor(winnerPool * share * 100) / 100; // floor to 2 dp
 
         payouts.push({
           userAddress,
@@ -287,11 +318,107 @@ export class BettingPool {
           await settleBet(this.db, betId, betPayout);
         }
       }
-    } else {
-      // No winning bets — jackpot cut still carries forward, top bettor cut is unclaimable
-      // (stays in the contract / is effectively lost)
     }
 
-    return { payouts, treasury, burn, jackpotCarryForward, jackpotApplied, topBettorBonus };
+    // ── Streak tracking & bonus evaluation ────────────────────────
+    // Determine unique bettors and whether they won or lost.
+    // A user "won" if ANY of their bets were on the winning agent.
+    const allBettors = new Map<string, boolean>(); // wallet -> won?
+    for (const bet of bets) {
+      const currentWon = allBettors.get(bet.user_address) ?? false;
+      if (bet.agent_id === winnerId) {
+        allBettors.set(bet.user_address, true);
+      } else if (!currentWon) {
+        allBettors.set(bet.user_address, false);
+      }
+    }
+
+    const streakBonuses: StreakBonus[] = [];
+    let totalStreakPayout = 0;
+
+    try {
+      for (const [wallet, won] of allBettors) {
+        const existing = await getStreakTracking(this.db, wallet);
+        const prevStreak = existing?.current_streak ?? 0;
+        const prevMax = existing?.max_streak ?? 0;
+
+        if (won) {
+          const newStreak = prevStreak + 1;
+          const newMax = Math.max(prevMax, newStreak);
+
+          // Check if this increment crosses a streak threshold.
+          // Threshold 3: fires when newStreak reaches exactly 3.
+          // Threshold 5: fires when newStreak reaches 5 or any multiple of 5 (10, 15...).
+          let bonusPercent = 0;
+          let threshold = 0;
+
+          if (newStreak >= 5 && (prevStreak < 5 || (newStreak % 5 === 0))) {
+            bonusPercent = STREAK_THRESHOLDS[5];
+            threshold = 5;
+          } else if (newStreak === 3) {
+            bonusPercent = STREAK_THRESHOLDS[3];
+            threshold = 3;
+          }
+
+          let bonusAmount = 0;
+          if (bonusPercent > 0 && streakPoolBalance > 0) {
+            bonusAmount = Math.floor(streakPoolBalance * bonusPercent * 100) / 100;
+            // Cap at remaining pool balance
+            if (totalStreakPayout + bonusAmount > streakPoolBalance) {
+              bonusAmount = Math.floor((streakPoolBalance - totalStreakPayout) * 100) / 100;
+            }
+            if (bonusAmount > 0) {
+              totalStreakPayout += bonusAmount;
+              streakBonuses.push({
+                userAddress: wallet,
+                streakLength: newStreak,
+                threshold,
+                bonusPercent,
+                bonusAmount,
+              });
+              console.log(
+                `[BettingPool] Streak bonus: ${wallet} hit ${newStreak}-streak ` +
+                `(threshold ${threshold}), awarded ${bonusAmount} (${bonusPercent * 100}% of pool)`,
+              );
+            }
+          }
+
+          await upsertStreakTracking(this.db, wallet, newStreak, newMax, battleId, bonusAmount);
+        } else {
+          // Lost: reset streak to 0, preserve max
+          await upsertStreakTracking(this.db, wallet, 0, prevMax, battleId, 0);
+        }
+      }
+    } catch (err) {
+      console.error('[BettingPool] Streak tracking failed:', err);
+      // Non-fatal: bets are already settled, streak tracking is a bonus feature
+    }
+
+    // ── Persist streak pool (minus payouts) ──────────────────────
+    streakPoolBalance = Math.max(0, streakPoolBalance - totalStreakPayout);
+    try {
+      await setStreakPool(this.db, streakPoolBalance);
+    } catch (err) {
+      console.error('[BettingPool] Streak pool write failed:', err);
+    }
+
+    // Add streak bonuses to the corresponding winner payouts
+    for (const sb of streakBonuses) {
+      const existingPayout = payouts.find(p => p.userAddress === sb.userAddress);
+      if (existingPayout) {
+        existingPayout.payout += sb.bonusAmount;
+      }
+    }
+
+    return {
+      payouts,
+      treasury,
+      burn,
+      schadenfreudeContribution,
+      schadenfreude,
+      topBettorBonus: null, // deprecated — replaced by streak bonuses
+      streakBonuses,
+      streakPoolBalance,
+    };
   }
 }

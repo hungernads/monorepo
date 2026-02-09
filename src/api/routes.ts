@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from '../index';
+import { SKILL_MD } from './skill';
 import { AgentProfileBuilder, getAgentLeaderboard } from '../learning/profiles';
 import { AgentMemory } from '../learning/memory';
 import {
@@ -25,6 +26,9 @@ import {
   FAUCET_TIERS,
   getTotalBurnedStats,
   getTotalFaucetDistributed,
+  getStreakTracking,
+  getTopStreakers,
+  getStreakPool,
   type BattleRow,
   type FaucetClaimRow,
 } from '../db/schema';
@@ -35,6 +39,7 @@ import { DEFAULT_BATTLE_CONFIG, type BattleConfig } from '../durable-objects/are
 import {
   SponsorshipManager,
   BettingPool,
+  SeasonManager,
   calculateOdds,
   buildOddsInputs,
   parseSponsorTier,
@@ -49,6 +54,7 @@ import {
   type NadFunClient,
   type Address,
 } from '../chain/nadfun';
+import { RatingManager } from '../ranking';
 import { createChainClient } from '../chain/client';
 
 // ─── App Setup ──────────────────────────────────────────────────
@@ -81,6 +87,7 @@ app.get('/', (c) => {
     tagline: 'May the nads be ever in your favor.',
     version: '0.1.0',
     endpoints: {
+      skill: 'GET /skill.md (OpenClaw agent integration)',
       health: '/health',
       battleCreate: 'POST /battle/create',
       battleStart: 'POST /battle/start (legacy)',
@@ -92,6 +99,8 @@ app.get('/', (c) => {
       agentMatchups: 'GET /agent/:id/matchups',
       leaderboardAgents: 'GET /leaderboard/agents',
       leaderboardBettors: 'GET /leaderboard/bettors',
+      leaderboardTrueSkill: 'GET /leaderboard/trueskill',
+      agentRatings: 'GET /agent/:id/ratings',
       battleOdds: 'GET /battle/:id/odds',
       battlePhase: 'GET /battle/:id/phase',
       battleSponsors: 'GET /battle/:id/sponsors',
@@ -105,11 +114,37 @@ app.get('/', (c) => {
       sponsor: 'POST /sponsor',
       sponsorTiers: 'GET /sponsor/tiers',
       userBets: 'GET /user/:address/bets',
+      userStreak: 'GET /user/:address/streak',
+      leaderboardStreaks: 'GET /leaderboard/streaks',
       battleStream: 'WS /battle/:id/stream',
       prices: 'GET /prices',
       faucetClaim: 'POST /faucet',
       faucetStatus: 'GET /faucet/status/:address',
+      seasonCurrent: 'GET /season/current',
+      seasonById: 'GET /season/:id',
+      seasonLeaderboard: 'GET /season/:id/leaderboard',
+      seasonAgents: 'GET /season/:id/agents',
+      seasonClaim: 'POST /season/:id/claim',
+      seasons: 'GET /seasons',
     },
+  });
+});
+
+// ─── OpenClaw Skill Definition ────────────────────────────────
+
+/**
+ * GET /skill.md
+ *
+ * OpenClaw skill file. Any OpenClaw agent can curl this endpoint to learn
+ * how to interact with the HUNGERNADS colosseum (place bets, sponsor
+ * agents, watch battles, etc.).
+ *
+ * Ref: claw-io.up.railway.app/skill.md
+ */
+app.get('/skill.md', (c) => {
+  return c.text(SKILL_MD, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Cache-Control': 'public, max-age=3600',
   });
 });
 
@@ -265,6 +300,16 @@ app.post('/battle/create', async (c) => {
       });
     }
 
+    // ── Assign to current season ─────────────────────────────────
+    let seasonId: string | null = null;
+    try {
+      const seasonManager = new SeasonManager(c.env.DB);
+      const season = await seasonManager.getOrCreateActiveSeason();
+      seasonId = season.id;
+    } catch (err) {
+      console.error('[battle/create] Season assignment failed:', err);
+    }
+
     // ── Persist battle to D1 with betting phase OPEN ───────────────
     await insertBattle(c.env.DB, {
       id: battleId,
@@ -272,6 +317,7 @@ app.post('/battle/create', async (c) => {
       started_at: new Date().toISOString(),
       epoch_count: 0,
       betting_phase: 'OPEN',
+      season_id: seasonId,
     });
 
     // ── Start via ArenaDO ──────────────────────────────────────────
@@ -328,6 +374,7 @@ app.post('/battle/create', async (c) => {
     return c.json({
       ok: true,
       battleId,
+      seasonId,
       config: battleConfig,
       agents: agentIds.map((id, i) => ({
         id,
@@ -392,6 +439,16 @@ app.post('/battle/start', async (c) => {
       });
     }
 
+    // Assign to current season
+    let legacySeasonId: string | null = null;
+    try {
+      const seasonManager = new SeasonManager(c.env.DB);
+      const season = await seasonManager.getOrCreateActiveSeason();
+      legacySeasonId = season.id;
+    } catch (err) {
+      console.error('[battle/start] Season assignment failed:', err);
+    }
+
     // Persist battle to D1 with betting phase OPEN
     await insertBattle(c.env.DB, {
       id: battleId,
@@ -399,6 +456,7 @@ app.post('/battle/start', async (c) => {
       started_at: new Date().toISOString(),
       epoch_count: 0,
       betting_phase: 'OPEN',
+      season_id: legacySeasonId,
     });
 
     // Get ArenaDO stub using the battleId as the DO name
@@ -886,6 +944,103 @@ app.get('/user/:address/bets', async (c) => {
   }
 });
 
+// ─── Streak Tracking ──────────────────────────────────────────
+
+/**
+ * GET /user/:address/streak
+ *
+ * Get a user's betting streak status.
+ * Returns current streak, max streak, total bonuses earned, and streak pool info.
+ */
+app.get('/user/:address/streak', async (c) => {
+  try {
+    const walletAddress = c.req.param('address');
+
+    const [streak, poolBalance] = await Promise.all([
+      getStreakTracking(c.env.DB, walletAddress),
+      getStreakPool(c.env.DB),
+    ]);
+
+    if (!streak) {
+      return c.json({
+        walletAddress,
+        currentStreak: 0,
+        maxStreak: 0,
+        totalStreakBonus: 0,
+        lastBetBattleId: null,
+        streakPoolBalance: poolBalance,
+        nextThreshold: 3,
+        nextThresholdBonus: 0.10,
+      });
+    }
+
+    // Determine next threshold
+    let nextThreshold = 3;
+    let nextThresholdBonus = 0.10;
+    if (streak.current_streak >= 3 && streak.current_streak < 5) {
+      nextThreshold = 5;
+      nextThresholdBonus = 0.25;
+    } else if (streak.current_streak >= 5) {
+      // Next threshold is the next multiple of 5
+      nextThreshold = Math.ceil((streak.current_streak + 1) / 5) * 5;
+      nextThresholdBonus = 0.25;
+    }
+
+    return c.json({
+      walletAddress,
+      currentStreak: streak.current_streak,
+      maxStreak: streak.max_streak,
+      totalStreakBonus: streak.total_streak_bonus,
+      lastBetBattleId: streak.last_bet_battle_id,
+      streakPoolBalance: poolBalance,
+      nextThreshold,
+      nextThresholdBonus,
+      winsUntilNextBonus: Math.max(0, nextThreshold - streak.current_streak),
+    });
+  } catch (error) {
+    console.error('Failed to get streak status:', error);
+    return c.json(
+      { error: 'Failed to get streak status', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /leaderboard/streaks
+ *
+ * Top bettors by current betting streak.
+ * Query params: ?limit=20
+ */
+app.get('/leaderboard/streaks', async (c) => {
+  try {
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100);
+
+    const [streakers, poolBalance] = await Promise.all([
+      getTopStreakers(c.env.DB, limit),
+      getStreakPool(c.env.DB),
+    ]);
+
+    return c.json({
+      leaderboard: streakers.map((s) => ({
+        walletAddress: s.wallet_address,
+        currentStreak: s.current_streak,
+        maxStreak: s.max_streak,
+        totalStreakBonus: s.total_streak_bonus,
+        lastBetBattleId: s.last_bet_battle_id,
+      })),
+      count: streakers.length,
+      streakPoolBalance: poolBalance,
+    });
+  } catch (error) {
+    console.error('Failed to get streak leaderboard:', error);
+    return c.json(
+      { error: 'Failed to get streak leaderboard', detail: String(error) },
+      500,
+    );
+  }
+});
+
 // ─── Settlement ──────────────────────────────────────────────
 
 /**
@@ -964,6 +1119,9 @@ app.post('/battle/:id/settle', async (c) => {
       payouts: settlement.payouts,
       treasury: settlement.treasury,
       burn: settlement.burn,
+      schadenfreude: settlement.schadenfreude,
+      streakBonuses: settlement.streakBonuses,
+      streakPoolBalance: settlement.streakPoolBalance,
       onChain: chainClient ? 'pending' : 'skipped',
     });
   } catch (error) {
@@ -1756,6 +1914,68 @@ app.get('/leaderboard/bettors', async (c) => {
   }
 });
 
+// ─── TrueSkill Ranking ────────────────────────────────────────
+
+/**
+ * GET /leaderboard/trueskill
+ *
+ * TrueSkill-based agent leaderboard.
+ * Agents ranked by composite conservative estimate (mu - 3*sigma).
+ * Includes per-category breakdowns (prediction, combat, survival).
+ *
+ * Query params:
+ *   - limit: number (default 20, max 100)
+ *   - minBattles: number (default 1) — minimum battles to qualify
+ */
+app.get('/leaderboard/trueskill', async (c) => {
+  try {
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100);
+    const minBattles = Math.max(parseInt(c.req.query('minBattles') ?? '1', 10), 1);
+
+    const ratingMgr = new RatingManager(c.env.DB);
+    const leaderboard = await ratingMgr.getLeaderboard(limit, minBattles);
+
+    return c.json({
+      leaderboard,
+      count: leaderboard.length,
+      rankingMethod: 'TrueSkill (composite conservative estimate)',
+      categories: ['prediction', 'combat', 'survival'],
+    });
+  } catch (error) {
+    console.error('Failed to get TrueSkill leaderboard:', error);
+    return c.json(
+      { error: 'Failed to get TrueSkill leaderboard', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /agent/:id/ratings
+ *
+ * Detailed TrueSkill ratings for a single agent.
+ * Includes per-category ratings (prediction, combat, survival),
+ * composite rating, bootstrap confidence intervals, and rating history.
+ *
+ * Use this to make informed betting decisions — study the uncertainty
+ * (sigma) and CI bounds to identify underrated or overrated agents.
+ */
+app.get('/agent/:id/ratings', async (c) => {
+  try {
+    const agentId = c.req.param('id');
+    const ratingMgr = new RatingManager(c.env.DB);
+    const detailed = await ratingMgr.getDetailedRatings(agentId);
+
+    return c.json(detailed);
+  } catch (error) {
+    console.error('Failed to get agent ratings:', error);
+    return c.json(
+      { error: 'Failed to get agent ratings', detail: String(error) },
+      500,
+    );
+  }
+});
+
 // ─── WebSocket Proxy ──────────────────────────────────────────
 
 /**
@@ -1950,6 +2170,253 @@ function generateMonSparkline(points: number): number[] {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+// ─── Seasons / Schadenfreude Pool ──────────────────────────────
+
+/**
+ * GET /season/current
+ *
+ * Get the current active season's summary, including Schadenfreude pool balance,
+ * battle count, and battles remaining until season end.
+ */
+app.get('/season/current', async (c) => {
+  try {
+    const seasonManager = new SeasonManager(c.env.DB);
+    const summary = await seasonManager.getCurrentSeason();
+    return c.json(summary);
+  } catch (error) {
+    console.error('Failed to get current season:', error);
+    return c.json(
+      { error: 'Failed to get current season', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /seasons
+ *
+ * List recent seasons.
+ * Query params: ?limit=10
+ */
+app.get('/seasons', async (c) => {
+  try {
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '10', 10), 50);
+    const seasonManager = new SeasonManager(c.env.DB);
+    const seasons = await seasonManager.listSeasons(limit);
+    return c.json({ seasons, count: seasons.length });
+  } catch (error) {
+    console.error('Failed to list seasons:', error);
+    return c.json(
+      { error: 'Failed to list seasons', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /season/:id
+ *
+ * Get a season summary by ID or by season number.
+ * Accepts UUID (season ID) or numeric string (season number).
+ * Includes betting stats for the season.
+ */
+app.get('/season/:id', async (c) => {
+  try {
+    const idParam = c.req.param('id');
+    const seasonManager = new SeasonManager(c.env.DB);
+
+    let resolvedId: string;
+    // Check if it's a numeric season number
+    const seasonNumber = parseInt(idParam, 10);
+    if (!isNaN(seasonNumber) && String(seasonNumber) === idParam) {
+      const summary = await seasonManager.getSeasonByNumber(seasonNumber);
+      if (!summary) {
+        return c.json({ error: 'Season not found' }, 404);
+      }
+      resolvedId = summary.id;
+    } else {
+      resolvedId = idParam;
+    }
+
+    // Get detailed summary with betting stats
+    const detail = await seasonManager.getSeasonDetail(resolvedId);
+    if (!detail) {
+      return c.json({ error: 'Season not found' }, 404);
+    }
+
+    return c.json(detail);
+  } catch (error) {
+    console.error('Failed to get season:', error);
+    return c.json(
+      { error: 'Failed to get season', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /season/:id/leaderboard
+ *
+ * Get the bettor leaderboard for a season.
+ * For ended/burned seasons, returns the snapshotted Schadenfreude leaderboard.
+ * For active seasons, returns a live preview (season-scoped bettor profit).
+ */
+app.get('/season/:id/leaderboard', async (c) => {
+  try {
+    const idParam = c.req.param('id');
+    const seasonManager = new SeasonManager(c.env.DB);
+
+    // Resolve season
+    let summary;
+    const seasonNumber = parseInt(idParam, 10);
+    if (!isNaN(seasonNumber) && String(seasonNumber) === idParam) {
+      summary = await seasonManager.getSeasonByNumber(seasonNumber);
+    } else {
+      summary = await seasonManager.getSeasonSummary(idParam);
+    }
+
+    if (!summary) {
+      return c.json({ error: 'Season not found' }, 404);
+    }
+
+    // For active seasons, return live season-scoped bettor data
+    let leaderboard;
+    if (summary.status === 'active') {
+      leaderboard = await seasonManager.getLiveBettorLeaderboard(summary.id);
+    } else {
+      leaderboard = await seasonManager.getLeaderboard(summary.id);
+    }
+
+    return c.json({
+      seasonId: summary.id,
+      seasonNumber: summary.seasonNumber,
+      status: summary.status,
+      schadenfreudePool: summary.schadenfreudePool,
+      claimDeadline: summary.claimDeadline,
+      isLive: summary.status === 'active',
+      leaderboard,
+      count: leaderboard.length,
+    });
+  } catch (error) {
+    console.error('Failed to get season leaderboard:', error);
+    return c.json(
+      { error: 'Failed to get season leaderboard', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /season/:id/agents
+ *
+ * Get the agent leaderboard for a season.
+ * For ended/burned seasons, returns the snapshotted agent performance.
+ * For active seasons, returns live agent stats from battle_records.
+ */
+app.get('/season/:id/agents', async (c) => {
+  try {
+    const idParam = c.req.param('id');
+    const seasonManager = new SeasonManager(c.env.DB);
+
+    // Resolve season
+    let summary;
+    const seasonNumber = parseInt(idParam, 10);
+    if (!isNaN(seasonNumber) && String(seasonNumber) === idParam) {
+      summary = await seasonManager.getSeasonByNumber(seasonNumber);
+    } else {
+      summary = await seasonManager.getSeasonSummary(idParam);
+    }
+
+    if (!summary) {
+      return c.json({ error: 'Season not found' }, 404);
+    }
+
+    const agentLeaderboard = await seasonManager.getAgentLeaderboard(summary.id);
+
+    return c.json({
+      seasonId: summary.id,
+      seasonNumber: summary.seasonNumber,
+      status: summary.status,
+      isLive: summary.status === 'active',
+      agentLeaderboard,
+      count: agentLeaderboard.length,
+    });
+  } catch (error) {
+    console.error('Failed to get season agent leaderboard:', error);
+    return c.json(
+      { error: 'Failed to get season agent leaderboard', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * POST /season/:id/claim
+ *
+ * Claim a Schadenfreude payout for a user in an ended season.
+ * Must be called before the claim deadline (7 days after season end).
+ *
+ * Body:
+ *   - userAddress: string (required)
+ */
+app.post('/season/:id/claim', async (c) => {
+  try {
+    const idParam = c.req.param('id');
+    const body = await c.req.json();
+    const { userAddress } = body as { userAddress?: string };
+
+    if (!userAddress) {
+      return c.json({ error: 'Missing required field: userAddress' }, 400);
+    }
+
+    const seasonManager = new SeasonManager(c.env.DB);
+
+    // Resolve season
+    let seasonId = idParam;
+    const seasonNumber = parseInt(idParam, 10);
+    if (!isNaN(seasonNumber) && String(seasonNumber) === idParam) {
+      const summary = await seasonManager.getSeasonByNumber(seasonNumber);
+      if (!summary) {
+        return c.json({ error: 'Season not found' }, 404);
+      }
+      seasonId = summary.id;
+    }
+
+    const result = await seasonManager.claimPayout(seasonId, userAddress);
+
+    if (!result) {
+      return c.json(
+        { error: 'No Schadenfreude payout found for this address in this season' },
+        404,
+      );
+    }
+
+    return c.json({
+      ok: true,
+      userAddress,
+      seasonId,
+      rank: result.rank,
+      payout: result.payout,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('not ended') || message.includes('not found')) {
+      return c.json({ error: message }, 400);
+    }
+    if (message.includes('deadline has passed')) {
+      return c.json({ error: message }, 410); // Gone
+    }
+    if (message.includes('already claimed')) {
+      return c.json({ error: message }, 409); // Conflict
+    }
+    console.error('Failed to claim season payout:', error);
+    return c.json(
+      { error: 'Failed to claim season payout', detail: message },
+      500,
+    );
+  }
+});
 
 // ─── 404 Catch-All ────────────────────────────────────────────
 

@@ -31,6 +31,7 @@ export interface Env {
   ARENA_CONTRACT_ADDRESS?: string;
   BETTING_CONTRACT_ADDRESS?: string;
   NADFUN_TOKEN_ADDRESS?: string;
+  MOLTBOOK_API_KEY?: string;
   EPOCH_INTERVAL_MS?: string;
   /** Number of epochs after which betting locks (default: 3). */
   BETTING_LOCK_AFTER_EPOCH?: string;
