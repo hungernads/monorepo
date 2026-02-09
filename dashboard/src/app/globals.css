@@ -152,4 +152,24 @@
   .feed-entry {
     @apply animate-feed-enter;
   }
+
+  /* Stream feed entry -- compact slide-in */
+  .stream-feed-entry {
+    @apply animate-feed-enter;
+  }
+
+  /* ──────────────────────────────────────────────
+     Stream overlay utilities
+     ────────────────────────────────────────────── */
+
+  /* Stream layout: strip body background for OBS transparency */
+  .stream-layout {
+    background-color: #0a0a0f;
+    color: #d4c5a0;
+  }
+
+  /* When bg-transparent is applied, make truly transparent for OBS chroma key */
+  .stream-layout .bg-transparent {
+    background-color: transparent !important;
+  }
 }
