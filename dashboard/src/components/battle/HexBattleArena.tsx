@@ -4,6 +4,8 @@ import { useMemo, useEffect, useState, useCallback, useRef } from "react";
 import { CLASS_CONFIG, type BattleAgent } from "./mock-data";
 import type { AgentClass } from "@/types";
 import ParticleEffects, { useParticleEffects } from "./ParticleEffects";
+import { useScreenShake } from "./useScreenShake";
+import { motion } from "motion/react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,22 +121,28 @@ function HexTile({
   agent,
   isAttackSource,
   isAttackTarget,
+  isDying = false,
+  isGhost = false,
 }: {
   hex: HexCoord & { label: string };
   center: PixelPoint;
   agent?: BattleAgent;
   isAttackSource: boolean;
   isAttackTarget: boolean;
+  /** Agent is in the dying animation transition (1s window after death). */
+  isDying?: boolean;
+  /** Agent has finished dying and is now a ghost (final resting state). */
+  isGhost?: boolean;
 }) {
   const occupied = !!agent;
   const isDead = agent && !agent.alive;
   const isDefending = agent?.defending;
   const isWinner = agent?.isWinner;
 
-  // Determine hex colors
+  // Determine hex colors — dying agents keep class colors, only ghosts go dead
   let colors = { fill: "rgba(26,26,46,0.4)", stroke: "rgba(37,37,64,0.6)", glow: "none" };
   if (agent) {
-    if (isDead) {
+    if (isGhost) {
       colors = DEAD_COLORS;
     } else {
       colors = CLASS_HEX_COLORS[agent.class];
@@ -224,11 +232,11 @@ function HexTile({
         fill={colors.fill}
         stroke={colors.stroke}
         strokeWidth={occupied ? 2 : 1}
-        opacity={isDead ? 0.5 : 1}
+        opacity={isGhost ? 0.5 : 1}
       />
 
       {/* Inner hex accent line */}
-      {occupied && !isDead && (
+      {occupied && !isGhost && (
         <polygon
           points={innerVertices}
           fill="none"
@@ -266,138 +274,273 @@ function HexTile({
         </text>
       )}
 
-      {/* Agent content */}
-      {agent && (
-        <g opacity={isDead ? 0.4 : 1}>
-          {/* Class emoji/icon */}
-          <text
-            x={center.x}
-            y={center.y - 14}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize="22"
-          >
-            {cfg?.emoji ?? "?"}
-          </text>
+      {/* Agent content with class-colored glow */}
+      {agent && (() => {
+        // Glow: class-colored drop-shadow, intensity inversely proportional to HP
+        const agentGlowColor = isGhost ? null : colors.stroke;
+        const glowBlur = isGhost ? 0 : Math.round(2 + (1 - hpPct) * 4); // 2px full HP -> 6px near death
+        const isLowHp = !isDead && hpPct > 0 && hpPct < 0.25;
+        const glowFilter = agentGlowColor
+          ? `drop-shadow(0 0 ${glowBlur}px ${agentGlowColor})`
+          : "none";
+        const glowFilterIntense = agentGlowColor
+          ? `drop-shadow(0 0 ${glowBlur + 4}px ${agentGlowColor}) drop-shadow(0 0 ${glowBlur + 2}px ${agentGlowColor})`
+          : "none";
 
-          {/* Agent name */}
-          <text
-            x={center.x}
-            y={center.y + 8}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill={isWinner ? "#fbbf24" : isDead ? "#555" : "#e0e0e0"}
-            fontSize="10"
-            fontWeight="bold"
-            fontFamily="monospace"
-            letterSpacing="0.05em"
-          >
-            {agent.name.length > 10
-              ? agent.name.slice(0, 9) + ".."
-              : agent.name}
-          </text>
-
-          {/* HP bar background */}
-          <rect
-            x={barX}
-            y={barY}
-            width={barWidth}
-            height={barHeight}
-            rx="2"
-            fill="rgba(10,10,15,0.8)"
-          />
-
-          {/* HP bar fill */}
-          <rect
-            x={barX}
-            y={barY}
-            width={barWidth * hpPct}
-            height={barHeight}
-            rx="2"
-            fill={hpColor}
-          >
-            <animate
-              attributeName="width"
-              to={barWidth * hpPct}
-              dur="0.7s"
-              fill="freeze"
-            />
-          </rect>
-
-          {/* HP text */}
-          <text
-            x={center.x}
-            y={barY + barHeight + 11}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill={isDead ? "#555" : "#888"}
-            fontSize="8"
-            fontFamily="monospace"
-          >
-            {agent.hp}/{agent.maxHp}
-          </text>
-
-          {/* Kill count */}
-          {agent.kills > 0 && (
-            <g>
-              <text
-                x={center.x + barWidth / 2 - 2}
-                y={center.y - 28}
-                textAnchor="end"
-                fill="#dc2626"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-              >
-                {agent.kills}K
-              </text>
-            </g>
-          )}
-
-          {/* Prediction result indicator */}
-          {agent.predictionResult && !isDead && (
-            <circle
-              cx={center.x - barWidth / 2 + 5}
-              cy={center.y - 30}
-              r="5"
-              fill={
-                agent.predictionResult === "correct"
-                  ? "rgba(34,197,94,0.8)"
-                  : "rgba(220,38,38,0.8)"
-              }
-            >
-              <animate
-                attributeName="r"
-                values="5;7;5"
-                dur="0.8s"
-                repeatCount="2"
-              />
-              <animate
-                attributeName="opacity"
-                values="1;0.5;1"
-                dur="0.8s"
-                repeatCount="2"
-              />
-            </circle>
-          )}
-          {agent.predictionResult && !isDead && (
+        const agentContent = (
+          <>
+            {/* Class emoji/icon */}
             <text
-              x={center.x - barWidth / 2 + 5}
-              y={center.y - 29}
+              x={center.x}
+              y={center.y - 14}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="white"
-              fontSize="7"
-              fontWeight="bold"
+              fontSize="22"
             >
-              {agent.predictionResult === "correct" ? "\u2713" : "\u2717"}
+              {cfg?.emoji ?? "?"}
             </text>
-          )}
-        </g>
-      )}
 
-      {/* REKT overlay */}
-      {isDead && (
+            {/* Agent name */}
+            <text
+              x={center.x}
+              y={center.y + 8}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill={isWinner ? "#fbbf24" : isGhost ? "#555" : "#e0e0e0"}
+              fontSize="10"
+              fontWeight="bold"
+              fontFamily="monospace"
+              letterSpacing="0.05em"
+            >
+              {agent.name.length > 10
+                ? agent.name.slice(0, 9) + ".."
+                : agent.name}
+            </text>
+
+            {/* HP bar background */}
+            <rect
+              x={barX}
+              y={barY}
+              width={barWidth}
+              height={barHeight}
+              rx="2"
+              fill="rgba(10,10,15,0.8)"
+            />
+
+            {/* HP bar fill */}
+            <motion.rect
+              x={barX}
+              y={barY}
+              animate={{ width: barWidth * hpPct }}
+              transition={{ type: "spring", visualDuration: 0.5, bounce: 0.25 }}
+              height={barHeight}
+              rx="2"
+              fill={hpColor}
+            />
+
+            {/* HP text */}
+            <text
+              x={center.x}
+              y={barY + barHeight + 11}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill={isGhost ? "#555" : "#888"}
+              fontSize="8"
+              fontFamily="monospace"
+            >
+              {agent.hp}/{agent.maxHp}
+            </text>
+
+            {/* Kill count */}
+            {agent.kills > 0 && (
+              <g>
+                <text
+                  x={center.x + barWidth / 2 - 2}
+                  y={center.y - 28}
+                  textAnchor="end"
+                  fill="#dc2626"
+                  fontSize="9"
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  {agent.kills}K
+                </text>
+              </g>
+            )}
+
+            {/* Prediction result indicator */}
+            {agent.predictionResult && !isDead && (
+              <circle
+                cx={center.x - barWidth / 2 + 5}
+                cy={center.y - 30}
+                r="5"
+                fill={
+                  agent.predictionResult === "correct"
+                    ? "rgba(34,197,94,0.8)"
+                    : "rgba(220,38,38,0.8)"
+                }
+              >
+                <animate
+                  attributeName="r"
+                  values="5;7;5"
+                  dur="0.8s"
+                  repeatCount="2"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="1;0.5;1"
+                  dur="0.8s"
+                  repeatCount="2"
+                />
+              </circle>
+            )}
+            {agent.predictionResult && !isDead && (
+              <text
+                x={center.x - barWidth / 2 + 5}
+                y={center.y - 29}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="white"
+                fontSize="7"
+                fontWeight="bold"
+              >
+                {agent.predictionResult === "correct" ? "\u2713" : "\u2717"}
+              </text>
+            )}
+          </>
+        );
+
+        // Dying agent: full multi-step death choreography (~1.5s)
+        if (isDying) {
+          return (
+            <>
+              {/* Phase 1: Red flash overlay (~200ms) */}
+              <motion.polygon
+                points={vertices}
+                fill="rgba(220,38,38,0.6)"
+                stroke="none"
+                initial={{ opacity: 0.6 }}
+                animate={{ opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+              />
+
+              {/* Phase 2: REKT text spring-in (~400ms, delayed 150ms) */}
+              <motion.text
+                x={center.x}
+                y={center.y - 2}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="#dc2626"
+                fontSize="18"
+                fontWeight="900"
+                fontFamily="monospace"
+                letterSpacing="0.2em"
+                style={{ transformOrigin: `${center.x}px ${center.y - 2}px` }}
+                initial={{ scale: 0, rotate: -30, opacity: 0 }}
+                animate={{ scale: 1, rotate: -12, opacity: 0.85 }}
+                transition={{
+                  type: "spring",
+                  stiffness: 280,
+                  damping: 14,
+                  delay: 0.15,
+                }}
+              >
+                REKT
+              </motion.text>
+
+              {/* Phase 3a: Agent content transitioning to ghost (~600ms, delayed 600ms) */}
+              <motion.g
+                initial={{ opacity: 1 }}
+                animate={{ opacity: 0.15 }}
+                transition={{ duration: 0.6, delay: 0.6, ease: "easeOut" }}
+                style={{ filter: glowFilter }}
+              >
+                {agentContent}
+              </motion.g>
+
+              {/* Phase 3b: ELIMINATED text fades in (delayed 800ms) */}
+              <motion.text
+                x={center.x}
+                y={center.y + 46}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="#666"
+                fontSize="7"
+                fontFamily="monospace"
+                fontWeight="bold"
+                letterSpacing="0.15em"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.6 }}
+                transition={{ duration: 0.4, delay: 0.8 }}
+              >
+                ELIMINATED
+              </motion.text>
+
+              {/* Death X marks (fade in during ghost transition) */}
+              <motion.line
+                x1={center.x - 20}
+                y1={center.y - 5}
+                x2={center.x + 20}
+                y2={center.y + 5}
+                stroke="rgba(220,38,38,0.4)"
+                strokeWidth="2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3, delay: 0.5 }}
+              />
+              <motion.line
+                x1={center.x + 20}
+                y1={center.y - 5}
+                x2={center.x - 20}
+                y2={center.y + 5}
+                stroke="rgba(220,38,38,0.4)"
+                strokeWidth="2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3, delay: 0.5 }}
+              />
+            </>
+          );
+        }
+
+        // Ghost agent: final resting state — fully faded, grayscale, non-interactive
+        if (isGhost) {
+          return (
+            <g
+              opacity={0.15}
+              style={{ filter: "grayscale(1)", pointerEvents: "none" }}
+            >
+              {agentContent}
+            </g>
+          );
+        }
+
+        // Low HP (<25%): pulsing glow via motion.g
+        if (isLowHp) {
+          return (
+            <motion.g
+              style={{ filter: glowFilter }}
+              animate={{ filter: [glowFilter, glowFilterIntense, glowFilter] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+            >
+              {agentContent}
+            </motion.g>
+          );
+        }
+
+        // Normal alive agent: static class-colored glow
+        return (
+          <g
+            opacity={1}
+            style={{ filter: glowFilter }}
+          >
+            {agentContent}
+          </g>
+        );
+      })()}
+
+      {/* REKT overlay — only in ghost state, not during dying transition */}
+      {isGhost && (
         <g>
           {/* Death X marks */}
           <line
@@ -426,10 +569,24 @@ function HexTile({
             fontWeight="900"
             fontFamily="monospace"
             letterSpacing="0.2em"
-            opacity="0.7"
+            opacity="0.85"
             transform={`rotate(-12, ${center.x}, ${center.y})`}
           >
             REKT
+          </text>
+          <text
+            x={center.x}
+            y={center.y + 46}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#666"
+            fontSize="7"
+            fontFamily="monospace"
+            fontWeight="bold"
+            letterSpacing="0.15em"
+            opacity="0.6"
+          >
+            ELIMINATED
           </text>
         </g>
       )}
@@ -610,20 +767,24 @@ function FloatingNumber({
   color: string;
 }) {
   return (
-    <text
+    <motion.text
       x={x}
-      y={y}
       textAnchor="middle"
       fill={color}
       fontSize="14"
       fontWeight="900"
       fontFamily="monospace"
-      opacity="1"
+      style={{ transformOrigin: "center center" }}
+      initial={{ y, opacity: 1, scale: 1.5 }}
+      animate={{ y: y - 50, opacity: 0, scale: 1 }}
+      transition={{
+        y: { type: "spring", stiffness: 80, damping: 12 },
+        opacity: { duration: 1.4, ease: "easeOut" },
+        scale: { type: "spring", stiffness: 200, damping: 10, bounce: 0.4 },
+      }}
     >
-      <animate attributeName="y" from={String(y)} to={String(y - 40)} dur="1.5s" fill="freeze" />
-      <animate attributeName="opacity" values="1;1;0" dur="1.5s" fill="freeze" />
       {text}
-    </text>
+    </motion.text>
   );
 }
 
@@ -639,6 +800,16 @@ export default function HexBattleArena({
 }: HexBattleArenaProps) {
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
 
+  // ---------------------------------------------------------------------------
+  // Death transition state machine: alive → dying (1s) → ghost
+  // ---------------------------------------------------------------------------
+
+  /** Track previous alive state per agent to detect alive→dead transitions. */
+  const prevAliveRef = useRef<Map<string, boolean>>(new Map());
+
+  /** Set of agent IDs currently in the dying animation (~1.5s window). */
+  const [dyingAgents, setDyingAgents] = useState<Set<string>>(new Set());
+
   // Particle effects system
   const {
     effects: particleEffects,
@@ -650,6 +821,9 @@ export default function HexBattleArena({
     spawnPredictionWin,
     spawnPredictionLoss,
   } = useParticleEffects();
+
+  // Screen shake for combat feedback
+  const { ShakeWrapper, triggerShake } = useScreenShake();
 
   // Compute hex pixel centers
   const hexCenters = useMemo(() => {
@@ -750,6 +924,59 @@ export default function HexBattleArena({
   );
 
   // ---------------------------------------------------------------------------
+  // Death sequence: detect alive→dead transitions, trigger choreography
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const newDying: string[] = [];
+
+    for (const agent of agents) {
+      const wasAlive = prevAliveRef.current.get(agent.id);
+      const isDead = !agent.alive;
+
+      // Detect alive → dead transition (skip first render where wasAlive is undefined)
+      if (wasAlive === true && isDead) {
+        newDying.push(agent.id);
+      }
+
+      prevAliveRef.current.set(agent.id, agent.alive);
+    }
+
+    if (newDying.length > 0) {
+      setDyingAgents((prev) => {
+        const next = new Set(prev);
+        for (const id of newDying) next.add(id);
+        return next;
+      });
+
+      // 1. Heavy screen shake
+      triggerShake("heavy");
+
+      // 2. Death particle explosion for each dying agent
+      for (const id of newDying) {
+        const pos = agentPixelPositions.get(id);
+        if (pos) {
+          const { nx, ny } = svgToNormalized(pos.x, pos.y);
+          const dyingAgent = agents.find((a) => a.id === id);
+          spawnDeath(nx, ny, dyingAgent?.class);
+        }
+      }
+
+      // After 1.5s, transition dying → ghost (matches choreography duration)
+      const timeout = setTimeout(() => {
+        setDyingAgents((prev) => {
+          const next = new Set(prev);
+          for (const id of newDying) next.delete(id);
+          return next;
+        });
+      }, 1500);
+
+      return () => clearTimeout(timeout);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
+
+  // ---------------------------------------------------------------------------
   // Particle effect triggering based on agent state changes
   // ---------------------------------------------------------------------------
 
@@ -773,7 +1000,7 @@ export default function HexBattleArena({
       if (!pos) continue;
       const { nx, ny } = svgToNormalized(pos.x, pos.y);
 
-      // Attack: spawn red burst from attacker
+      // Attack: spawn red burst from attacker + screen shake
       if (agent.attacking && agent.alive) {
         // Find the attack target for directional effect
         const target = agents.find((a) => a.attacked && a.id !== agent.id);
@@ -784,25 +1011,22 @@ export default function HexBattleArena({
               targetPos.x,
               targetPos.y,
             );
-            spawnAttack(nx, ny, toNx, toNy);
+            spawnAttack(nx, ny, toNx, toNy, agent.class);
           }
         } else {
-          spawnAttack(nx, ny, nx + 0.1, ny);
+          spawnAttack(nx, ny, nx + 0.1, ny, agent.class);
         }
+        triggerShake("medium");
       }
 
       // Defend: spawn shield shimmer
       if (agent.defending && agent.alive) {
-        spawnDefend(nx, ny);
+        spawnDefend(nx, ny, agent.class);
       }
 
-      // Death: spawn explosion
-      if (!agent.alive && agent.hp <= 0) {
-        // Only trigger once per death (check if recently died via attacked flag)
-        if (agent.attacked) {
-          spawnDeath(nx, ny);
-        }
-      }
+      // Death particles + shake are now handled by the justDied detection
+      // useEffect above (avoids dependency on the `attacked` flag and prevents
+      // double-firing).
 
       // Prediction win: green confetti
       if (agent.predictionResult === "correct" && agent.alive) {
@@ -904,6 +1128,7 @@ export default function HexBattleArena({
   );
 
   return (
+    <ShakeWrapper>
     <div className="relative">
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
@@ -1018,6 +1243,11 @@ export default function HexBattleArena({
             const center = hexCenters.get(key)!;
             const agent = hexToAgent.get(key);
 
+            // Derive death transition states
+            const agentIsDead = agent && !agent.alive;
+            const agentIsDying = !!agentIsDead && dyingAgents.has(agent!.id);
+            const agentIsGhost = !!agentIsDead && !agentIsDying;
+
             return (
               <HexTile
                 key={key}
@@ -1026,6 +1256,8 @@ export default function HexBattleArena({
                 agent={agent}
                 isAttackSource={!!agent && attackingIds.has(agent.id)}
                 isAttackTarget={!!agent && attackedIds.has(agent.id)}
+                isDying={agentIsDying}
+                isGhost={agentIsGhost}
               />
             );
           })}
@@ -1064,6 +1296,8 @@ export default function HexBattleArena({
         {agents.map((agent) => {
           const cfg = CLASS_CONFIG[agent.class];
           const isDead = !agent.alive;
+          const mobileIsDying = isDead && dyingAgents.has(agent.id);
+          const mobileIsGhost = isDead && !mobileIsDying;
           const hpPct = Math.max(0, (agent.hp / agent.maxHp) * 100);
           let hpColor = "bg-green-500";
           if (hpPct <= 30) hpColor = "bg-blood";
@@ -1072,23 +1306,25 @@ export default function HexBattleArena({
           return (
             <div
               key={agent.id}
-              className={`rounded border p-3 text-center text-xs sm:p-2 ${
-                isDead
-                  ? "border-gray-800 bg-colosseum-surface/50 opacity-50"
-                  : agent.isWinner
-                    ? "border-gold bg-gold/10"
-                    : agent.defending
-                      ? "border-accent bg-accent/10"
-                      : agent.attacking
-                        ? "border-blood bg-blood/5"
-                        : "border-colosseum-surface-light bg-colosseum-surface"
+              className={`rounded border p-3 text-center text-xs transition-all duration-1000 sm:p-2 ${
+                mobileIsGhost
+                  ? "pointer-events-none border-gray-800 bg-colosseum-surface/50 opacity-[0.15] grayscale"
+                  : mobileIsDying
+                    ? "border-blood bg-blood/10 opacity-50"
+                    : agent.isWinner
+                      ? "border-gold bg-gold/10"
+                      : agent.defending
+                        ? "border-accent bg-accent/10"
+                        : agent.attacking
+                          ? "border-blood bg-blood/5"
+                          : "border-colosseum-surface-light bg-colosseum-surface"
               }`}
             >
               <div className="flex items-center justify-center gap-1">
                 <span>{cfg.emoji}</span>
                 <span
                   className={`font-bold ${
-                    isDead
+                    mobileIsGhost
                       ? "text-gray-600"
                       : agent.isWinner
                         ? "text-gold"
@@ -1110,9 +1346,14 @@ export default function HexBattleArena({
                   <span className="ml-1 text-blood">{agent.kills}K</span>
                 )}
               </div>
-              {isDead && (
+              {mobileIsGhost && (
                 <div className="mt-0.5 text-[9px] font-bold tracking-wider text-blood">
                   REKT
+                </div>
+              )}
+              {mobileIsDying && (
+                <div className="mt-0.5 animate-pulse text-[9px] font-bold tracking-wider text-blood">
+                  DYING...
                 </div>
               )}
               {agent.isWinner && (
@@ -1149,5 +1390,6 @@ export default function HexBattleArena({
         </span>
       </div>
     </div>
+    </ShakeWrapper>
   );
 }
