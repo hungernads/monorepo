@@ -14,6 +14,8 @@
 		"test:llm": "npx tsx src/llm/test-providers.ts",
 		"db:migrate": "wrangler d1 migrations apply hungernads-db --local",
 		"battle": "tsx scripts/run-battle.ts",
+		"replay": "tsx scripts/generate-replay.ts",
+		"replay:html": "tsx scripts/generate-replay.ts --html-only",
 		"launch-token": "tsx scripts/launch-token.ts"
 	},
 	"dependencies": {
