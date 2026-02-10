@@ -162,7 +162,7 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
  *   - agentClasses:        AgentClass[]  — classes to include (default: one of each)
  *   - agentCount:          number        — how many agents to spawn (2–20). If agentClasses
  *                                          is also provided, agentCount is ignored.
- *   - maxEpochs:           number        — max epochs before timeout (default 100, range 5–500)
+ *   - maxEpochs:           number        — max epochs before timeout (default 10, range 5–500)
  *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *

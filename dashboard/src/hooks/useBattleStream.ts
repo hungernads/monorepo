@@ -112,6 +112,22 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
       case 'epoch_end': {
         const e = event as EpochEndEvent;
         setAgentStates(e.data.agentStates);
+        // If battle is complete but we haven't received battle_end yet,
+        // derive winner from the sole surviving agent as a fallback
+        if (e.data.battleComplete) {
+          setWinner((prev) => {
+            if (prev) return prev; // already have winner from battle_end
+            const alive = e.data.agentStates.filter((a) => a.isAlive);
+            if (alive.length === 1) {
+              return {
+                winnerId: alive[0].id,
+                winnerName: alive[0].name,
+                totalEpochs: 0, // unknown from epoch_end alone
+              };
+            }
+            return prev;
+          });
+        }
         break;
       }
 

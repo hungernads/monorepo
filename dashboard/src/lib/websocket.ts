@@ -344,10 +344,12 @@ export class BattleWebSocket {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       this._connected = false;
       this.notifyConnection(false);
-      if (!this.intentionalClose) {
+      // Don't reconnect if we closed intentionally or if the server
+      // closed with 1000 "Battle completed" (no point reconnecting)
+      if (!this.intentionalClose && event.code !== 1000) {
         this.scheduleReconnect();
       }
     };

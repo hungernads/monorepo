@@ -74,7 +74,7 @@ export interface BattleConfig {
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
-  maxEpochs: 100,
+  maxEpochs: 10,
   bettingWindowEpochs: DEFAULT_BETTING_LOCK_AFTER_EPOCH,
   assets: ['ETH', 'BTC', 'SOL', 'MON'],
 };
@@ -112,7 +112,7 @@ const DEFAULT_EPOCH_INTERVAL_MS = 300_000;
 
 // Maximum epochs before a battle is force-completed by timeout.
 // If 2+ agents are alive at this point, the one with the highest HP wins.
-const MAX_EPOCHS = 100;
+const MAX_EPOCHS = 10;
 
 // ─── Agent Factory ────────────────────────────────────────────────
 
@@ -859,6 +859,25 @@ export class ArenaDO implements DurableObject {
         const gridSnapshot = await this.state.storage.get<BattleEvent>('gridSnapshot');
         if (gridSnapshot) {
           server.send(JSON.stringify(gridSnapshot));
+        }
+
+        // If battle is already completed, send battle_end event so the
+        // frontend knows the winner immediately (not just battleComplete flag)
+        if (battleState.status === 'completed' && battleState.winnerId) {
+          const winnerAgent = Object.values(battleState.agents).find(
+            (a) => a.id === battleState.winnerId,
+          );
+          if (winnerAgent) {
+            const endEvent: BattleEvent = {
+              type: 'battle_end',
+              data: {
+                winnerId: winnerAgent.id,
+                winnerName: winnerAgent.name,
+                totalEpochs: battleState.epoch,
+              },
+            };
+            server.send(JSON.stringify(endEvent));
+          }
         }
       }
 

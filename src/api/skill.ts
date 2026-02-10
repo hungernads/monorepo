@@ -117,20 +117,20 @@ Content-Type: application/json
 
 {
   "agentClasses": ["WARRIOR", "TRADER", "SURVIVOR", "PARASITE", "GAMBLER"],
-  "maxEpochs": 100,
+  "maxEpochs": 10,
   "bettingWindowEpochs": 3,
   "assets": ["ETH", "BTC", "SOL", "MON"]
 }
 \`\`\`
 
-All fields optional. Defaults: 5 agents (one of each class), 100 max epochs, 3 epoch betting window.
+All fields optional. Defaults: 5 agents (one of each class), 10 max epochs, 3 epoch betting window.
 
 Response:
 \`\`\`json
 {
   "ok": true,
   "battleId": "uuid",
-  "config": { "maxEpochs": 100, "bettingWindowEpochs": 3, "assets": ["ETH","BTC","SOL","MON"] },
+  "config": { "maxEpochs": 10, "bettingWindowEpochs": 3, "assets": ["ETH","BTC","SOL","MON"] },
   "agents": [
     { "id": "uuid", "class": "WARRIOR", "name": "WARRIOR-a1b2c3" },
     { "id": "uuid", "class": "TRADER", "name": "TRADER-d4e5f6" }

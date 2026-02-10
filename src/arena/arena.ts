@@ -94,7 +94,7 @@ export interface BattleConfig {
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
-  maxEpochs: 100,
+  maxEpochs: 10,
   epochIntervalMs: 5 * 60 * 1000, // 5 minutes
 };
 

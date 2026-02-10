@@ -275,23 +275,53 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
           {/* Agent portrait */}
           {(() => {
             const pSize = 14;
-            const clipId = `hex-clip-grid-${agent.id}`;
             return (
               <g className="pointer-events-none">
-                <defs>
-                  <clipPath id={clipId}>
-                    <circle cx={cx} cy={cy} r={pSize / 2} />
-                  </clipPath>
-                </defs>
-                <image
-                  href={cfg?.image}
+                <foreignObject
                   x={cx - pSize / 2}
                   y={cy - pSize / 2}
                   width={pSize}
                   height={pSize}
-                  clipPath={`url(#${clipId})`}
-                  preserveAspectRatio="xMidYMid slice"
-                />
+                  style={{ overflow: "hidden" }}
+                >
+                  <div
+                    style={{
+                      width: pSize,
+                      height: pSize,
+                      borderRadius: "50%",
+                      overflow: "hidden",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={cfg?.image}
+                      alt={agent.name}
+                      width={pSize}
+                      height={pSize}
+                      style={{ objectFit: "cover", width: "100%", height: "100%" }}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        target.style.display = "none";
+                        if (target.nextElementSibling) (target.nextElementSibling as HTMLElement).style.display = "flex";
+                      }}
+                    />
+                    <span
+                      style={{
+                        display: "none",
+                        fontSize: pSize * 0.6,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "100%",
+                        height: "100%",
+                      }}
+                    >
+                      {cfg?.emoji}
+                    </span>
+                  </div>
+                </foreignObject>
               </g>
             );
           })()}

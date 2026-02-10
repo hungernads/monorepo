@@ -863,7 +863,7 @@ async function runBattle(): Promise<void> {
   console.log(c('gray', `  Speed: ${process.env.BATTLE_SPEED ?? 'fast'} (set BATTLE_SPEED=instant|fast|slow)`));
 
   // ── Create arena ─────────────────────────────────────────────────────────
-  const maxEpochs = 50;
+  const maxEpochs = 10;
   const arena = new ArenaManager(crypto.randomUUID(), { maxEpochs, epochIntervalMs: 0 });
 
   // ── Spawn agents ─────────────────────────────────────────────────────────

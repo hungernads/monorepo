@@ -465,28 +465,57 @@ function HexTile({
 
         const agentContent = (
           <>
-            {/* Agent portrait (hex-clipped pixel art with emoji fallback) */}
+            {/* Agent portrait (foreignObject for reliable image loading) */}
             {(() => {
               const portraitSize = 30;
-              const clipId = `hex-clip-${agent.id}`;
+              const px = center.x - portraitSize / 2;
+              const py = center.y - 10 - portraitSize / 2;
               return (
                 <g>
-                  <defs>
-                    <clipPath id={clipId}>
-                      <polygon
-                        points={hexVertices(center.x, center.y - 10, portraitSize / 2)}
-                      />
-                    </clipPath>
-                  </defs>
-                  <image
-                    href={cfg?.image}
-                    x={center.x - portraitSize / 2}
-                    y={center.y - 10 - portraitSize / 2}
+                  <foreignObject
+                    x={px}
+                    y={py}
                     width={portraitSize}
                     height={portraitSize}
-                    clipPath={`url(#${clipId})`}
-                    preserveAspectRatio="xMidYMid slice"
-                  />
+                    style={{ overflow: "hidden" }}
+                  >
+                    <div
+                      style={{
+                        width: portraitSize,
+                        height: portraitSize,
+                        clipPath: "polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={cfg?.image}
+                        alt={agent.name}
+                        width={portraitSize}
+                        height={portraitSize}
+                        style={{ objectFit: "cover", width: "100%", height: "100%" }}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "none";
+                          if (target.nextElementSibling) (target.nextElementSibling as HTMLElement).style.display = "flex";
+                        }}
+                      />
+                      <span
+                        style={{
+                          display: "none",
+                          fontSize: portraitSize * 0.6,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "100%",
+                          height: "100%",
+                        }}
+                      >
+                        {cfg?.emoji}
+                      </span>
+                    </div>
+                  </foreignObject>
                   {/* Hex border around portrait */}
                   <polygon
                     points={hexVertices(center.x, center.y - 10, portraitSize / 2)}

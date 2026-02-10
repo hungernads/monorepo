@@ -4,29 +4,49 @@
 
 > "May the nads be ever in your favor."
 
-AI gladiator colosseum on Monad. Agents fight to survive. Nads bet and sponsor. Agents learn and evolve. Last nad standing wins.
+AI gladiator colosseum on Monad. 5 AI agents fight on a tactical hex grid. Nads bet, sponsor, and watch. Agents learn and evolve. Last nad standing wins.
 
 **Hackathon:** Moltiverse (Monad + nad.fun)
 **Token:** $HNADS on nad.fun
+**Deadline:** Feb 15, 2026
 **Future rebrand:** WREKT (for multi-chain)
 
 ---
 
 ## Quick Context
 
-**What is this?**
-- Hackathon project for Moltiverse (Monad + nad.fun)
-- $200K prize pool, Agent+Token track
-- Deadline: Feb 15, 2026
-- Rolling judging (ship fast!)
+- Hackathon project for Moltiverse (Monad + nad.fun), $200K prize pool
+- Agent+Token track, rolling judging (ship fast!)
+- 98% of tasks complete (107/109 beads closed). Remaining: demo video.
 
-**The Colosseum Concept:**
+**The Colosseum:**
 ```
-THE CROWD (Users)        → Bet, sponsor, watch
-THE ARENA (Battle)       → 5 AI agents fight
-THE GLADIATORS (Agents)  → Predict, attack, defend, die
-THE EMPEROR (Contract)   → Enforces rules, distributes rewards
+THE CROWD (Users)        -> Bet, sponsor, watch via dashboard
+THE ARENA (Battle)       -> 5 AI agents on 19-tile hex grid
+THE GLADIATORS (Agents)  -> Predict, attack, defend, pick up items, die
+THE EMPEROR (Contract)   -> On-chain betting + sponsorship on Monad testnet
 ```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Cloudflare Workers + D1 + Durable Objects |
+| Frontend | Next.js + Tailwind + custom colosseum theme |
+| Contracts | Solidity (Foundry), deployed to Monad testnet (chain 10143) |
+| AI | AI SDK (Vercel) with multi-provider LLM support |
+| Real-time | WebSocket via Durable Objects |
+
+---
+
+## Deployed Contracts (Monad Testnet, Chain 10143)
+
+- **HungernadsArena:** `0xc4CebF58836707611439e23996f4FA4165Ea6A28`
+- **HungernadsBetting:** `0x062b41F54F6Ce612E82bF0b7e8385a8f3A5D8d81`
+- **Oracle/Owner/Treasury:** `0x77C037fbF42e85dB1487B390b08f58C00f438812`
+- 65/65 Foundry tests pass
 
 ---
 
@@ -34,56 +54,66 @@ THE EMPEROR (Contract)   → Enforces rules, distributes rewards
 
 ```
 hungernads/
-├── CLAUDE.md                     # This file (read first)
-├── QUICKSTART.md                 # First 24 hours priorities
-├── docs/
-│   ├── PROJECT_OVERVIEW.md       # Vision and full concept
-│   ├── TECHNICAL_ARCHITECTURE.md # System design
-│   ├── IMPLEMENTATION_PLAN.md    # Timeline and tasks
-│   ├── AGENT_CLASSES.md          # Agent specifications
-│   └── UI_WIREFRAMES.md          # Interface designs
+├── CLAUDE.md                      # This file
 ├── src/
-│   ├── index.ts                  # Worker entry point
+│   ├── index.ts                   # Worker entry point
 │   ├── agents/
-│   │   ├── base-agent.ts         # Abstract agent class
-│   │   ├── warrior.ts            # Aggressive agent
-│   │   ├── trader.ts             # Technical analysis agent
-│   │   ├── survivor.ts           # Defensive agent
-│   │   ├── parasite.ts           # Copy-trading agent
-│   │   ├── gambler.ts            # Random chaos agent
-│   │   └── personalities.ts      # LLM prompts
+│   │   ├── base-agent.ts          # Abstract agent (all classes extend this)
+│   │   ├── warrior.ts             # Aggressive agent
+│   │   ├── trader.ts              # Technical analysis agent
+│   │   ├── survivor.ts            # Defensive agent
+│   │   ├── parasite.ts            # Copy-trading agent
+│   │   ├── gambler.ts             # Random chaos agent
+│   │   └── personalities.ts       # LLM personality prompts
 │   ├── arena/
-│   │   ├── arena.ts              # Battle management
-│   │   ├── epoch.ts              # Epoch processing
-│   │   ├── combat.ts             # Attack/defend resolution
-│   │   └── death.ts              # Death mechanics
-│   ├── learning/
-│   │   ├── memory.ts             # Agent memory system
-│   │   ├── lessons.ts            # Lesson extraction
-│   │   └── profiles.ts           # Public profile generation
-│   ├── betting/
-│   │   ├── pool.ts               # Betting pool logic
-│   │   ├── odds.ts               # Odds calculation (live)
-│   │   └── sponsorship.ts        # Hunger Games style support
+│   │   ├── arena.ts               # Battle management (ArenaManager)
+│   │   ├── epoch.ts               # Epoch processor (full game loop)
+│   │   ├── combat.ts              # Attack/defend resolution
+│   │   ├── death.ts               # Death mechanics
+│   │   ├── hex-grid.ts            # 19-tile axial hex grid logic
+│   │   ├── items.ts               # Item system (RATION, WEAPON, SHIELD, TRAP, ORACLE)
+│   │   └── types/hex.ts           # Hex coordinate types
 │   ├── durable-objects/
-│   │   ├── agent.ts              # Agent Durable Object
-│   │   └── arena.ts              # Arena Durable Object
+│   │   ├── agent.ts               # Agent Durable Object
+│   │   └── arena.ts               # Arena Durable Object (battle state + epochs)
 │   ├── llm/
-│   │   └── provider.ts           # AI SDK integration
+│   │   └── provider.ts            # AI SDK multi-provider integration
 │   ├── api/
-│   │   ├── routes.ts             # API endpoints
-│   │   └── websocket.ts          # Real-time updates
+│   │   ├── routes.ts              # API endpoints
+│   │   └── websocket.ts           # Real-time WebSocket updates
 │   └── db/
-│       ├── schema.ts             # D1 queries
-│       └── migrations/           # Database migrations
+│       ├── schema.ts              # D1 queries
+│       └── migrations/            # Database migrations
 ├── contracts/
-│   ├── HungernadsArena.sol       # Main arena contract
-│   └── HungernadsBetting.sol     # Betting + sponsorship
+│   ├── src/
+│   │   ├── HungernadsArena.sol    # Main arena contract
+│   │   └── HungernadsBetting.sol  # Betting + sponsorship
+│   └── test/                      # Foundry tests (65 pass)
 ├── dashboard/
-│   └── [Next.js app]             # Spectator frontend
-├── wrangler.toml                 # Cloudflare config
-├── package.json
-└── tsconfig.json
+│   └── src/
+│       ├── app/
+│       │   ├── page.tsx           # Homepage (battle list + start button)
+│       │   ├── battle/[id]/       # Live battle view
+│       │   └── bets/              # Betting page
+│       └── components/
+│           ├── battle/
+│           │   ├── HexBattleArena.tsx    # Main hex grid arena
+│           │   ├── HexGridViewer.tsx     # Compact minimap grid
+│           │   ├── AgentCard.tsx         # Agent stat cards
+│           │   ├── AgentPortrait.tsx     # Pixel art portrait component
+│           │   ├── ParticleEffects.tsx   # Combat VFX
+│           │   └── mock-data.ts         # Class configs, colors, mock data
+│           ├── betting/
+│           │   ├── BettingPanel.tsx      # Live odds + bet slip
+│           │   ├── SponsorFeed.tsx       # Sponsorship feed
+│           │   └── SettlementView.tsx    # Payout display
+│           └── stream/
+│               ├── AgentBar.tsx          # Top agent status bar
+│               └── HighlightBanner.tsx   # Kill/death event banners
+├── scripts/
+│   └── run-battle.ts              # CLI battle runner (testing/demo)
+├── wrangler.toml                  # Cloudflare Workers config
+└── package.json
 ```
 
 ---
@@ -91,281 +121,160 @@ hungernads/
 ## Core Game Loop
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      BATTLE FLOW                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  1. BATTLE STARTS                                               │
-│     • 5 agents spawn with 1000 HP each                          │
-│     • Betting opens                                             │
-│     • Nads place initial bets                                   │
-│                                                                  │
-│  2. EACH EPOCH (every ~5 minutes)                               │
-│     a. Agents observe: market data + other agents               │
-│     b. Agents decide: PREDICT + optional ATTACK/DEFEND          │
-│     c. Execute predictions (paper trading vs real prices)       │
-│     d. Resolve combat (attack vs defend)                        │
-│     e. Apply bleed (2% HP drain)                                │
-│     f. Check deaths (HP ≤ 0 = REKT)                             │
-│     g. Update odds                                              │
-│     h. Broadcast to viewers                                     │
-│                                                                  │
-│  3. BATTLE ENDS                                                 │
-│     • Last nad standing wins                                    │
-│     • Betting pool distributed                                  │
-│     • Agents extract lessons                                    │
-│     • Update agent profiles                                     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+EPOCH FLOW (every ~5 minutes):
+1. Price Feed     -> Fetch real market prices (ETH, BTC, SOL, MON)
+2. Predictions    -> Each agent predicts asset direction, stakes HP
+3. Movement       -> Agents move 1 hex tile on the grid
+4. Item Pickup    -> Agents pick up items on their tile
+5. Combat         -> Adjacent agents can attack (proximity required)
+6. Item Spawn     -> New items appear on random tiles
+7. Bleed          -> 2% HP drain per epoch
+8. Deaths         -> HP <= 0 = REKT
+9. Winner Check   -> Last agent standing wins
 ```
 
 ---
 
-## Agent Actions Per Epoch
+## Tactical Hex Grid
 
-```typescript
-interface EpochActions {
-  // REQUIRED: Market prediction
-  prediction: {
-    asset: 'ETH' | 'BTC' | 'SOL' | 'MON';
-    direction: 'UP' | 'DOWN';
-    stake: number;  // 5-50% of HP
-  };
-  
-  // OPTIONAL: Combat
-  attack?: {
-    target: AgentId;
-    stake: number;  // Amount to risk/steal
-  };
-  
-  defend?: boolean;  // Costs 5% HP, blocks all attacks
-  
-  // For logging
-  reasoning: string;
-}
-```
+- 19-tile axial hex grid (3-ring), agents move 1 tile per epoch
+- **Items:** RATION (+HP), WEAPON (+attack), SHIELD (+defense), TRAP (damage), ORACLE (market intel)
+- **Cornucopia:** Center 7 tiles get items at battle start
+- **Combat:** Requires adjacency (hex neighbors only)
+- Agent pixel art portraits displayed on hex tiles via `<foreignObject>` in SVG
 
 ---
 
-## Agent Classes Quick Reference
+## Agent Classes
 
-| Class | Risk | Predict | Attack | Defend | Special |
-|-------|------|---------|--------|--------|---------|
-| ⚔️ WARRIOR | High | Big stakes | Hunts weak | Rarely | Aggressive killer |
-| 📊 TRADER | Medium | TA-based | Never | Sometimes | Ignores others |
-| 🛡️ SURVIVOR | Low | Tiny stakes | Never | Always | Outlast everyone |
-| 🦠 PARASITE | Low | Copies best | Scraps only | If targeted | Needs hosts |
-| 🎲 GAMBLER | Chaos | Random | Random | Random | Wildcard |
-
-See `docs/AGENT_CLASSES.md` for full specs and LLM prompts.
+| Class | Strategy | Attack | Defend | Special |
+|-------|----------|--------|--------|---------|
+| WARRIOR | Aggressive, high-risk stakes | Hunts weak | Rarely | Kills or dies trying |
+| TRADER | TA-based prediction | Never | Sometimes | Ignores combat |
+| SURVIVOR | Tiny stakes, outlast | Never | Always | Turtles to victory |
+| PARASITE | Copies best performer | Scraps only | If targeted | Needs hosts alive |
+| GAMBLER | Random everything | Random | Random | Wildcard chaos |
 
 ---
 
-## Agent Learning System
+## How to Create/Start a New Battle
 
-```typescript
-interface AgentMemory {
-  agentId: string;
-  
-  // Historical data
-  battles: BattleRecord[];
-  lessons: Lesson[];
-  
-  // Computed stats (shown to users)
-  matchups: Map<AgentClass, WinLossRecord>;
-  deathCauses: Map<string, number>;
-  avgSurvival: number;
-  
-  // Fed to LLM each battle
-  getContext(): string;
-}
+### Option 1: Dashboard UI
+- Homepage (`dashboard/src/app/page.tsx`) has a **"Start New Battle"** button
+- Only appears when no battles are currently live
+- Calls `POST /battle/start` with default config (all 5 agent classes)
+- Redirects to `/battle/{battleId}` on success
 
-interface Lesson {
-  battleId: string;
-  context: string;      // "Attacked SURVIVOR at 25% HP"
-  outcome: string;      // "They defended, I lost 200"
-  learning: string;     // "SURVIVOR defends when desperate"
-  applied: string;      // "Reduced attack vs low-HP SURVIVOR"
-}
+### Option 2: API
+```bash
+# Simple start (defaults to all 5 classes)
+curl -X POST https://your-worker.dev/battle/start
+
+# Full config
+curl -X POST https://your-worker.dev/battle/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agentClasses": ["WARRIOR", "TRADER", "SURVIVOR", "PARASITE", "GAMBLER"],
+    "maxEpochs": 100,
+    "bettingWindowEpochs": 3,
+    "assets": ["ETH", "BTC", "SOL", "MON"]
+  }'
 ```
 
-**Key insight:** Lessons are PUBLIC. Nads can see what agents learned to inform betting decisions.
+### Option 3: CLI (testing/demo)
+```bash
+# Run local battle with mock or real LLM
+npx tsx scripts/run-battle.ts
 
----
-
-## Betting System
-
-```typescript
-interface BettingPool {
-  battleId: string;
-  totalPool: number;
-  
-  // Bets by agent
-  bets: Map<AgentId, Bet[]>;
-  
-  // Live odds (recalculated each epoch)
-  odds: Map<AgentId, number>;
-  
-  // Methods
-  placeBet(user: Address, agent: AgentId, amount: number): void;
-  calculateOdds(): Map<AgentId, number>;
-  distributePrizes(winner: AgentId): void;
-}
-
-// Distribution
-// 90% to winners
-// 5% protocol treasury
-// 5% burn 🔥
+# Env vars for LLM providers (optional, falls back to mock)
+GROQ_API_KEY=... GOOGLE_API_KEY=... npx tsx scripts/run-battle.ts
 ```
+
+### Battle Flow
+1. Generate battleId + 5 agent UUIDs
+2. Insert agents + battle into D1 database
+3. Call ArenaDO `/start` endpoint (Durable Object)
+4. ArenaDO creates battle state, schedules first epoch alarm
+5. Non-blocking: register on-chain, create betting pool
+6. Dashboard connects via WebSocket for live updates
 
 ---
 
 ## API Endpoints
 
-```typescript
-// Battle Management
-POST /battle/start              // Start new battle
-GET  /battle/:id                // Get battle state
-WS   /battle/:id/stream         // Real-time updates
+```
+# Battle
+POST /battle/start              # Quick start (default 5 agents)
+POST /battle/create             # Full config creation
+GET  /battle/:id                # Battle state
+WS   /battle/:id/stream         # Real-time WebSocket updates
 
-// Agent Info
-GET  /agent/:id                 // Full profile
-GET  /agent/:id/lessons         // Learning history
-GET  /agent/:id/matchups        // Win rates vs each class
+# Agents
+GET  /agent/:id                 # Full profile
+GET  /agent/:id/lessons         # Learning history
 
-// Betting
-POST /bet                       // Place bet
-GET  /battle/:id/odds           // Current odds
-GET  /user/:address/bets        // User's bet history
+# Betting
+POST /bet                       # Place bet
+GET  /battle/:id/odds           # Current odds
 
-// Sponsorship
-POST /sponsor                   // Send support
-GET  /battle/:id/sponsors       // Sponsorship feed
-
-// Leaderboard
-GET  /leaderboard/agents        // Top agents by win rate
-GET  /leaderboard/bettors       // Top bettors by profit
+# Sponsorship
+POST /sponsor                   # Send support to agent
+GET  /battle/:id/sponsors       # Sponsorship feed
 ```
 
 ---
 
-## LLM Integration
+## MVP Status
 
-```typescript
-import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
-
-async function agentDecide(
-  agent: Agent,
-  marketData: MarketData,
-  arenaState: ArenaState
-): Promise<EpochActions> {
-  
-  const prompt = `
-MARKET: ETH ${ethPrice}, BTC ${btcPrice}, SOL ${solPrice}, MON ${monPrice}
-YOUR HP: ${agent.hp}/1000
-YOUR LESSONS: ${agent.lessons.slice(-3).map(l => l.learning).join('; ')}
-
-OTHER AGENTS:
-${others.map(a => `- ${a.name} (${a.class}): ${a.hp} HP`).join('\n')}
-
-ACTIONS:
-1. PREDICT: asset, direction (UP/DOWN), stake (5-50% of HP)
-2. ATTACK: target name, stake amount (optional)
-3. DEFEND: true/false, costs 5% HP (optional)
-
-Respond JSON only.
-`;
-
-  const { text } = await generateText({
-    model: openai('gpt-4o-mini'),
-    system: agent.personality,
-    prompt,
-  });
-  
-  return parseActions(text);
-}
-```
-
----
-
-## Key Technical Decisions
-
-### Why Cloudflare Workers + Durable Objects?
-- 24/7 agent operation without servers
-- Persistent state between requests
-- WebSocket support for live updates
-- Global edge deployment
-
-### Why Paper Trading?
-- Safe for hackathon demo
-- Real price feeds (Pyth), simulated execution
-- Can switch to real post-hackathon
-
-### Why Transparent Learning?
-- Creates skill-based betting (study agents)
-- Differentiates from pure gambling
-- Generates content (community discusses meta)
-
----
-
-## MVP Checklist
-
-- [ ] 5 preset agent classes working
-- [ ] Battle mechanics (predict/attack/defend)
-- [ ] Agent learning (lessons stored + displayed)
-- [ ] Betting with live odds
-- [ ] Basic sponsorship
-- [ ] Spectator dashboard
-- [ ] $HNADS on nad.fun
+- [x] 5 preset agent classes with LLM decisions
+- [x] Battle mechanics (predict/attack/defend/bleed/death)
+- [x] Tactical hex grid with items and movement
+- [x] Agent learning (lessons extracted + displayed)
+- [x] Betting with live odds
+- [x] Sponsorship system
+- [x] Spectator dashboard with hex grid visualization
+- [x] Smart contracts deployed to Monad testnet
+- [x] Agent pixel art portraits
+- [x] Combat VFX (particles, screen shake)
 - [ ] Demo video
+- [ ] $HNADS token launch on nad.fun
 
 ---
 
 ## Coding Guidelines
 
-### Error Handling
-```typescript
-try {
-  const actions = await agentDecide(agent, market, arena);
-  return actions;
-} catch (error) {
-  console.error('Agent decision failed:', error);
-  return getDefaultActions(agent);  // Safe fallback
-}
-```
-
-### LLM Response Parsing
-```typescript
-const raw = await llm.generate(prompt);
-const parsed = actionsSchema.safeParse(JSON.parse(raw));
-
-if (!parsed.success) {
-  console.warn('Invalid LLM response, using defaults');
-  return getDefaultActions(agent);
-}
-
-return parsed.data;
-```
+- **Error handling:** Always provide safe fallback for LLM responses
+- **SVG images:** Use `<foreignObject>` with HTML `<img>` (not SVG `<image>` which fails silently)
+- **Mock LLM mode:** CLI testing works without API keys
+- **Tailwind:** Custom colosseum theme colors (blood, gold, accent, etc.)
+- Foundry contracts have forge-std lib (1000+ files) - already in .gitignore
 
 ---
 
-## Important Files to Read
+## Important Files
 
-1. `docs/PROJECT_OVERVIEW.md` - Full vision
-2. `docs/AGENT_CLASSES.md` - Agent specs + LLM prompts
-3. `docs/UI_WIREFRAMES.md` - Interface designs
-4. `QUICKSTART.md` - First 24 hours
+| Purpose | File |
+|---------|------|
+| Worker entry | `src/index.ts` |
+| Epoch game loop | `src/arena/epoch.ts` |
+| Arena Durable Object | `src/durable-objects/arena.ts` |
+| API routes | `src/api/routes.ts` |
+| Hex grid logic | `src/arena/hex-grid.ts` |
+| Item system | `src/arena/items.ts` |
+| Dashboard homepage | `dashboard/src/app/page.tsx` |
+| Hex battle arena | `dashboard/src/components/battle/HexBattleArena.tsx` |
+| Agent class configs | `dashboard/src/components/battle/mock-data.ts` |
+| CLI battle runner | `scripts/run-battle.ts` |
 
 ---
 
 ## Remember
 
-1. **Ship fast** - Rolling judging rewards early submissions
+1. **Ship fast** - Rolling judging, deadline Feb 15
 2. **Make it dramatic** - Deaths, comebacks, underdog wins
-3. **Transparent learning** - Nads should WANT to study agents
+3. **Transparent learning** - Nads study agents to bet smarter
 4. **Token utility** - $HNADS must feel essential
-5. **Entertainment first** - This is spectator sport, not just DeFi
+5. **Entertainment first** - Spectator sport, not just DeFi
 6. **Monad culture** - Embrace the nad memes
 
 **"May the nads be ever in your favor."**
