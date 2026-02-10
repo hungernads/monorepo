@@ -159,6 +159,57 @@
   }
 
   /* ──────────────────────────────────────────────
+     Storm overlay animations (hex grid)
+     ────────────────────────────────────────────── */
+
+  /* HUNT phase: subtle amber pulse (warning) */
+  .storm-pulse-hunt {
+    animation: storm-hunt-pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes storm-hunt-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  /* BLOOD phase: red pulse (danger) */
+  .storm-pulse-blood {
+    animation: storm-blood-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes storm-blood-pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  /* FINAL_STAND phase: deep purple/black pulse (lethal) */
+  .storm-pulse-final {
+    animation: storm-final-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes storm-final-pulse {
+    0%, 100% { opacity: 0.5; }
+    30% { opacity: 1; }
+    60% { opacity: 0.7; }
+    80% { opacity: 1; }
+  }
+
+  /* Safe zone glow — gentle green pulse on protected tiles */
+  .safe-zone-glow {
+    animation: safe-zone-pulse 3s ease-in-out infinite;
+  }
+  @keyframes safe-zone-pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  /* Storm boundary line — animated dash crawl */
+  .storm-boundary-line {
+    animation: storm-boundary-crawl 1.5s linear infinite;
+  }
+  @keyframes storm-boundary-crawl {
+    from { stroke-dashoffset: 20; }
+    to { stroke-dashoffset: 0; }
+  }
+
+  /* ──────────────────────────────────────────────
      Stream overlay utilities
      ────────────────────────────────────────────── */
 

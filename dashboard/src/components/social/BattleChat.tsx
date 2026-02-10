@@ -80,12 +80,11 @@ export default function BattleChat({
   const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages using bottom sentinel
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
   const sendMessage = useCallback(() => {
@@ -115,11 +114,12 @@ export default function BattleChat({
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex max-h-[420px] flex-col">
       {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-          Chat
+          Spectator Chat{" "}
+          <span className="text-[10px] font-normal text-gray-600">(Local)</span>
         </h2>
         <span className="text-[10px] uppercase tracking-wider text-gray-600">
           {messages.length} msgs
@@ -151,10 +151,12 @@ export default function BattleChat({
             </div>
           </div>
         ))}
+        {/* Scroll sentinel — auto-scroll target */}
+        <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="mt-3 flex gap-2">
+      {/* Input — pinned at bottom */}
+      <div className="mt-3 flex shrink-0 gap-2">
         <input
           type="text"
           value={input}

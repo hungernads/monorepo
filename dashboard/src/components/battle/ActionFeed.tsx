@@ -18,6 +18,8 @@ const EVENT_STYLE: Record<
   DEATH: { icon: "\uD83D\uDC80", color: "text-blood-light" },
   SPONSOR: { icon: "\uD83C\uDF81", color: "text-gold" },
   MARKET: { icon: "\uD83D\uDCC8", color: "text-gray-500" },
+  STORM: { icon: "\u26A1", color: "text-purple-400" },
+  PHASE_CHANGE: { icon: "\uD83C\uDFFA", color: "text-amber-400" },
 };
 
 function formatTime(ts: number): string {
@@ -75,7 +77,11 @@ export default function ActionFeed({ entries }: ActionFeedProps) {
                     ? "border-l-2 border-blood/20"
                     : entry.type === "SPONSOR"
                       ? "border-l-2 border-gold/20"
-                      : ""
+                      : entry.type === "STORM"
+                        ? "bg-purple-500/5 border-l-2 border-purple-500/40"
+                        : entry.type === "PHASE_CHANGE"
+                          ? "bg-amber-500/10 border-l-2 border-amber-500/40"
+                          : ""
               }`}
             >
               {/* Timestamp -- suppressHydrationWarning because locale-formatted

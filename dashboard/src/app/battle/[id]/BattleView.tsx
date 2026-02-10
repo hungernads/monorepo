@@ -7,6 +7,8 @@ import {
   ActionFeed,
   EpochTimer,
   MarketTicker,
+  PhaseIndicator,
+  PrizeClaim,
   MOCK_AGENTS,
   MOCK_FEED,
   MOCK_AGENT_POSITIONS,
@@ -38,6 +40,8 @@ import type {
   ItemSpawnedEvent,
   ItemPickedUpEvent,
   TrapTriggeredEvent,
+  PhaseChangeEvent,
+  StormDamageEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 
@@ -336,6 +340,67 @@ function eventToFeedEntries(
       ];
     }
 
+    case "phase_change": {
+      const e = event as PhaseChangeEvent;
+      const phaseLabels: Record<string, string> = {
+        LOOT: "LOOT PHASE",
+        HUNT: "HUNT PHASE",
+        BLOOD: "BLOOD PHASE",
+        FINAL_STAND: "FINAL STAND",
+      };
+      const phaseDescriptions: Record<string, string> = {
+        LOOT: "Race for cornucopia loot. No combat.",
+        HUNT: "Combat enabled. Outer ring is now dangerous!",
+        BLOOD: "Storm tightens. Forced fights!",
+        FINAL_STAND: "Only center safe. Kill or die!",
+      };
+      const stormWarnings: Record<string, string> = {
+        HUNT: "Storm closing -- Lv1 tiles become dangerous!",
+        BLOOD: "Storm closing -- Lv2 tiles become dangerous next epoch!",
+        FINAL_STAND: "Storm closing -- Only center tile is safe!",
+      };
+      const phaseEntries: FeedEntry[] = [
+        {
+          id: `ws-${index}-phase`,
+          timestamp: ts,
+          epoch: e.data.epochNumber,
+          type: "PHASE_CHANGE",
+          message: `${phaseLabels[e.data.phase] ?? e.data.phase} BEGINS -- ${phaseDescriptions[e.data.phase] ?? ""} (${e.data.epochsRemaining} epochs remaining)`,
+        },
+      ];
+      // Add storm warning for phases that introduce storm damage
+      const warning = stormWarnings[e.data.phase];
+      if (warning) {
+        phaseEntries.push({
+          id: `ws-${index}-storm-warn`,
+          timestamp: ts,
+          epoch: e.data.epochNumber,
+          type: "STORM",
+          message: warning,
+        });
+      }
+      return phaseEntries;
+    }
+
+    case "storm_damage": {
+      const e = event as StormDamageEvent;
+      const meta = agentMeta.get(e.data.agentId);
+      const agentName = meta?.name ?? e.data.agentName;
+      const agentClass = meta?.class;
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "STORM",
+          agentId: e.data.agentId,
+          agentName,
+          agentClass,
+          message: `${agentName} takes ${Math.round(e.data.damage)} storm damage on (${e.data.tile.q},${e.data.tile.r})! (${Math.round(e.data.hpAfter)} HP remaining)`,
+        },
+      ];
+    }
+
     // epoch_end, battle_end, grid_state don't generate feed entries (handled by state)
     default:
       return [];
@@ -519,6 +584,8 @@ export default function BattleView({ battleId }: BattleViewProps) {
     gridTiles,
     agentPositions: streamAgentPositions,
     recentMoves,
+    phaseState,
+    stormTiles,
   } = useBattleStream(battleId);
 
   const { address, isConnected: walletConnected } = useAccount();
@@ -763,6 +830,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
             addToast(`${name} nailed the prediction!`, "success");
           }
           break;
+        case "STORM":
+          addToast(`${name} is taking storm damage!`, "danger");
+          break;
         default:
           break;
       }
@@ -782,7 +852,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
   }, [winner, isFavorite, addToast]);
 
   // Mobile sidebar tabs -- add "chat" tab
-  type SidebarTab = "bets" | "sponsors" | "markets" | "log" | "chat";
+  type SidebarTab = "bets" | "sponsors" | "markets" | "chat";
   const [mobileSidebarTab, setMobileSidebarTab] = useState<SidebarTab>("bets");
 
   const sidebarTabs: { key: SidebarTab; label: string }[] = [
@@ -790,7 +860,6 @@ export default function BattleView({ battleId }: BattleViewProps) {
     { key: "chat", label: "Chat" },
     { key: "sponsors", label: "Sponsors" },
     { key: "markets", label: "Markets" },
-    { key: "log", label: "Log" },
   ];
 
   return (
@@ -870,10 +939,32 @@ export default function BattleView({ battleId }: BattleViewProps) {
         </div>
       )}
 
+      {/* Prize claim section (shown after battle completes) */}
+      {winner && (
+        <PrizeClaim
+          battleId={battleId}
+          winner={winner}
+          agents={agents}
+        />
+      )}
+
+      {/* Battle phase indicator (LOOT / HUNT / BLOOD / FINAL STAND) */}
+      <PhaseIndicator
+        currentPhase={phaseState?.phase ?? null}
+        epochsRemaining={phaseState?.epochsRemaining ?? 0}
+        phaseTotalEpochs={phaseState?.phaseTotalEpochs ?? 0}
+        isComplete={!!winner}
+        currentEpoch={currentEpoch}
+      />
+
       {/* Cinematic top bar: epoch timer + pool + sponsor button */}
       <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
-          <EpochTimer currentEpoch={currentEpoch} />
+          <EpochTimer
+            currentEpoch={currentEpoch}
+            isComplete={!!winner}
+            winnerName={winner?.winnerName}
+          />
           <EpochPhaseIndicator isFinished={!!winner} />
         </div>
         <div className="card">
@@ -953,6 +1044,8 @@ export default function BattleView({ battleId }: BattleViewProps) {
             agentPositions={hexAgentPositions}
             tileItems={hexTileItems}
             recentMoves={recentMoves}
+            stormTiles={stormTiles}
+            currentPhase={phaseState?.phase ?? null}
           />
         </div>
 
@@ -1002,11 +1095,15 @@ export default function BattleView({ battleId }: BattleViewProps) {
             <MarketTicker />
           </div>
 
-          {/* Action feed */}
-          <div className={`card flex-1 ${mobileSidebarTab !== "log" ? "hidden lg:block" : ""}`}>
-            <ActionFeed entries={feed} />
-          </div>
         </div>
+      </div>
+
+      {/* Battle Log -- full-width below arena for better readability */}
+      <div
+        className="card"
+        style={{ maxHeight: "380px", display: "flex", flexDirection: "column" }}
+      >
+        <ActionFeed entries={feed} />
       </div>
 
       {/* Prediction explainer */}
