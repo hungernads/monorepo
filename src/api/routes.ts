@@ -37,6 +37,7 @@ import {
 import { AGENT_CLASSES, AgentClassSchema, AssetSchema } from '../agents';
 import type { AgentClass } from '../agents';
 import { MIN_AGENTS, MAX_AGENTS } from '../arena/arena';
+import { computePhaseConfig } from '../arena/phases';
 import { DEFAULT_BATTLE_CONFIG, type BattleConfig } from '../durable-objects/arena';
 import {
   SponsorshipManager,
@@ -166,7 +167,7 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
  * Body (all fields optional — sensible defaults applied):
  *   - maxPlayers:          number        — max agents allowed in the lobby (default 8, range 2–20)
  *   - feeAmount:           string        — entry fee in MON (default '0')
- *   - maxEpochs:           number        — max epochs before timeout (default 10, range 5–500)
+ *   - maxEpochs:           number        — max epochs before timeout (default: computed from player count 8–14, range 5–500)
  *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
@@ -404,12 +405,21 @@ app.post('/battle/start', async (c) => {
       (id: string, i: number) => `${agentClasses[i]}-${id.slice(0, 6)}`,
     );
 
-    // Start the battle via ArenaDO (pass battleId, classes, and names)
+    // Compute dynamic maxEpochs from agent count (phase system)
+    const legacyPhaseConfig = computePhaseConfig(agentClasses.length);
+
+    // Start the battle via ArenaDO (pass battleId, classes, names, and computed config)
     const startResponse = await arenaStub.fetch(
       new Request('http://arena/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ battleId, agentIds, agentClasses, agentNames }),
+        body: JSON.stringify({
+          battleId,
+          agentIds,
+          agentClasses,
+          agentNames,
+          config: { maxEpochs: legacyPhaseConfig.totalEpochs },
+        }),
       }),
     );
 
@@ -1960,20 +1970,33 @@ app.get('/token/progress', async (c) => {
 /**
  * GET /token/stats
  *
- * Token ecosystem stats: total burned (from sponsorships), total faucet distributed.
+ * Token ecosystem stats: total burned (from sponsorships + on-chain burn address),
+ * total faucet distributed. Queries on-chain burn address (0xdEaD) balance with
+ * 5-minute cache, falling back to DB sum if RPC is unavailable.
+ *
  * No auth required.
  */
 app.get('/token/stats', async (c) => {
   try {
-    const [burnStats, faucetStats] = await Promise.all([
+    // Fetch DB stats and on-chain burn balance in parallel
+    const rpcUrl = c.env.MONAD_RPC_URL;
+    const [burnStats, faucetStats, onChainBurn] = await Promise.all([
       getTotalBurnedStats(c.env.DB),
       getTotalFaucetDistributed(c.env.DB),
+      rpcUrl ? getOnChainBurnBalance(rpcUrl) : Promise.resolve(null),
     ]);
 
     return c.json({
       burned: {
-        totalAmount: burnStats.totalBurned,
+        // Primary: on-chain burn address balance; fallback: DB sponsorship sum
+        totalAmount: onChainBurn ? onChainBurn.balanceMon : burnStats.totalBurned,
         totalSponsorships: burnStats.totalSponsorships,
+        // Include both sources for transparency
+        source: onChainBurn ? 'on-chain' : 'database',
+        onChain: onChainBurn
+          ? { balanceWei: onChainBurn.balanceWei, balanceMon: onChainBurn.balanceMon }
+          : null,
+        database: { totalBurned: burnStats.totalBurned },
       },
       faucet: {
         totalDistributed: faucetStats.totalDistributed,
@@ -2153,21 +2176,117 @@ app.get('/battle/:id/stream', async (c) => {
   }
 });
 
-// ─── Market Prices ────────────────────────────────────────────
+// ─── Market Prices (Pyth Hermes) ─────────────────────────────
 
 /**
- * In-memory cache for CoinGecko market data.
- * Avoids hammering the free tier (30 req/min limit).
+ * In-memory cache for Pyth market data.
+ * 30s TTL to avoid excessive Hermes calls.
  */
 let priceCache: { data: unknown; fetchedAt: number } | null = null;
 const PRICE_CACHE_TTL_MS = 30_000; // 30 seconds
+
+// ─── Burn Balance Cache ──────────────────────────────────────
+
+/**
+ * In-memory cache for on-chain burn address balance.
+ * Avoids hammering the RPC on every /token/stats request.
+ */
+let burnBalanceCache: { balanceWei: string; balanceMon: number; fetchedAt: number } | null = null;
+const BURN_CACHE_TTL_MS = 5 * 60_000; // 5 minutes
+const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD';
+
+/**
+ * Query the native MON balance of the burn address (0xdEaD) via JSON-RPC.
+ * Returns the balance in MON (number) or null if the RPC call fails.
+ */
+async function getOnChainBurnBalance(rpcUrl: string): Promise<{ balanceWei: string; balanceMon: number } | null> {
+  try {
+    const now = Date.now();
+
+    // Return cached result if still fresh
+    if (burnBalanceCache && now - burnBalanceCache.fetchedAt < BURN_CACHE_TTL_MS) {
+      return { balanceWei: burnBalanceCache.balanceWei, balanceMon: burnBalanceCache.balanceMon };
+    }
+
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBalance',
+        params: [BURN_ADDRESS, 'latest'],
+      }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as { result?: string; error?: unknown };
+    if (!data.result) return null;
+
+    const balanceWei = BigInt(data.result).toString();
+    // Convert wei to MON (18 decimals) — use number for display, truncate to 4 decimals
+    const balanceMon = Number(BigInt(data.result)) / 1e18;
+
+    // Update cache
+    burnBalanceCache = { balanceWei, balanceMon, fetchedAt: now };
+
+    return { balanceWei, balanceMon };
+  } catch (error) {
+    console.warn('[burn] Failed to query on-chain burn balance:', error);
+    return null;
+  }
+}
+
+/**
+ * In-memory price history buffer for computing changes and sparklines.
+ * Stores timestamped snapshots. Retained up to ~7 days worth of 30s samples
+ * (but in practice Workers recycle, so we keep a rolling window and
+ * gracefully degrade on cold starts).
+ */
+type PriceAsset = 'ETH' | 'BTC' | 'SOL' | 'MON';
+const PRICE_ASSETS: PriceAsset[] = ['ETH', 'BTC', 'SOL', 'MON'];
+
+interface PriceSnapshot {
+  timestamp: number; // ms
+  prices: Record<PriceAsset, number>;
+}
+
+const priceHistory: PriceSnapshot[] = [];
+const MAX_HISTORY_ENTRIES = 840; // ~7 hours at 30s intervals (enough for meaningful sparklines)
+
+/** Pyth Hermes feed IDs */
+const PYTH_PRICE_FEED_IDS: Record<string, PriceAsset> = {
+  'ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace': 'ETH',
+  'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43': 'BTC',
+  'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d': 'SOL',
+};
+
+const PYTH_FEED_ID_LIST = Object.keys(PYTH_PRICE_FEED_IDS).map((id) => '0x' + id);
+
+interface PythPriceData {
+  price: string;
+  conf: string;
+  expo: number;
+  publish_time: number;
+}
+
+interface PythParsed {
+  id: string;
+  price: PythPriceData;
+  ema_price: PythPriceData;
+}
+
+/** MON mock price state (random walk, persists across requests within worker lifetime) */
+let lastMonPrice = 4.28;
 
 /**
  * GET /prices
  *
  * Real-time market prices for ETH, BTC, SOL, and MON.
- * Proxies CoinGecko /coins/markets with sparkline + multi-timeframe changes.
- * MON uses a static placeholder since Monad is pre-mainnet.
+ * Fetches live prices from Pyth Hermes API. Builds sparkline and change
+ * percentages from an in-memory rolling history buffer.
+ * MON uses a mock random walk (pre-mainnet).
  *
  * Response shape:
  * {
@@ -2178,11 +2297,12 @@ const PRICE_CACHE_TTL_MS = 30_000; // 30 seconds
  *       change1h: 0.34,
  *       change24h: 2.15,
  *       change7d: -1.23,
- *       sparkline: [3800, 3810, ...] // 7-day hourly prices (168 points)
+ *       sparkline: [3800, 3810, ...]
  *     },
  *     ...
  *   ],
- *   updatedAt: "2026-02-09T12:00:00.000Z"
+ *   updatedAt: "2026-02-09T12:00:00.000Z",
+ *   source: "pyth"
  * }
  */
 app.get('/prices', async (c) => {
@@ -2194,76 +2314,93 @@ app.get('/prices', async (c) => {
       return c.json(priceCache.data);
     }
 
-    // Fetch from CoinGecko (free, no API key needed)
-    const cgUrl =
-      'https://api.coingecko.com/api/v3/coins/markets' +
-      '?vs_currency=usd' +
-      '&ids=ethereum,bitcoin,solana' +
-      '&order=market_cap_desc' +
-      '&sparkline=true' +
-      '&price_change_percentage=1h,24h,7d';
+    // Fetch live prices from Pyth Hermes
+    const hermesUrl = new URL('https://hermes.pyth.network/v2/updates/price/latest');
+    for (const feedId of PYTH_FEED_ID_LIST) {
+      hermesUrl.searchParams.append('ids[]', feedId);
+    }
 
-    const cgResponse = await fetch(cgUrl, {
+    const pythResponse = await fetch(hermesUrl.toString(), {
       headers: { Accept: 'application/json' },
     });
 
-    if (!cgResponse.ok) {
-      // If CoinGecko is down/rate-limited and we have stale cache, return it
+    if (!pythResponse.ok) {
+      // Pyth down — return stale cache if available
       if (priceCache) {
         return c.json(priceCache.data);
       }
       return c.json(
-        { error: 'Failed to fetch market data from CoinGecko', status: cgResponse.status },
+        { error: 'Failed to fetch market data from Pyth Hermes', status: pythResponse.status },
         502,
       );
     }
 
-    const cgData = (await cgResponse.json()) as Array<{
-      symbol: string;
-      current_price: number;
-      price_change_percentage_1h_in_currency?: number;
-      price_change_percentage_24h_in_currency?: number;
-      price_change_percentage_7d_in_currency?: number;
-      sparkline_in_7d?: { price: number[] };
-    }>;
+    const pythData = (await pythResponse.json()) as { parsed: PythParsed[] };
 
-    // Map CoinGecko symbols to our asset names
-    const symbolToAsset: Record<string, string> = {
-      eth: 'ETH',
-      btc: 'BTC',
-      sol: 'SOL',
-    };
+    if (!pythData.parsed || pythData.parsed.length === 0) {
+      if (priceCache) {
+        return c.json(priceCache.data);
+      }
+      return c.json({ error: 'Pyth returned empty data' }, 502);
+    }
 
-    const prices = cgData.map((coin) => {
-      const asset = symbolToAsset[coin.symbol] ?? coin.symbol.toUpperCase();
-      // Downsample sparkline from ~168 points to 42 for lighter payloads
-      const rawSparkline = coin.sparkline_in_7d?.price ?? [];
-      const sparkline = downsampleSparkline(rawSparkline, 42);
+    // Parse Pyth prices
+    const currentPrices: Record<PriceAsset, number> = { ETH: 0, BTC: 0, SOL: 0, MON: 0 };
+
+    for (const entry of pythData.parsed) {
+      // Pyth returns ids without 0x prefix
+      const rawId = entry.id.replace(/^0x/, '');
+      const asset = PYTH_PRICE_FEED_IDS[rawId];
+      if (asset) {
+        const price = Number(entry.price.price) * Math.pow(10, entry.price.expo);
+        if (Number.isFinite(price) && price > 0) {
+          currentPrices[asset] = round2(price);
+        }
+      }
+    }
+
+    // Validate we got real prices for ETH, BTC, SOL
+    for (const asset of ['ETH', 'BTC', 'SOL'] as PriceAsset[]) {
+      if (currentPrices[asset] === 0) {
+        console.warn(`[prices] Missing Pyth price for ${asset}, falling back to cache`);
+        if (priceCache) return c.json(priceCache.data);
+        return c.json({ error: `Missing Pyth price for ${asset}` }, 502);
+      }
+    }
+
+    // MON: random walk (pre-mainnet)
+    const monChange = (Math.random() - 0.5) * 0.04; // +/- 2%
+    lastMonPrice = Math.max(0.5, lastMonPrice * (1 + monChange));
+    currentPrices.MON = round2(lastMonPrice);
+
+    // Record snapshot in history
+    priceHistory.push({ timestamp: now, prices: { ...currentPrices } });
+    if (priceHistory.length > MAX_HISTORY_ENTRIES) {
+      priceHistory.splice(0, priceHistory.length - MAX_HISTORY_ENTRIES);
+    }
+
+    // Build response for each asset
+    const prices = PRICE_ASSETS.map((asset) => {
+      const price = currentPrices[asset];
+      const change1h = computeChange(asset, now, 60 * 60 * 1000);
+      const change24h = computeChange(asset, now, 24 * 60 * 60 * 1000);
+      const change7d = computeChange(asset, now, 7 * 24 * 60 * 60 * 1000);
+      const sparkline = buildSparkline(asset, 42);
 
       return {
         asset,
-        price: coin.current_price,
-        change1h: round2(coin.price_change_percentage_1h_in_currency ?? 0),
-        change24h: round2(coin.price_change_percentage_24h_in_currency ?? 0),
-        change7d: round2(coin.price_change_percentage_7d_in_currency ?? 0),
+        price,
+        change1h: round2(change1h),
+        change24h: round2(change24h),
+        change7d: round2(change7d),
         sparkline,
       };
-    });
-
-    // Add MON (Monad) — pre-mainnet, use placeholder data
-    // In production, replace with Pyth or DEX price feed
-    prices.push({
-      asset: 'MON',
-      price: 4.28,
-      change1h: round2((Math.random() - 0.5) * 2),
-      change24h: round2((Math.random() - 0.3) * 10),
-      change7d: round2((Math.random() - 0.2) * 20),
-      sparkline: generateMonSparkline(42),
     });
 
     const responseBody = {
       prices,
       updatedAt: new Date().toISOString(),
+      source: 'pyth',
     };
 
     // Cache it
@@ -2283,30 +2420,56 @@ app.get('/prices', async (c) => {
   }
 });
 
-/** Downsample an array to `targetLen` points using simple averaging. */
-function downsampleSparkline(data: number[], targetLen: number): number[] {
-  if (data.length <= targetLen) return data;
-  const result: number[] = [];
-  const step = data.length / targetLen;
-  for (let i = 0; i < targetLen; i++) {
-    const start = Math.floor(i * step);
-    const end = Math.floor((i + 1) * step);
-    let sum = 0;
-    for (let j = start; j < end; j++) sum += data[j];
-    result.push(round2(sum / (end - start)));
+/**
+ * Compute percentage change for an asset over the given time window.
+ * Looks back in priceHistory for the closest snapshot to (now - windowMs).
+ * Returns 0 if insufficient history.
+ */
+function computeChange(asset: PriceAsset, now: number, windowMs: number): number {
+  if (priceHistory.length < 2) return 0;
+
+  const targetTime = now - windowMs;
+  const currentPrice = priceHistory[priceHistory.length - 1].prices[asset];
+
+  // Find the snapshot closest to targetTime
+  let closest = priceHistory[0];
+  let closestDiff = Math.abs(closest.timestamp - targetTime);
+
+  for (const snap of priceHistory) {
+    const diff = Math.abs(snap.timestamp - targetTime);
+    if (diff < closestDiff) {
+      closest = snap;
+      closestDiff = diff;
+    }
   }
-  return result;
+
+  const oldPrice = closest.prices[asset];
+  if (oldPrice <= 0 || currentPrice <= 0) return 0;
+
+  return ((currentPrice - oldPrice) / oldPrice) * 100;
 }
 
-/** Generate a fake MON sparkline that trends slightly up. */
-function generateMonSparkline(points: number): number[] {
-  const result: number[] = [];
-  let price = 3.8 + Math.random() * 0.5;
-  for (let i = 0; i < points; i++) {
-    price += (Math.random() - 0.45) * 0.15;
-    if (price < 2.5) price = 2.5 + Math.random() * 0.3;
-    result.push(round2(price));
+/**
+ * Build a sparkline array from the price history.
+ * Downsamples history to `points` evenly-spaced entries.
+ * Returns current price repeated if insufficient history.
+ */
+function buildSparkline(asset: PriceAsset, points: number): number[] {
+  if (priceHistory.length === 0) return [];
+  if (priceHistory.length === 1) {
+    // Single point — return flat sparkline so the chart renders
+    return Array(points).fill(round2(priceHistory[0].prices[asset]));
   }
+
+  // Evenly sample from history
+  const result: number[] = [];
+  const step = (priceHistory.length - 1) / (points - 1);
+
+  for (let i = 0; i < points; i++) {
+    const idx = Math.min(Math.round(i * step), priceHistory.length - 1);
+    result.push(round2(priceHistory[idx].prices[asset]));
+  }
+
   return result;
 }
 

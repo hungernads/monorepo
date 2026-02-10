@@ -159,9 +159,17 @@ export default function MarketTicker() {
     <div className="flex flex-col gap-2">
       {/* Header row: title + timeframe toggles */}
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-          Markets
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+            Markets
+          </h2>
+          {!error && prices.length > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-green-900/30 px-1.5 py-0.5 text-[9px] font-bold uppercase text-green-400">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+              Live
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           {(Object.keys(TIMEFRAME_LABELS) as TimeFrame[]).map((tf) => (
             <button
@@ -181,8 +189,8 @@ export default function MarketTicker() {
 
       {/* Error banner (non-blocking — shows stale data below) */}
       {error && prices.length > 0 && (
-        <div className="rounded border border-blood-dark/30 bg-blood-dark/10 px-2 py-1 text-[10px] text-blood-light">
-          Using cached data. API error: {error}
+        <div className="rounded border border-gray-700/30 bg-gray-800/30 px-2 py-1 text-[10px] text-gray-500">
+          Showing cached prices. Reconnecting...
         </div>
       )}
 
