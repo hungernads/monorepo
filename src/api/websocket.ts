@@ -23,7 +23,7 @@ import type { CombatResult } from '../arena/combat';
 import type { DeathEvent } from '../arena/death';
 import type { MarketData, AllianceEvent as AllianceEventData } from '../agents/schemas';
 import type { CurveEvent } from '../chain/nadfun';
-import type { TileType, ItemType } from '../arena/types/hex';
+import type { TileType, TileLevel, ItemType } from '../arena/types/hex';
 import type { HexGridState } from '../arena/hex-grid';
 
 // ─── Event Types ──────────────────────────────────────────────────────────────
@@ -250,9 +250,9 @@ export interface SponsorBoostEvent {
 
 /**
  * Full grid state snapshot. Sent on initial WebSocket connect and after each
- * epoch so spectators always have a consistent view of the 19-tile arena.
+ * epoch so spectators always have a consistent view of the 37-tile arena.
  *
- * tiles: flat array of all hex tiles with coords, type, occupant, and items.
+ * tiles: flat array of all hex tiles with coords, type, level, occupant, and items.
  * agentPositions: agentId -> { q, r } mapping for quick lookup.
  */
 export interface GridStateEvent {
@@ -262,6 +262,7 @@ export interface GridStateEvent {
       q: number;
       r: number;
       type: TileType;
+      level: number;
       occupantId: string | null;
       items: { id: string; type: ItemType }[];
     }[];
@@ -727,6 +728,7 @@ export function gridStateToEvent(grid: HexGridState): GridStateEvent {
       q: tile.coord.q,
       r: tile.coord.r,
       type: tile.type,
+      level: tile.level,
       occupantId: tile.occupantId,
       items: tile.items.map(item => ({ id: item.id, type: item.type })),
     });

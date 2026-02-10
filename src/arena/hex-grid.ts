@@ -1,24 +1,14 @@
 /**
- * HUNGERNADS - 19-Tile Axial Coordinate Hex Grid System
+ * HUNGERNADS - 37-Tile Axial Coordinate Hex Grid System
  *
- * Expanded arena: 3-ring honeycomb (radius 2) with 19 tiles.
+ * Expanded arena: 4-ring honeycomb (radius 3) with 37 tiles.
  *
  * Layout (flat-top hexagons, axial coordinates q,r):
  *
- *  Ring 2 (EDGE - outer 12 tiles):
- *            (-1,-1) (0,-2) (1,-2)
- *        (-2,0)                 (2,-2)
- *     (-2,1)                      (2,-1)
- *        (-2,2)                 (2,0)
- *            (-1,2)  (0,2)  (1,1)
- *
- *  Ring 1 (CORNUCOPIA - inner 6 tiles):
- *              (0,-1)  (1,-1)
- *           (-1,0)        (1,0)
- *              (-1,1)  (0,1)
- *
- *  Ring 0 (CORNUCOPIA - center):
- *                (0,0)
+ *  Ring 3 (EDGE - outer 18 tiles):  Lv 1 - Sparse items, dim + dashed
+ *  Ring 2 (NORMAL - middle 12 tiles): Lv 2 - Standard spawn rates
+ *  Ring 1 (CORNUCOPIA - inner 6 tiles): Lv 3 - Good loot (cornucopia)
+ *  Ring 0 (CORNUCOPIA - center 1 tile): Lv 4 - Best loot (legendary)
  *
  * All functions are pure with no side effects.
  */
@@ -27,6 +17,7 @@ import type {
   HexCoord,
   HexTile,
   TileType,
+  TileLevel,
   Direction,
   HexGridState,
 } from './types/hex';
@@ -36,6 +27,7 @@ export type {
   HexCoord,
   HexTile,
   TileType,
+  TileLevel,
   Direction,
   HexGridState,
   MovementAction,
@@ -48,8 +40,8 @@ export type {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Grid radius. 0 = center only, 1 = 7 tiles, 2 = 19 tiles. */
-export const GRID_RADIUS = 2;
+/** Grid radius. 0 = center only, 1 = 7 tiles, 2 = 19 tiles, 3 = 37 tiles. */
+export const GRID_RADIUS = 3;
 
 /**
  * Axial direction offsets for the 6 hex neighbors (flat-top orientation).
@@ -117,12 +109,29 @@ export function isAdjacent(a: HexCoord, b: HexCoord): boolean {
 /**
  * Determine tile type based on distance from center.
  * - Ring 0 + Ring 1 (distance <= 1): CORNUCOPIA
- * - Ring 2 (distance == 2): EDGE
+ * - Ring 2 (distance == 2): NORMAL
+ * - Ring 3 (distance == 3): EDGE
  */
 function classifyTile(coord: HexCoord): TileType {
   const dist = getDistance(coord, { q: 0, r: 0 });
   if (dist <= CORNUCOPIA_RADIUS) return 'CORNUCOPIA';
-  return 'EDGE';
+  if (dist >= GRID_RADIUS) return 'EDGE';
+  return 'NORMAL';
+}
+
+/**
+ * Determine tile level based on ring distance from center.
+ * - Ring 0: Lv 4 (Legendary) — center tile, best loot
+ * - Ring 1: Lv 3 (Epic) — inner ring, cornucopia loot
+ * - Ring 2: Lv 2 (Common) — middle ring, standard spawns
+ * - Ring 3: Lv 1 (Outer) — outer ring, sparse items
+ */
+export function getTileLevel(coord: HexCoord): TileLevel {
+  const dist = getDistance(coord, { q: 0, r: 0 });
+  if (dist === 0) return 4;
+  if (dist === 1) return 3;
+  if (dist === 2) return 2;
+  return 1;
 }
 
 /**
@@ -143,11 +152,12 @@ function generateRingCoords(radius: number): HexCoord[] {
 }
 
 /**
- * Create the 19-tile hex grid with typed tiles.
+ * Create the 37-tile hex grid with typed tiles and levels.
  *
  * Returns a HexGridState with all tiles initialized:
- * - 7 CORNUCOPIA tiles (center + inner ring)
- * - 12 EDGE tiles (outer ring)
+ * - 7 CORNUCOPIA tiles (ring 0 + ring 1) — Lv 4 + Lv 3
+ * - 12 NORMAL tiles (ring 2) — Lv 2
+ * - 18 EDGE tiles (ring 3) — Lv 1
  * - All tiles empty (no occupants, no items)
  */
 export function createGrid(radius: number = GRID_RADIUS): HexGridState {
@@ -158,6 +168,7 @@ export function createGrid(radius: number = GRID_RADIUS): HexGridState {
     const tile: HexTile = {
       coord,
       type: classifyTile(coord),
+      level: getTileLevel(coord),
       occupantId: null,
       items: [],
     };
@@ -431,13 +442,14 @@ export function moveAgent(
 /** Convert grid state to a plain object for JSON serialization. */
 export function serializeGrid(grid: HexGridState): {
   radius: number;
-  tiles: Array<{ coord: HexCoord; type: TileType; occupantId: string | null }>;
+  tiles: Array<{ coord: HexCoord; type: TileType; level: TileLevel; occupantId: string | null }>;
 } {
-  const tiles: Array<{ coord: HexCoord; type: TileType; occupantId: string | null }> = [];
+  const tiles: Array<{ coord: HexCoord; type: TileType; level: TileLevel; occupantId: string | null }> = [];
   for (const tile of grid.tiles.values()) {
     tiles.push({
       coord: tile.coord,
       type: tile.type,
+      level: tile.level,
       occupantId: tile.occupantId,
     });
   }
@@ -447,13 +459,14 @@ export function serializeGrid(grid: HexGridState): {
 /** Reconstruct grid state from serialized data. */
 export function deserializeGrid(data: {
   radius: number;
-  tiles: Array<{ coord: HexCoord; type: TileType; occupantId: string | null }>;
+  tiles: Array<{ coord: HexCoord; type: TileType; level?: TileLevel; occupantId: string | null }>;
 }): HexGridState {
   const tiles = new Map<string, HexTile>();
   for (const t of data.tiles) {
     tiles.set(hexKey(t.coord), {
       coord: t.coord,
       type: t.type,
+      level: t.level ?? getTileLevel(t.coord),
       occupantId: t.occupantId,
       items: [],
     });

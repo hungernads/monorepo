@@ -33,6 +33,9 @@ interface FloatingText {
 /** Tile classification — matches backend src/arena/types/hex.ts */
 type TileType = "NORMAL" | "CORNUCOPIA" | "EDGE";
 
+/** Tile level (1-4) determines loot quality and visual style. */
+type TileLevel = 1 | 2 | 3 | 4;
+
 /** Item types from the arena system */
 type ItemType = "RATION" | "WEAPON" | "SHIELD" | "TRAP" | "ORACLE";
 
@@ -42,10 +45,20 @@ interface TileItem {
   type: ItemType;
 }
 
-/** Extended hex definition for the 19-tile grid */
+/** Recent movement for trail rendering */
+interface RecentMove {
+  agentId: string;
+  agentName: string;
+  from: { q: number; r: number };
+  to: { q: number; r: number };
+  success: boolean;
+}
+
+/** Extended hex definition for the 37-tile grid */
 interface ArenaHex extends HexCoord {
   label: string;
   tileType: TileType;
+  tileLevel: TileLevel;
 }
 
 interface HexBattleArenaProps {
@@ -57,30 +70,48 @@ interface HexBattleArenaProps {
   tileItems?: Map<string, TileItem[]>;
   /** Number of sponsor events seen so far. Increment to trigger gold rain effect. */
   sponsorEventCount?: number;
+  /** Recent agent movements for drawing movement trail arrows. */
+  recentMoves?: RecentMove[];
 }
 
 // ---------------------------------------------------------------------------
-// Constants -- 19-tile hex grid geometry (flat-top, radius 2)
+// Constants -- 37-tile hex grid geometry (flat-top, radius 3)
 // ---------------------------------------------------------------------------
 
 /**
  * Flat-top hex size (outer radius = center to vertex).
- * Reduced from 70 to 55 to fit 19 tiles in ~700x600 SVG.
+ * 48px gives agents enough room for visible portraits + names + HP bars.
  */
-const HEX_SIZE = 55;
+const HEX_SIZE = 48;
 const SQRT3 = Math.sqrt(3);
-const GRID_RADIUS = 2;
+const GRID_RADIUS = 3;
 
 /**
- * Determine tile type by distance from center.
+ * Determine tile type by distance from center (4-tier system).
  * Ring 0 + Ring 1 (distance <= 1) = CORNUCOPIA
- * Ring 2 (distance == 2) = EDGE
+ * Ring 2 (distance == 2) = NORMAL
+ * Ring 3 (distance == 3) = EDGE
  */
 function classifyTile(q: number, r: number): TileType {
   const s = -q - r;
   const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
   if (dist <= 1) return "CORNUCOPIA";
-  return "EDGE";
+  if (dist >= 3) return "EDGE";
+  return "NORMAL";
+}
+
+/**
+ * Determine tile level (1-4) based on ring distance.
+ * Ring 0 = Lv 4 (Legendary), Ring 1 = Lv 3 (Epic),
+ * Ring 2 = Lv 2 (Common), Ring 3 = Lv 1 (Outer)
+ */
+function getTileLevel(q: number, r: number): TileLevel {
+  const s = -q - r;
+  const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+  if (dist === 0) return 4;
+  if (dist === 1) return 3;
+  if (dist === 2) return 2;
+  return 1;
 }
 
 /** Direction labels for hex tiles based on their position */
@@ -89,7 +120,6 @@ function tileLabel(q: number, r: number): string {
   const s = -q - r;
   const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
   if (dist === 1) {
-    // Inner ring labels
     const labels: Record<string, string> = {
       "0,-1": "N",
       "1,-1": "NE",
@@ -100,12 +130,13 @@ function tileLabel(q: number, r: number): string {
     };
     return labels[`${q},${r}`] || "";
   }
-  // Outer ring: abbreviated coordinates
+  if (dist === 2) return `${q},${r}`;
+  // Ring 3: abbreviated coordinates
   return `${q},${r}`;
 }
 
 /**
- * Generate all 19 hex coordinates for radius-2 grid.
+ * Generate all 37 hex coordinates for radius-3 grid.
  * For radius R, generates all (q,r) where max(|q|,|r|,|-q-r|) <= R.
  */
 function generateArenaHexes(): ArenaHex[] {
@@ -119,6 +150,7 @@ function generateArenaHexes(): ArenaHex[] {
           r,
           label: tileLabel(q, r),
           tileType: classifyTile(q, r),
+          tileLevel: getTileLevel(q, r),
         });
       }
     }
@@ -126,7 +158,7 @@ function generateArenaHexes(): ArenaHex[] {
   return hexes;
 }
 
-/** The 19-tile arena in axial coords */
+/** The 37-tile arena in axial coords */
 const ARENA_HEXES = generateArenaHexes();
 
 // ---------------------------------------------------------------------------
@@ -154,7 +186,7 @@ function hexVertices(cx: number, cy: number, size: number): string {
 }
 
 /**
- * Deterministic agent-to-hex assignment for 19-tile grid.
+ * Deterministic agent-to-hex assignment for 37-tile grid.
  * Spreads 5 agents across the grid: one center, four on ring 1 edges.
  */
 function assignDefaultPositions(agentIds: string[]): Map<string, HexCoord> {
@@ -180,33 +212,46 @@ function assignDefaultPositions(agentIds: string[]): Map<string, HexCoord> {
 // ---------------------------------------------------------------------------
 
 const CLASS_HEX_COLORS: Record<AgentClass, { fill: string; stroke: string; glow: string }> = {
-  WARRIOR: { fill: "rgba(220,38,38,0.15)", stroke: "#dc2626", glow: "rgba(220,38,38,0.4)" },
-  TRADER: { fill: "rgba(59,130,246,0.15)", stroke: "#3b82f6", glow: "rgba(59,130,246,0.4)" },
-  SURVIVOR: { fill: "rgba(34,197,94,0.15)", stroke: "#22c55e", glow: "rgba(34,197,94,0.4)" },
-  PARASITE: { fill: "rgba(124,58,237,0.15)", stroke: "#7c3aed", glow: "rgba(124,58,237,0.4)" },
-  GAMBLER: { fill: "rgba(245,158,11,0.15)", stroke: "#f59e0b", glow: "rgba(245,158,11,0.4)" },
+  WARRIOR: { fill: "#1a0808", stroke: "#dc2626", glow: "rgba(220,38,38,0.5)" },
+  TRADER: { fill: "#08101a", stroke: "#3b82f6", glow: "rgba(59,130,246,0.5)" },
+  SURVIVOR: { fill: "#081a0d", stroke: "#22c55e", glow: "rgba(34,197,94,0.5)" },
+  PARASITE: { fill: "#120a1f", stroke: "#7c3aed", glow: "rgba(124,58,237,0.5)" },
+  GAMBLER: { fill: "#1a150a", stroke: "#f59e0b", glow: "rgba(245,158,11,0.5)" },
 };
 
-const DEAD_COLORS = { fill: "rgba(30,30,40,0.6)", stroke: "#333", glow: "none" };
+const DEAD_COLORS = { fill: "#141420", stroke: "#333", glow: "none" };
 
-/** Tile type visual config */
-const TILE_COLORS: Record<TileType, { fill: string; stroke: string; strokeWidth: number; dashArray?: string }> = {
-  NORMAL: {
-    fill: "rgba(26,26,46,0.4)",
-    stroke: "rgba(37,37,64,0.6)",
+/** Tile level visual config (4-tier system) */
+const TILE_LEVEL_COLORS: Record<TileLevel, { fill: string; stroke: string; strokeWidth: number; dashArray?: string }> = {
+  4: { // Legendary (center) — dark gold, thick border
+    fill: "#2a1f0a",
+    stroke: "#f59e0b",
+    strokeWidth: 2.5,
+  },
+  3: { // Epic (ring 1) — warm amber
+    fill: "#1f1a0d",
+    stroke: "#b45309",
+    strokeWidth: 1.5,
+  },
+  2: { // Common (ring 2) — deep indigo
+    fill: "#141428",
+    stroke: "#2a2a50",
     strokeWidth: 1,
   },
-  CORNUCOPIA: {
-    fill: "rgba(245,158,11,0.06)",
-    stroke: "rgba(245,158,11,0.25)",
+  1: { // Outer (ring 3) — near-black, dashed
+    fill: "#0c0c18",
+    stroke: "#1e1e38",
     strokeWidth: 1,
+    dashArray: "5,3",
   },
-  EDGE: {
-    fill: "rgba(15,15,25,0.5)",
-    stroke: "rgba(37,37,64,0.4)",
-    strokeWidth: 1,
-    dashArray: "6,3",
-  },
+};
+
+/** Level label + color for badge display */
+const LEVEL_BADGE: Record<TileLevel, { label: string; color: string }> = {
+  4: { label: "Lv4", color: "#f59e0b" },
+  3: { label: "Lv3", color: "#b45309" },
+  2: { label: "Lv2", color: "#4a4a6a" },
+  1: { label: "Lv1", color: "#3a3a55" },
 };
 
 // ---------------------------------------------------------------------------
@@ -225,14 +270,14 @@ function ItemIcon({ item, cx, cy, index }: { item: TileItem; cx: number; cy: num
   const cfg = ITEM_ICONS[item.type];
   // Offset items in a small cluster around tile center
   const angle = (index * 120 + 30) * (Math.PI / 180);
-  const offsetR = 18;
+  const offsetR = 22;
   const ix = cx + offsetR * Math.cos(angle);
   const iy = cy + offsetR * Math.sin(angle);
 
   return (
     <g>
       {/* Item background circle */}
-      <circle cx={ix} cy={iy} r="7" fill="rgba(0,0,0,0.6)" stroke={cfg.color} strokeWidth="1" opacity="0.8" />
+      <circle cx={ix} cy={iy} r="7" fill="#0a0a12" stroke={cfg.color} strokeWidth="1.5" opacity="1" />
       {/* Item icon */}
       <text
         x={ix}
@@ -301,14 +346,14 @@ function HexTile({
   // Winner override
   if (isWinner) {
     agentColors = {
-      fill: "rgba(245,158,11,0.2)",
+      fill: "#2a1f0a",
       stroke: "#fbbf24",
-      glow: "rgba(245,158,11,0.6)",
+      glow: "rgba(245,158,11,0.7)",
     };
   }
 
-  // Base tile styling from tile type
-  const tileCfg = TILE_COLORS[hex.tileType];
+  // Base tile styling from tile level (4-tier)
+  const tileCfg = TILE_LEVEL_COLORS[hex.tileLevel];
   // If occupied, blend agent color with tile
   const baseFill = occupied ? agentColors.fill : tileCfg.fill;
   const baseStroke = occupied ? agentColors.stroke : tileCfg.stroke;
@@ -319,10 +364,10 @@ function HexTile({
   const innerVertices = hexVertices(center.x, center.y, HEX_SIZE - 6);
 
   // HP bar dimensions
-  const barWidth = HEX_SIZE * 0.9;
-  const barHeight = 4;
+  const barWidth = HEX_SIZE * 0.85;
+  const barHeight = 5;
   const barX = center.x - barWidth / 2;
-  const barY = center.y + 18;
+  const barY = center.y + 27;
   const hpPct = agent ? Math.max(0, agent.hp / agent.maxHp) : 0;
 
   // HP color
@@ -393,13 +438,29 @@ function HexTile({
         opacity={isGhost ? 0.5 : 1}
       />
 
-      {/* Cornucopia center glow */}
-      {hex.tileType === "CORNUCOPIA" && !occupied && (
+      {/* Legendary / Epic center glow */}
+      {hex.tileLevel >= 3 && !occupied && (
         <polygon
-          points={hexVertices(center.x, center.y, HEX_SIZE - 12)}
-          fill="rgba(245,158,11,0.03)"
+          points={hexVertices(center.x, center.y, HEX_SIZE - 10)}
+          fill={hex.tileLevel === 4 ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.06)"}
           stroke="none"
         />
+      )}
+
+      {/* Level badge (bottom-right of tile) */}
+      {!occupied && (
+        <text
+          x={center.x + HEX_SIZE * 0.35}
+          y={center.y + HEX_SIZE * 0.55}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill={LEVEL_BADGE[hex.tileLevel].color}
+          fontSize="7"
+          fontFamily="monospace"
+          fontWeight="bold"
+        >
+          {LEVEL_BADGE[hex.tileLevel].label}
+        </text>
       )}
 
       {/* Inner hex accent line */}
@@ -441,7 +502,7 @@ function HexTile({
           y={center.y}
           textAnchor="middle"
           dominantBaseline="middle"
-          fill={hex.tileType === "CORNUCOPIA" ? "rgba(245,158,11,0.2)" : "rgba(100,100,130,0.2)"}
+          fill={hex.tileLevel >= 3 ? "rgba(245,158,11,0.35)" : "rgba(100,100,130,0.3)"}
           fontSize="8"
           fontFamily="monospace"
           letterSpacing="0.1em"
@@ -467,9 +528,9 @@ function HexTile({
           <>
             {/* Agent portrait (foreignObject for reliable image loading) */}
             {(() => {
-              const portraitSize = 30;
+              const portraitSize = 38;
               const px = center.x - portraitSize / 2;
-              const py = center.y - 10 - portraitSize / 2;
+              const py = center.y - 14 - portraitSize / 2;
               return (
                 <g>
                   <foreignObject
@@ -479,50 +540,21 @@ function HexTile({
                     height={portraitSize}
                     style={{ overflow: "hidden" }}
                   >
-                    <div
-                      style={{
-                        width: portraitSize,
-                        height: portraitSize,
-                        clipPath: "polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={cfg?.image}
-                        alt={agent.name}
-                        width={portraitSize}
-                        height={portraitSize}
-                        style={{ objectFit: "cover", width: "100%", height: "100%" }}
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          target.style.display = "none";
-                          if (target.nextElementSibling) (target.nextElementSibling as HTMLElement).style.display = "flex";
-                        }}
-                      />
-                      <span
-                        style={{
-                          display: "none",
-                          fontSize: portraitSize * 0.6,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "100%",
-                          height: "100%",
-                        }}
-                      >
-                        {cfg?.emoji}
-                      </span>
-                    </div>
+                    <HexPortrait
+                      src={cfg?.image}
+                      alt={agent.name}
+                      emoji={cfg?.emoji}
+                      size={portraitSize}
+                      clipPath="polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)"
+                    />
                   </foreignObject>
                   {/* Hex border around portrait */}
                   <polygon
-                    points={hexVertices(center.x, center.y - 10, portraitSize / 2)}
+                    points={hexVertices(center.x, center.y - 14, portraitSize / 2 + 1)}
                     fill="none"
                     stroke={agentColors.stroke}
-                    strokeWidth="1"
-                    opacity="0.5"
+                    strokeWidth="1.5"
+                    opacity="0.7"
                   />
                 </g>
               );
@@ -531,19 +563,53 @@ function HexTile({
             {/* Agent name */}
             <text
               x={center.x}
-              y={center.y + 8}
+              y={center.y + 10}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill={isWinner ? "#fbbf24" : isGhost ? "#555" : "#e0e0e0"}
-              fontSize="8"
+              fill={isWinner ? "#fbbf24" : isGhost ? "#555" : "#fff"}
+              fontSize="10"
               fontWeight="bold"
               fontFamily="monospace"
-              letterSpacing="0.05em"
+              letterSpacing="0.04em"
             >
-              {agent.name.length > 8
-                ? agent.name.slice(0, 7) + ".."
+              {agent.name.length > 10
+                ? agent.name.slice(0, 9) + ".."
                 : agent.name}
             </text>
+
+            {/* Class badge (colored pill below name) */}
+            {(() => {
+              const badgeY = center.y + 20;
+              const badgeText = agent.class;
+              const badgeWidth = 40;
+              const badgeHeight = 11;
+              return (
+                <g>
+                  <rect
+                    x={center.x - badgeWidth / 2}
+                    y={badgeY - badgeHeight / 2}
+                    width={badgeWidth}
+                    height={badgeHeight}
+                    rx="3"
+                    fill={agentColors.stroke}
+                    opacity="0.3"
+                  />
+                  <text
+                    x={center.x}
+                    y={badgeY + 0.5}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill={agentColors.stroke}
+                    fontSize="7"
+                    fontWeight="bold"
+                    fontFamily="monospace"
+                    letterSpacing="0.06em"
+                  >
+                    {badgeText}
+                  </text>
+                </g>
+              );
+            })()}
 
             {/* HP bar background */}
             <rect
@@ -552,28 +618,30 @@ function HexTile({
               width={barWidth}
               height={barHeight}
               rx="2"
-              fill="rgba(10,10,15,0.8)"
+              fill="#0a0a10"
+              stroke="#222"
+              strokeWidth="0.5"
             />
 
             {/* HP bar fill */}
-            <motion.rect
+            <rect
               x={barX}
               y={barY}
-              animate={{ width: barWidth * hpPct }}
-              transition={{ type: "spring", visualDuration: 0.5, bounce: 0.25 }}
+              width={barWidth * hpPct}
               height={barHeight}
               rx="2"
               fill={hpColor}
+              style={{ transition: "width 0.5s ease-out" }}
             />
 
             {/* HP text */}
             <text
               x={center.x}
-              y={barY + barHeight + 9}
+              y={barY + barHeight + 10}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill={isGhost ? "#555" : "#888"}
-              fontSize="7"
+              fill={isGhost ? "#555" : "#999"}
+              fontSize="8"
               fontFamily="monospace"
             >
               {agent.hp}/{agent.maxHp}
@@ -584,10 +652,10 @@ function HexTile({
               <g>
                 <text
                   x={center.x + barWidth / 2 - 2}
-                  y={center.y - 24}
+                  y={center.y - 30}
                   textAnchor="end"
                   fill="#dc2626"
-                  fontSize="8"
+                  fontSize="9"
                   fontFamily="monospace"
                   fontWeight="bold"
                 >
@@ -600,8 +668,8 @@ function HexTile({
             {agent.predictionResult && !isDead && (
               <circle
                 cx={center.x - barWidth / 2 + 5}
-                cy={center.y - 26}
-                r="4"
+                cy={center.y - 32}
+                r="5"
                 fill={
                   agent.predictionResult === "correct"
                     ? "rgba(34,197,94,0.8)"
@@ -610,7 +678,7 @@ function HexTile({
               >
                 <animate
                   attributeName="r"
-                  values="4;6;4"
+                  values="5;7;5"
                   dur="0.8s"
                   repeatCount="2"
                 />
@@ -625,11 +693,11 @@ function HexTile({
             {agent.predictionResult && !isDead && (
               <text
                 x={center.x - barWidth / 2 + 5}
-                y={center.y - 25}
+                y={center.y - 31}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill="white"
-                fontSize="6"
+                fontSize="7"
                 fontWeight="bold"
               >
                 {agent.predictionResult === "correct" ? "\u2713" : "\u2717"}
@@ -823,14 +891,14 @@ function HexTile({
       {isWinner && (
         <text
           x={center.x}
-          y={center.y - 32}
+          y={center.y - 38}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize="16"
+          fontSize="18"
         >
           <animate
             attributeName="y"
-            values={`${center.y - 32};${center.y - 36};${center.y - 32}`}
+            values={`${center.y - 38};${center.y - 42};${center.y - 38}`}
             dur="1.5s"
             repeatCount="indefinite"
           />
@@ -1017,6 +1085,145 @@ function FloatingNumber({
 }
 
 // ---------------------------------------------------------------------------
+// Movement trail arrow — animated dashed line from old tile to new tile
+// ---------------------------------------------------------------------------
+
+function MovementTrail({
+  from,
+  to,
+  color,
+  success,
+}: {
+  from: PixelPoint;
+  to: PixelPoint;
+  color: string;
+  success: boolean;
+}) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return null;
+
+  const nx = dx / len;
+  const ny = dy / len;
+
+  // Shorten line to not overlap hex shapes
+  const startX = from.x + nx * (HEX_SIZE * 0.5);
+  const startY = from.y + ny * (HEX_SIZE * 0.5);
+  const endX = to.x - nx * (HEX_SIZE * 0.5);
+  const endY = to.y - ny * (HEX_SIZE * 0.5);
+
+  // Arrowhead
+  const arrowSize = 5;
+  const arrowAngle = Math.atan2(dy, dx);
+  const a1x = endX - arrowSize * Math.cos(arrowAngle - 0.4);
+  const a1y = endY - arrowSize * Math.sin(arrowAngle - 0.4);
+  const a2x = endX - arrowSize * Math.cos(arrowAngle + 0.4);
+  const a2y = endY - arrowSize * Math.sin(arrowAngle + 0.4);
+
+  const lineColor = success ? color : "rgba(220,38,38,0.5)";
+
+  return (
+    <g>
+      {/* Trail line */}
+      <line
+        x1={startX}
+        y1={startY}
+        x2={endX}
+        y2={endY}
+        stroke={lineColor}
+        strokeWidth="2"
+        strokeDasharray="4,3"
+        opacity="0.5"
+        strokeLinecap="round"
+      >
+        <animate
+          attributeName="stroke-dashoffset"
+          from="14"
+          to="0"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+        <animate
+          attributeName="opacity"
+          values="0.6;0.3;0"
+          dur="2s"
+          fill="freeze"
+        />
+      </line>
+
+      {/* Arrow head */}
+      {success && (
+        <polygon
+          points={`${endX},${endY} ${a1x},${a1y} ${a2x},${a2y}`}
+          fill={lineColor}
+          opacity="0.5"
+        >
+          <animate
+            attributeName="opacity"
+            values="0.6;0.3;0"
+            dur="2s"
+            fill="freeze"
+          />
+        </polygon>
+      )}
+
+      {/* Failed move: red X at target */}
+      {!success && (
+        <g>
+          <line
+            x1={to.x - 5}
+            y1={to.y - 5}
+            x2={to.x + 5}
+            y2={to.y + 5}
+            stroke="rgba(220,38,38,0.6)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <animate attributeName="opacity" values="0.8;0;0" dur="2s" fill="freeze" />
+          </line>
+          <line
+            x1={to.x + 5}
+            y1={to.y - 5}
+            x2={to.x - 5}
+            y2={to.y + 5}
+            stroke="rgba(220,38,38,0.6)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <animate attributeName="opacity" values="0.8;0;0" dur="2s" fill="freeze" />
+          </line>
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Portrait helper — uses React state so fallback survives re-renders
+// ---------------------------------------------------------------------------
+
+function HexPortrait({ src, alt, emoji, size, clipPath }: {
+  src?: string; alt: string; emoji?: string; size: number; clipPath?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div style={{ width: size, height: size, clipPath, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {!failed && src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={alt} width={size} height={size}
+          style={{ objectFit: "cover", width: "100%", height: "100%" }}
+          onError={() => setFailed(true)} />
+      ) : (
+        <span style={{ fontSize: size * 0.6, display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%" }}>
+          {emoji}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -1026,6 +1233,7 @@ export default function HexBattleArena({
   agentPositions: externalPositions,
   tileItems: externalTileItems,
   sponsorEventCount = 0,
+  recentMoves = [],
 }: HexBattleArenaProps) {
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
 
@@ -1054,7 +1262,7 @@ export default function HexBattleArena({
   // Screen shake for combat feedback
   const { ShakeWrapper, triggerShake } = useScreenShake();
 
-  // Compute hex pixel centers for all 19 tiles
+  // Compute hex pixel centers for all 37 tiles
   const hexCenters = useMemo(() => {
     const centers = new Map<string, PixelPoint>();
     for (const hex of ARENA_HEXES) {
@@ -1137,7 +1345,7 @@ export default function HexBattleArena({
   const svgToNormalized = useCallback(
     (svgX: number, svgY: number): { nx: number; ny: number } => {
       const allPoints = ARENA_HEXES.map((h) => axialToPixel(h.q, h.r));
-      const pad = HEX_SIZE + 50;
+      const pad = HEX_SIZE + 60;
       const minX = Math.min(...allPoints.map((p) => p.x)) - pad;
       const minY = Math.min(...allPoints.map((p) => p.y)) - pad;
       const maxX = Math.max(...allPoints.map((p) => p.x)) + pad;
@@ -1331,10 +1539,10 @@ export default function HexBattleArena({
     return () => clearInterval(interval);
   }, []);
 
-  // Compute SVG viewBox to fit all 19 hexes with padding
+  // Compute SVG viewBox to fit all 37 hexes with padding
   const viewBox = useMemo(() => {
     const allPoints = ARENA_HEXES.map((h) => axialToPixel(h.q, h.r));
-    const pad = HEX_SIZE + 40;
+    const pad = HEX_SIZE + 50;
     const minX = Math.min(...allPoints.map((p) => p.x)) - pad;
     const minY = Math.min(...allPoints.map((p) => p.y)) - pad;
     const maxX = Math.max(...allPoints.map((p) => p.x)) + pad;
@@ -1352,6 +1560,25 @@ export default function HexBattleArena({
     agents.filter((a) => a.attacked).map((a) => a.id),
   );
 
+  // Compute movement trail pixel positions
+  const movementTrails = useMemo(() => {
+    return recentMoves.map((move) => {
+      const fromKey = `${move.from.q},${move.from.r}`;
+      const toKey = `${move.to.q},${move.to.r}`;
+      const fromCenter = hexCenters.get(fromKey);
+      const toCenter = hexCenters.get(toKey);
+      const agent = agents.find((a) => a.id === move.agentId);
+      const agentColor = agent ? CLASS_HEX_COLORS[agent.class].stroke : "#888";
+      return {
+        from: fromCenter,
+        to: toCenter,
+        color: agentColor,
+        success: move.success,
+        agentId: move.agentId,
+      };
+    }).filter((t) => t.from && t.to);
+  }, [recentMoves, hexCenters, agents]);
+
   return (
     <ShakeWrapper>
     <div className="relative">
@@ -1368,12 +1595,12 @@ export default function HexBattleArena({
         <div className="flex items-center gap-2 text-xs text-gray-600">
           <span className="text-white">{aliveCount}</span>/{agents.length}{" "}
           alive
-          <span className="ml-2 text-[9px] text-gray-700">19 tiles</span>
+          <span className="ml-2 text-[9px] text-gray-700">37 tiles</span>
         </div>
       </div>
 
       {/* SVG Arena */}
-      <div className="relative mx-auto w-full" style={{ maxWidth: "700px" }}>
+      <div className="relative mx-auto w-full" style={{ maxWidth: "820px" }}>
         {/* Background ambient glow */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-48 w-48 rounded-full bg-blood/5 blur-3xl" />
@@ -1382,7 +1609,7 @@ export default function HexBattleArena({
         <svg
           viewBox={viewBox}
           className="w-full"
-          style={{ minHeight: "420px" }}
+          style={{ minHeight: "500px" }}
           xmlns="http://www.w3.org/2000/svg"
         >
           {/* SVG Defs: filters and gradients */}
@@ -1418,7 +1645,7 @@ export default function HexBattleArena({
 
             {/* Cornucopia center radial glow */}
             <radialGradient id="cornucopia-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(245,158,11,0.06)" />
+              <stop offset="0%" stopColor="rgba(245,158,11,0.12)" />
               <stop offset="100%" stopColor="transparent" />
             </radialGradient>
 
@@ -1470,9 +1697,9 @@ export default function HexBattleArena({
                     x2={otherCenter.x}
                     y2={otherCenter.y}
                     stroke={
-                      hex.tileType === "CORNUCOPIA" && other.tileType === "CORNUCOPIA"
-                        ? "rgba(245,158,11,0.1)"
-                        : "rgba(37,37,64,0.2)"
+                      hex.tileLevel >= 3 && other.tileLevel >= 3
+                        ? "rgba(245,158,11,0.2)"
+                        : "rgba(37,37,64,0.35)"
                     }
                     strokeWidth="1"
                   />
@@ -1480,7 +1707,7 @@ export default function HexBattleArena({
               });
           })}
 
-          {/* Hex tiles — all 19 */}
+          {/* Hex tiles — all 37 */}
           {ARENA_HEXES.map((hex) => {
             const key = `${hex.q},${hex.r}`;
             const center = hexCenters.get(key)!;
@@ -1506,6 +1733,17 @@ export default function HexBattleArena({
               />
             );
           })}
+
+          {/* Movement trails */}
+          {movementTrails.map((trail, i) => (
+            <MovementTrail
+              key={`trail-${trail.agentId}-${i}`}
+              from={trail.from!}
+              to={trail.to!}
+              color={trail.color}
+              success={trail.success}
+            />
+          ))}
 
           {/* Attack lines */}
           {attackLines.map((line, i) => (
@@ -1625,32 +1863,40 @@ export default function HexBattleArena({
       {/* Legend */}
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[9px] uppercase tracking-wider text-gray-600">
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm bg-blood/40" />
+          <span className="inline-block h-2 w-4 rounded-sm bg-blood/60" />
           Attack
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm border border-accent/60 bg-accent/20" />
+          <span className="inline-block h-2 w-4 rounded-sm border border-accent bg-accent/30" />
           Defend
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm bg-green-500/30" />
+          <span className="inline-block h-2 w-4 rounded-sm bg-green-500/50" />
           Correct
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm bg-blood/30" />
+          <span className="inline-block h-2 w-4 rounded-sm bg-blood/50" />
           Wrong
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm bg-gray-700/50" />
+          <span className="inline-block h-2 w-4 rounded-sm bg-gray-700" />
           REKT
         </span>
         <span className="ml-2 flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)" }} />
-          Cornucopia
+          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "#2a1f0a", border: "2px solid #f59e0b" }} />
+          Lv4
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "rgba(15,15,25,0.5)", border: "1px dashed rgba(37,37,64,0.4)" }} />
-          Edge
+          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "#1f1a0d", border: "1px solid #b45309" }} />
+          Lv3
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "#141428", border: "1px solid #2a2a50" }} />
+          Lv2
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "#0c0c18", border: "1px dashed #1e1e38" }} />
+          Lv1
         </span>
       </div>
     </div>

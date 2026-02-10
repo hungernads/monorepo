@@ -53,7 +53,7 @@ export interface BattleState {
   endedAt: string | null;
   winnerId: string | null;
   winnerName: string | null;
-  /** Serialized hex grid state (19-tile arena). */
+  /** Serialized hex grid state (37-tile arena). */
   grid?: ReturnType<typeof serializeGrid>;
 }
 
@@ -143,7 +143,7 @@ export class ArenaManager {
   public endedAt: Date | null;
   public readonly config: BattleConfig;
 
-  /** 19-tile hex grid state (tiles, occupants, items). */
+  /** 37-tile hex grid state (tiles, occupants, items). */
   public grid: HexGridState;
   /** Active item buffs per agent (agentId -> ItemBuff[]). */
   public agentBuffs: Map<string, ItemBuff[]>;
@@ -159,7 +159,7 @@ export class ArenaManager {
     this.startedAt = null;
     this.endedAt = null;
     this.eliminations = [];
-    this.grid = createGrid(); // 19-tile hex grid (radius 2)
+    this.grid = createGrid(); // 37-tile hex grid (radius 3)
     this.agentBuffs = new Map();
   }
 
@@ -202,10 +202,10 @@ export class ArenaManager {
       agentIds.push(id);
     }
 
-    // Place agents on EDGE tiles of the 19-tile hex grid (spread out, away from cornucopia)
-    const edgeTiles = getTilesByType('EDGE', this.grid);
-    // Shuffle edge tiles for random placement
-    const shuffled = [...edgeTiles];
+    // Place agents on random tiles across the 37-tile hex grid
+    const allTiles = getEmptyTiles(this.grid);
+    // Shuffle all tiles for random placement
+    const shuffled = [...allTiles];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -224,7 +224,7 @@ export class ArenaManager {
 
     // Also assign positions via the old 7-hex system for backward compat
     const positions = assignInitialPositions(agentIds);
-    // (Positions from the 19-tile grid take precedence; old positions are overwritten above)
+    // (Positions from the 37-tile grid take precedence; old positions are overwritten above)
   }
 
   // -------------------------------------------------------------------------

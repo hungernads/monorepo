@@ -131,7 +131,7 @@ const ITEM_STYLE: Record<string, { icon: string; char: string; color: keyof type
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ASCII Hex Grid Renderer (19-tile arena)
+// ASCII Hex Grid Renderer (37-tile arena)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -147,15 +147,17 @@ const CLASS_CHAR: Record<string, string> = {
 };
 
 /**
- * Render the 19-tile hex grid as ASCII art.
+ * Render the 37-tile hex grid as ASCII art.
  *
  * Layout (flat-top hexes, r rows top-to-bottom):
  *
- *          [   ] [   ] [   ]           r = -2 (3 tiles)
- *        [   ] [   ] [   ] [   ]       r = -1 (4 tiles)
- *      [   ] [   ] [   ] [   ] [   ]   r =  0 (5 tiles)
- *        [   ] [   ] [   ] [   ]       r =  1 (4 tiles)
- *          [   ] [   ] [   ]           r =  2 (3 tiles)
+ *              [   ] [   ] [   ] [   ]           r = -3 (4 tiles)
+ *            [   ] [   ] [   ] [   ] [   ]       r = -2 (5 tiles)
+ *          [   ] [   ] [   ] [   ] [   ] [   ]   r = -1 (6 tiles)
+ *        [   ] [   ] [   ] [   ] [   ] [   ] [   ] r = 0 (7 tiles)
+ *          [   ] [   ] [   ] [   ] [   ] [   ]   r =  1 (6 tiles)
+ *            [   ] [   ] [   ] [   ] [   ]       r =  2 (5 tiles)
+ *              [   ] [   ] [   ] [   ]           r =  3 (4 tiles)
  *
  * Each cell shows agent (colored class char) or item type, or '.' for empty.
  */
@@ -164,17 +166,19 @@ function renderHexGrid(
   agentLookup: Map<string, { name: string; class: string }>,
   indent: string = '    ',
 ): string {
-  // Grid rows from top to bottom (r = -2 to 2)
+  // Grid rows from top to bottom (r = -3 to 3)
   const rows: { r: number; qMin: number; qMax: number }[] = [
-    { r: -2, qMin: 0, qMax: 2 },
-    { r: -1, qMin: -1, qMax: 2 },
-    { r: 0,  qMin: -2, qMax: 2 },
-    { r: 1,  qMin: -2, qMax: 1 },
-    { r: 2,  qMin: -2, qMax: 0 },
+    { r: -3, qMin: 0, qMax: 3 },
+    { r: -2, qMin: -1, qMax: 3 },
+    { r: -1, qMin: -2, qMax: 3 },
+    { r: 0,  qMin: -3, qMax: 3 },
+    { r: 1,  qMin: -3, qMax: 2 },
+    { r: 2,  qMin: -3, qMax: 1 },
+    { r: 3,  qMin: -3, qMax: 0 },
   ];
 
   const CELL_WIDTH = 5; // " [x] " total per cell
-  const MAX_COLS = 5;   // widest row (r=0) has 5 cells
+  const MAX_COLS = 7;   // widest row (r=0) has 7 cells
 
   const lines: string[] = [];
 
@@ -230,12 +234,17 @@ function formatHexCell(
     return ` [${c(itemStyle.color, itemStyle.char + extra)}] `;
   }
 
-  // Empty tile - show type indicator
-  if (tile.type === 'CORNUCOPIA') {
-    return ` [${c('yellow', '\u00B7\u00B7')}] `; // center zone
+  // Empty tile - show type indicator by level
+  if (tile.level === 4) {
+    return ` [${c('yellow', '\u2605\u2605')}] `; // legendary center
   }
-
-  return ` [${c('gray', '\u00B7\u00B7')}] `; // edge zone
+  if (tile.level === 3) {
+    return ` [${c('yellow', '\u00B7\u00B7')}] `; // epic (cornucopia)
+  }
+  if (tile.level === 2) {
+    return ` [${c('gray', '\u00B7\u00B7')}] `; // common
+  }
+  return ` [${c('gray', '--')}] `; // outer edge
 }
 
 /**
@@ -265,7 +274,7 @@ function printHexGrid(
 
   console.log(`    ${c('gray', 'Agents:')} ${agentLegend}`);
   console.log(`    ${c('gray', 'Items:')}  ${itemLegend}`);
-  console.log(`    ${c('gray', 'Zones:')}  ${c('yellow', '\u00B7\u00B7')}=cornucopia  ${c('gray', '\u00B7\u00B7')}=edge`);
+  console.log(`    ${c('gray', 'Zones:')}  ${c('yellow', '\u2605\u2605')}=Lv4  ${c('yellow', '\u00B7\u00B7')}=Lv3  ${c('gray', '\u00B7\u00B7')}=Lv2  ${c('gray', '--')}=Lv1`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -900,7 +909,7 @@ async function runBattle(): Promise<void> {
   printHexGrid(
     arena.grid,
     agentLookup,
-    `ARENA MAP (19-tile hex grid \u2022 ${cornucopiaItemCount} cornucopia items spawned)`,
+    `ARENA MAP (37-tile hex grid \u2022 ${cornucopiaItemCount} cornucopia items spawned)`,
   );
 
   console.log('');

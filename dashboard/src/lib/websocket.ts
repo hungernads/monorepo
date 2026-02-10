@@ -175,7 +175,7 @@ export type ItemType = 'RATION' | 'WEAPON' | 'SHIELD' | 'TRAP' | 'ORACLE';
 
 /**
  * Full grid state snapshot. Sent on initial WebSocket connect and after
- * each epoch for a consistent view of the 19-tile arena.
+ * each epoch for a consistent view of the 37-tile arena.
  */
 export interface GridStateEvent {
   type: 'grid_state';
@@ -184,6 +184,7 @@ export interface GridStateEvent {
       q: number;
       r: number;
       type: TileType;
+      level: number;
       occupantId: string | null;
       items: { id: string; type: ItemType }[];
     }[];

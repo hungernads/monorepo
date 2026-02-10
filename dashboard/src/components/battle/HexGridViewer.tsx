@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
 import { CLASS_CONFIG, type BattleAgent } from "./mock-data";
 import type { AgentClass } from "@/types";
 
@@ -34,23 +34,35 @@ export interface HexGridViewerProps {
 }
 
 // ---------------------------------------------------------------------------
-// 19-tile hex grid (mirrored from src/arena/hex-grid.ts)
+// 37-tile hex grid (mirrored from src/arena/hex-grid.ts)
 // ---------------------------------------------------------------------------
 
 type TileType = "NORMAL" | "CORNUCOPIA" | "EDGE";
+type TileLevel = 1 | 2 | 3 | 4;
 
 interface ArenaHex extends HexCoord {
   label: string;
   tileType: TileType;
+  tileLevel: TileLevel;
 }
 
-const GRID_RADIUS = 2;
+const GRID_RADIUS = 3;
 
 function classifyTile(q: number, r: number): TileType {
   const s = -q - r;
   const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
   if (dist <= 1) return "CORNUCOPIA";
-  return "EDGE";
+  if (dist >= 3) return "EDGE";
+  return "NORMAL";
+}
+
+function getTileLevel(q: number, r: number): TileLevel {
+  const s = -q - r;
+  const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+  if (dist === 0) return 4;
+  if (dist === 1) return 3;
+  if (dist === 2) return 2;
+  return 1;
 }
 
 function tileLabel(q: number, r: number): string {
@@ -73,7 +85,7 @@ function generateArenaHexes(): ArenaHex[] {
     for (let r = -GRID_RADIUS; r <= GRID_RADIUS; r++) {
       const s = -q - r;
       if (Math.abs(s) <= GRID_RADIUS) {
-        hexes.push({ q, r, label: tileLabel(q, r), tileType: classifyTile(q, r) });
+        hexes.push({ q, r, label: tileLabel(q, r), tileType: classifyTile(q, r), tileLevel: getTileLevel(q, r) });
       }
     }
   }
@@ -82,14 +94,14 @@ function generateArenaHexes(): ArenaHex[] {
 
 const ARENA_HEXES = generateArenaHexes();
 
-// Default placement order: ring-1 cardinal directions + center
+// Default placement order: spread across rings
 const DEFAULT_PLACEMENT_ORDER: HexCoord[] = [
-  { q: 1, r: 0 },   // E
-  { q: -1, r: 0 },  // W
-  { q: 0, r: -1 },  // N
-  { q: 0, r: 1 },   // S
-  { q: 1, r: -1 },  // NE
-  { q: -1, r: 1 },  // SW
+  { q: 2, r: -1 },  // Ring 2
+  { q: -2, r: 1 },  // Ring 2
+  { q: 0, r: -2 },  // Ring 2
+  { q: 0, r: 2 },   // Ring 2
+  { q: 1, r: 1 },   // Ring 2
+  { q: -1, r: -1 }, // Ring 2
   { q: 0, r: 0 },   // CENTER
 ];
 
@@ -97,7 +109,7 @@ const DEFAULT_PLACEMENT_ORDER: HexCoord[] = [
 // Geometry helpers -- flat-top hexagons
 // ---------------------------------------------------------------------------
 
-const HEX_SIZE = 26; // Radius of each hex (corner-to-center) -- smaller for minimap
+const HEX_SIZE = 20; // Radius of each hex (corner-to-center) -- smaller for 37-tile minimap
 const SQRT3 = Math.sqrt(3);
 
 /** Convert axial (q, r) to pixel (x, y) for flat-top hexagons. */
@@ -126,11 +138,11 @@ function hexPoints(cx: number, cy: number, size: number): string {
 
 function classHexFill(agentClass: AgentClass): string {
   const fills: Record<AgentClass, string> = {
-    WARRIOR: "rgba(220,38,38,0.15)",
-    TRADER: "rgba(96,165,250,0.15)",
-    SURVIVOR: "rgba(74,222,128,0.15)",
-    PARASITE: "rgba(167,139,250,0.15)",
-    GAMBLER: "rgba(245,158,11,0.15)",
+    WARRIOR: "#1a0808",
+    TRADER: "#08101a",
+    SURVIVOR: "#081a0d",
+    PARASITE: "#120a1f",
+    GAMBLER: "#1a150a",
   };
   return fills[agentClass];
 }
@@ -154,16 +166,18 @@ function hpColor(hp: number, maxHp: number): string {
   return "#22c55e";
 }
 
-const TILE_FILLS: Record<TileType, string> = {
-  NORMAL: "rgba(26,26,46,0.6)",
-  CORNUCOPIA: "rgba(245,158,11,0.04)",
-  EDGE: "rgba(15,15,25,0.5)",
+const TILE_LEVEL_FILLS: Record<TileLevel, string> = {
+  4: "#2a1f0a",
+  3: "#1f1a0d",
+  2: "#141428",
+  1: "#0c0c18",
 };
 
-const TILE_STROKES: Record<TileType, { color: string; dash?: string }> = {
-  NORMAL: { color: "rgba(37,37,64,0.8)" },
-  CORNUCOPIA: { color: "rgba(245,158,11,0.2)" },
-  EDGE: { color: "rgba(37,37,64,0.4)", dash: "4,2" },
+const TILE_LEVEL_STROKES: Record<TileLevel, { color: string; dash?: string; width?: number }> = {
+  4: { color: "#f59e0b", width: 1.5 },
+  3: { color: "#b45309" },
+  2: { color: "#2a2a50" },
+  1: { color: "#1e1e38", dash: "3,2" },
 };
 
 // ---------------------------------------------------------------------------
@@ -190,13 +204,13 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
     }
   }, [agent, onSelect]);
 
-  // Hex polygon fill -- tile type based for empty, class based for occupied
-  const tileFill = TILE_FILLS[hex.tileType];
-  const tileStroke = TILE_STROKES[hex.tileType];
+  // Hex polygon fill -- tile level based for empty, class based for occupied
+  const tileFill = TILE_LEVEL_FILLS[hex.tileLevel];
+  const tileStroke = TILE_LEVEL_STROKES[hex.tileLevel];
 
   let fill = tileFill;
   let strokeColor = tileStroke.color;
-  let strokeWidth = 1;
+  let strokeWidth = tileStroke.width ?? 1;
   let strokeDash = tileStroke.dash;
 
   if (agent) {
@@ -204,8 +218,8 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
     strokeColor = classDotFill(agent.class);
     strokeDash = undefined;
     if (isDead) {
-      fill = "rgba(26,26,46,0.3)";
-      strokeColor = "rgba(55,65,81,0.5)";
+      fill = "#141420";
+      strokeColor = "#374151";
     }
   }
 
@@ -242,7 +256,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
         <polygon
           points={hexPoints(cx, cy, HEX_SIZE + 2)}
           fill="none"
-          stroke="rgba(245,158,11,0.3)"
+          stroke="rgba(245,158,11,0.5)"
           strokeWidth={1.5}
         />
       )}
@@ -255,7 +269,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
             cy={cy}
             r={10}
             fill="none"
-            stroke="rgba(55,65,81,0.4)"
+            stroke="#374151"
             strokeWidth={2}
           />
           <circle
@@ -284,43 +298,12 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
                   height={pSize}
                   style={{ overflow: "hidden" }}
                 >
-                  <div
-                    style={{
-                      width: pSize,
-                      height: pSize,
-                      borderRadius: "50%",
-                      overflow: "hidden",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={cfg?.image}
-                      alt={agent.name}
-                      width={pSize}
-                      height={pSize}
-                      style={{ objectFit: "cover", width: "100%", height: "100%" }}
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        target.style.display = "none";
-                        if (target.nextElementSibling) (target.nextElementSibling as HTMLElement).style.display = "flex";
-                      }}
-                    />
-                    <span
-                      style={{
-                        display: "none",
-                        fontSize: pSize * 0.6,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "100%",
-                        height: "100%",
-                      }}
-                    >
-                      {cfg?.emoji}
-                    </span>
-                  </div>
+                  <MiniPortrait
+                    src={cfg?.image}
+                    alt={agent.name}
+                    emoji={cfg?.emoji}
+                    size={pSize}
+                  />
                 </foreignObject>
               </g>
             );
@@ -379,7 +362,7 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
           textAnchor="middle"
           dominantBaseline="central"
           fontSize={5}
-          fill={hex.tileType === "CORNUCOPIA" ? "rgba(245,158,11,0.25)" : "rgba(107,114,128,0.3)"}
+          fill={hex.tileLevel >= 3 ? "rgba(245,158,11,0.4)" : "rgba(107,114,128,0.4)"}
           letterSpacing="1"
           className="pointer-events-none select-none uppercase"
         >
@@ -416,6 +399,30 @@ function HexCell({ hex, cx, cy, agent, isSelected, showLabel, onSelect }: HexCel
         />
       )}
     </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Portrait helper — uses React state so fallback survives re-renders
+// ---------------------------------------------------------------------------
+
+function MiniPortrait({ src, alt, emoji, size }: {
+  src?: string; alt: string; emoji?: string; size: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {!failed && src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={alt} width={size} height={size}
+          style={{ objectFit: "cover", width: "100%", height: "100%" }}
+          onError={() => setFailed(true)} />
+      ) : (
+        <span style={{ fontSize: size * 0.6, display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%" }}>
+          {emoji}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -519,7 +526,7 @@ export default function HexGridViewer({
         {/* Subtle center glow */}
         <defs>
           <radialGradient id="hex-grid-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(245,158,11,0.06)" />
+            <stop offset="0%" stopColor="rgba(245,158,11,0.12)" />
             <stop offset="100%" stopColor="transparent" />
           </radialGradient>
         </defs>
@@ -548,9 +555,9 @@ export default function HexGridViewer({
                 x2={b.x}
                 y2={b.y}
                 stroke={
-                  a.hex.tileType === "CORNUCOPIA" && b.hex.tileType === "CORNUCOPIA"
-                    ? "rgba(245,158,11,0.08)"
-                    : "rgba(37,37,64,0.3)"
+                  a.hex.tileLevel >= 3 && b.hex.tileLevel >= 3
+                    ? "rgba(245,158,11,0.2)"
+                    : "rgba(37,37,64,0.45)"
                 }
                 strokeWidth={0.5}
               />

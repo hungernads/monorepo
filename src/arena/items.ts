@@ -114,9 +114,9 @@ const SHIELD_BUFF_EPOCHS = 2;
 /** ORACLE buff: see predictions for 1 epoch. */
 const ORACLE_BUFF_EPOCHS = 1;
 
-/** Normal epoch spawn: 1-3 items. */
+/** Normal epoch spawn: 1-4 items (increased for 37-tile grid). */
 const SPAWN_MIN = 1;
-const SPAWN_MAX = 3;
+const SPAWN_MAX = 4;
 
 /** Cornucopia: 7 items (one per cornucopia tile). */
 const CORNUCOPIA_ITEM_COUNT = 7;
@@ -167,12 +167,51 @@ function rollItemType(weights: { type: ItemType; weight: number }[]): ItemType {
 // ---------------------------------------------------------------------------
 
 /**
- * Spawn 1-3 items on empty (unoccupied, no existing item) tiles.
+ * Level-aware drop weights. Higher-level tiles get better loot.
+ * Lv 4 (Legendary): heavy WEAPON/SHIELD/ORACLE
+ * Lv 3 (Epic):      cornucopia-style (good mix)
+ * Lv 2 (Common):    normal distribution
+ * Lv 1 (Outer):     ration-heavy, sparse valuable items
+ */
+const LEVEL_DROP_WEIGHTS: Record<number, { type: ItemType; weight: number }[]> = {
+  4: [
+    { type: 'RATION', weight: 0.10 },
+    { type: 'WEAPON', weight: 0.30 },
+    { type: 'SHIELD', weight: 0.30 },
+    { type: 'TRAP',   weight: 0.10 },
+    { type: 'ORACLE', weight: 0.20 },
+  ],
+  3: CORNUCOPIA_DROP_WEIGHTS,
+  2: NORMAL_DROP_WEIGHTS,
+  1: [
+    { type: 'RATION', weight: 0.60 },
+    { type: 'WEAPON', weight: 0.15 },
+    { type: 'SHIELD', weight: 0.10 },
+    { type: 'TRAP',   weight: 0.10 },
+    { type: 'ORACLE', weight: 0.05 },
+  ],
+};
+
+/**
+ * Level-aware spawn chance. Higher-level tiles are more likely to receive items.
+ * Lv 4: always spawns, Lv 3: 80%, Lv 2: 50%, Lv 1: 30%
+ */
+const LEVEL_SPAWN_CHANCE: Record<number, number> = {
+  4: 1.0,
+  3: 0.8,
+  2: 0.5,
+  1: 0.3,
+};
+
+/**
+ * Spawn 1-4 items on empty (unoccupied, no existing item) tiles.
+ * Item type distribution is weighted by tile level — higher-level tiles
+ * get better loot and are more likely to receive items.
  *
  * Called once per epoch during the item phase. Only spawns on tiles that
  * are both unoccupied by agents AND don't already have an item.
  *
- * @param grid  - The hex grid state (19-tile system).
+ * @param grid  - The hex grid state (37-tile system).
  * @param epoch - Current epoch number (for metadata).
  * @returns Array of newly spawned ItemDrops. Caller should add them to tiles.
  */
@@ -185,19 +224,27 @@ export function spawnItems(
 
   if (candidates.length === 0) return [];
 
-  // Roll how many items to spawn (1-3, capped by available tiles)
+  // Roll how many items to spawn (1-4, capped by available tiles)
   const count = Math.min(
     SPAWN_MIN + Math.floor(Math.random() * (SPAWN_MAX - SPAWN_MIN + 1)),
     candidates.length,
   );
 
-  // Shuffle and pick first `count` tiles
-  const shuffled = shuffleArray([...candidates]);
+  // Weight candidates by tile level (higher-level tiles more likely to be picked)
+  const weightedCandidates = candidates.filter(tile => {
+    const chance = LEVEL_SPAWN_CHANCE[tile.level] ?? 0.5;
+    return Math.random() < chance;
+  });
+
+  // If all filtered out, fall back to original pool
+  const pool = weightedCandidates.length > 0 ? weightedCandidates : candidates;
+  const shuffled = shuffleArray([...pool]);
   const spawned: ItemDrop[] = [];
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count && i < shuffled.length; i++) {
     const tile = shuffled[i];
-    const type = rollItemType(NORMAL_DROP_WEIGHTS);
+    const weights = LEVEL_DROP_WEIGHTS[tile.level] ?? NORMAL_DROP_WEIGHTS;
+    const type = rollItemType(weights);
 
     const item: ItemDrop = {
       id: nextItemId(),

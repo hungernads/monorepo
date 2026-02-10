@@ -246,34 +246,35 @@ export const MOCK_PRICES: MarketPrice[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Mock grid state -- agent positions on 19-tile hex grid
+// Mock grid state -- agent positions on 37-tile hex grid
 // ---------------------------------------------------------------------------
 
-/** Mock agent positions on the 19-tile grid (axial coordinates). */
+/** Mock agent positions on the 37-tile grid (axial coordinates, random spread). */
 export const MOCK_AGENT_POSITIONS: Map<string, { q: number; r: number }> = new Map([
-  ["agent-1", { q: 0, r: 0 }],    // BLOODFANG at CENTER (cornucopia)
-  ["agent-2", { q: 1, r: -1 }],   // ALPHABOT at NE (cornucopia ring 1)
-  ["agent-3", { q: -1, r: 1 }],   // IRONSHELL at SW (cornucopia ring 1)
-  ["agent-4", { q: 1, r: 0 }],    // COPYCAT at E (cornucopia ring 1) -- dead
-  ["agent-5", { q: -1, r: -1 }],  // MADLAD at outer ring (edge)
+  ["agent-1", { q: 1, r: -2 }],   // BLOODFANG at ring 2
+  ["agent-2", { q: -2, r: 0 }],   // ALPHABOT at ring 2
+  ["agent-3", { q: 0, r: 2 }],    // IRONSHELL at ring 2
+  ["agent-4", { q: 2, r: -1 }],   // COPYCAT at ring 2 -- dead
+  ["agent-5", { q: -1, r: -2 }],  // MADLAD at ring 3 (outer edge)
 ]);
 
 /** Item type enum for mock items */
 export type MockItemType = "RATION" | "WEAPON" | "SHIELD" | "TRAP" | "ORACLE";
 
-/** Mock tile items scattered across the arena */
+/** Mock tile items scattered across the 37-tile arena */
 export const MOCK_TILE_ITEMS: Map<string, Array<{ id: string; type: MockItemType }>> = new Map([
-  ["0,-1", [{ id: "item-1", type: "RATION" }]],          // N tile: health ration
-  ["-1,0", [{ id: "item-2", type: "WEAPON" }]],          // W tile: weapon
-  ["0,1", [{ id: "item-3", type: "SHIELD" }]],           // S tile: shield
-  ["2,-1", [{ id: "item-4", type: "TRAP" }]],            // outer tile: hidden trap
-  ["-2,2", [{ id: "item-5", type: "ORACLE" }]],          // outer tile: oracle
-  ["0,-2", [{ id: "item-6", type: "RATION" }, { id: "item-7", type: "WEAPON" }]],  // outer tile: two items
+  ["0,0", [{ id: "item-1", type: "WEAPON" }]],           // Lv4 center: weapon
+  ["0,-1", [{ id: "item-2", type: "SHIELD" }]],          // Lv3 ring 1: shield
+  ["-1,1", [{ id: "item-3", type: "ORACLE" }]],          // Lv3 ring 1: oracle
+  ["2,0", [{ id: "item-4", type: "RATION" }]],           // Lv2 ring 2: ration
+  ["-2,2", [{ id: "item-5", type: "TRAP" }]],            // Lv2 ring 2: hidden trap
+  ["0,-3", [{ id: "item-6", type: "RATION" }]],          // Lv1 ring 3: ration
+  ["3,-1", [{ id: "item-7", type: "RATION" }, { id: "item-8", type: "WEAPON" }]], // Lv1 ring 3: two items
 ]);
 
 // ---------------------------------------------------------------------------
 // Mock grid state event -- simulates the grid_state WS event for local dev.
-// Includes all 19 tiles with types, occupants, and items.
+// Includes all 37 tiles with types, occupants, and items.
 // ---------------------------------------------------------------------------
 
 /** Tile type classification. */
@@ -283,16 +284,27 @@ function classifyMockTile(q: number, r: number): MockTileType {
   const s = -q - r;
   const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
   if (dist <= 1) return "CORNUCOPIA";
-  return "EDGE";
+  if (dist >= 3) return "EDGE";
+  return "NORMAL";
 }
 
-/** Generate a mock grid_state data payload matching the GridStateEvent shape. */
+function getMockTileLevel(q: number, r: number): number {
+  const s = -q - r;
+  const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+  if (dist === 0) return 4;
+  if (dist === 1) return 3;
+  if (dist === 2) return 2;
+  return 1;
+}
+
+/** Generate a mock grid_state data payload matching the GridStateEvent shape (37 tiles). */
 function generateMockGridState() {
-  const RADIUS = 2;
+  const RADIUS = 3;
   const tiles: {
     q: number;
     r: number;
     type: MockTileType;
+    level: number;
     occupantId: string | null;
     items: { id: string; type: MockItemType }[];
   }[] = [];
@@ -314,6 +326,7 @@ function generateMockGridState() {
         q,
         r,
         type: classifyMockTile(q, r),
+        level: getMockTileLevel(q, r),
         occupantId: occupantByKey.get(key) ?? null,
         items: tileItems,
       });

@@ -1,8 +1,8 @@
 /**
  * HUNGERNADS - Hex Grid Type Definitions
  *
- * Types for the 19-tile axial coordinate hex grid system.
- * 3 rings: center (1) + inner (6) + outer (12) = 19 tiles.
+ * Types for the 37-tile axial coordinate hex grid system.
+ * 4 rings: center (1) + ring 1 (6) + ring 2 (12) + ring 3 (18) = 37 tiles.
  *
  * Axial coordinate system (q, r) with flat-top hexagons.
  * Third coordinate s = -q - r is implicit (cube coordinates).
@@ -22,7 +22,7 @@ export interface HexCoord {
 export type Direction = 'N' | 'NE' | 'SE' | 'S' | 'SW' | 'NW';
 
 // ---------------------------------------------------------------------------
-// Tile Types
+// Tile Types & Levels
 // ---------------------------------------------------------------------------
 
 /**
@@ -30,11 +30,21 @@ export type Direction = 'N' | 'NE' | 'SE' | 'S' | 'SW' | 'NW';
  *
  * - CORNUCOPIA: Center 7 tiles (ring 0 + ring 1). High-value area with
  *   better item spawns. Hunger Games reference -- the golden horn of plenty.
- * - EDGE: Outer 12 tiles (ring 2). Dangerous perimeter with bleed
+ * - NORMAL: Ring 2 tiles (12 tiles). Standard terrain.
+ * - EDGE: Outer ring 3 tiles (18 tiles). Dangerous perimeter with bleed
  *   amplification and fewer resources.
- * - NORMAL: Generic tile type for future expansion or custom arena layouts.
  */
 export type TileType = 'NORMAL' | 'CORNUCOPIA' | 'EDGE';
+
+/**
+ * Tile level determines loot quality and visual presentation.
+ *
+ * - Lv 4 (Legendary): Ring 0 center tile. Gold, thick border, best loot.
+ * - Lv 3 (Epic):      Ring 1 inner tiles. Amber, good cornucopia loot.
+ * - Lv 2 (Common):    Ring 2 tiles. Default dark, standard spawn rates.
+ * - Lv 1 (Outer):     Ring 3 outer tiles. Dim, dashed, sparse items.
+ */
+export type TileLevel = 1 | 2 | 3 | 4;
 
 // ---------------------------------------------------------------------------
 // Tile Definition
@@ -44,6 +54,8 @@ export type TileType = 'NORMAL' | 'CORNUCOPIA' | 'EDGE';
 export interface HexTile {
   readonly coord: HexCoord;
   readonly type: TileType;
+  /** Tile level (1-4) determines loot quality and visual style. */
+  readonly level: TileLevel;
   /** Optional occupant agent ID. null = empty tile. */
   occupantId: string | null;
   /** Items currently on this tile. */
@@ -101,7 +113,7 @@ export interface MovementResult {
 // Grid State
 // ---------------------------------------------------------------------------
 
-/** Full grid state, representing all 19 tiles and their current state. */
+/** Full grid state, representing all 37 tiles and their current state. */
 export interface HexGridState {
   readonly tiles: ReadonlyMap<string, HexTile>;
   readonly radius: number;

@@ -23,6 +23,7 @@ import {
   type EpochStartEvent,
   type BattleEndEvent,
   type GridStateEvent,
+  type AgentMovedEvent,
   type ItemType,
   type TileType,
 } from '@/lib/websocket';
@@ -48,8 +49,18 @@ export interface StreamGridTile {
   q: number;
   r: number;
   type: TileType;
+  level: number;
   occupantId: string | null;
   items: { id: string; type: ItemType }[];
+}
+
+/** Recent agent movement from agent_moved events (cleared each epoch). */
+export interface RecentMove {
+  agentId: string;
+  agentName: string;
+  from: { q: number; r: number };
+  to: { q: number; r: number };
+  success: boolean;
 }
 
 /** Agent position from the grid_state event (agentId -> hex coord). */
@@ -72,6 +83,8 @@ export interface UseBattleStreamResult {
   gridTiles: StreamGridTile[];
   /** Agent positions from the most recent grid_state event. */
   agentPositions: StreamAgentPositions;
+  /** Recent movement events from the current epoch (cleared on epoch_start). */
+  recentMoves: RecentMove[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -90,6 +103,7 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
   const [winner, setWinner] = useState<BattleEndEvent['data'] | null>(null);
   const [gridTiles, setGridTiles] = useState<StreamGridTile[]>([]);
   const [agentPositions, setAgentPositions] = useState<StreamAgentPositions>({});
+  const [recentMoves, setRecentMoves] = useState<RecentMove[]>([]);
 
   const wsRef = useRef<BattleWebSocket | null>(null);
 
@@ -106,6 +120,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
         const e = event as EpochStartEvent;
         setLatestEpoch(e.data.epochNumber);
         setMarketData(e.data.marketData);
+        // Clear movement trails from previous epoch
+        setRecentMoves([]);
         break;
       }
 
@@ -144,8 +160,23 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
         break;
       }
 
+      case 'agent_moved': {
+        const e = event as AgentMovedEvent;
+        setRecentMoves((prev) => [
+          ...prev,
+          {
+            agentId: e.data.agentId,
+            agentName: e.data.agentName,
+            from: e.data.from,
+            to: e.data.to,
+            success: e.data.success,
+          },
+        ]);
+        break;
+      }
+
       // Other event types (agent_action, prediction_result, combat_result,
-      // agent_death, odds_update, agent_moved, item_spawned, item_picked_up,
+      // agent_death, odds_update, item_spawned, item_picked_up,
       // trap_triggered) are stored in the events array for the ActionFeed
       // and BattleView components to consume. No derived state needed.
       default:
@@ -182,6 +213,7 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
     winner,
     gridTiles,
     agentPositions,
+    recentMoves,
   };
 }
 

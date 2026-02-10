@@ -343,6 +343,167 @@ function eventToFeedEntries(
 }
 
 // ---------------------------------------------------------------------------
+// Epoch Phase Indicator
+// ---------------------------------------------------------------------------
+
+const EPOCH_PHASES = [
+  { key: "PREDICT", label: "Predict", icon: "\u25B2\u25BC" },
+  { key: "MOVE", label: "Move", icon: "\u2192" },
+  { key: "FIGHT", label: "Fight", icon: "\u2694" },
+  { key: "RESOLVE", label: "Resolve", icon: "\u2713" },
+] as const;
+
+/**
+ * Animated phase stepper that cycles through epoch phases.
+ * The backend processes all phases at once, so we animate through them
+ * over a 12s cycle to give spectators a sense of progression.
+ */
+function EpochPhaseIndicator({ isFinished }: { isFinished: boolean }) {
+  const [activePhase, setActivePhase] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isFinished || !mounted) return;
+    const interval = setInterval(() => {
+      setActivePhase((prev) => (prev + 1) % EPOCH_PHASES.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isFinished, mounted]);
+
+  return (
+    <div className="mt-3 flex items-center justify-center gap-1">
+      {EPOCH_PHASES.map((phase, i) => {
+        const isActive = !isFinished && i === activePhase;
+        const isPast = !isFinished && i < activePhase;
+        return (
+          <div key={phase.key} className="flex items-center gap-1">
+            {i > 0 && (
+              <div
+                className="h-px w-3 sm:w-5"
+                style={{
+                  backgroundColor: isPast || isActive ? "#f59e0b" : "#252540",
+                }}
+              />
+            )}
+            <div
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all duration-300 sm:px-2 sm:text-[10px]"
+              style={{
+                backgroundColor: isActive ? "#2a1f0a" : "transparent",
+                color: isActive
+                  ? "#f59e0b"
+                  : isPast
+                    ? "#b45309"
+                    : "#3a3a5c",
+                border: isActive ? "1px solid #f59e0b" : "1px solid transparent",
+                boxShadow: isActive ? "0 0 8px rgba(245,158,11,0.2)" : "none",
+              }}
+            >
+              <span>{phase.icon}</span>
+              <span className="hidden sm:inline">{phase.label}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Prediction Explainer (collapsible)
+// ---------------------------------------------------------------------------
+
+function PredictionExplainer() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div
+      className="rounded-lg border"
+      style={{
+        backgroundColor: "#12121f",
+        borderColor: "#252540",
+      }}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest transition-colors hover:text-gold sm:px-4 sm:text-xs"
+        style={{ color: "#a89870" }}
+      >
+        <span>How Predictions Work</span>
+        <span
+          className="text-xs transition-transform duration-200"
+          style={{
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            color: "#f59e0b",
+          }}
+        >
+          {"\u25BE"}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="border-t px-3 pb-3 pt-2 sm:px-4"
+          style={{ borderColor: "#252540" }}
+        >
+          <div className="space-y-2 text-[10px] leading-relaxed sm:text-xs" style={{ color: "#d4c5a0" }}>
+            <p>
+              Each epoch, agents predict if an asset (
+              <span style={{ color: "#f59e0b" }}>ETH</span>,{" "}
+              <span style={{ color: "#f59e0b" }}>BTC</span>,{" "}
+              <span style={{ color: "#f59e0b" }}>SOL</span>,{" "}
+              <span style={{ color: "#f59e0b" }}>MON</span>) will go{" "}
+              <span className="font-bold" style={{ color: "#22c55e" }}>UP</span> or{" "}
+              <span className="font-bold" style={{ color: "#dc2626" }}>DOWN</span>.
+            </p>
+            <p>
+              They stake{" "}
+              <span className="font-bold" style={{ color: "#f59e0b" }}>5-50% of their HP</span>{" "}
+              on the prediction.
+            </p>
+            <div
+              className="flex gap-3 rounded px-2 py-1.5"
+              style={{ backgroundColor: "#0f0f1a" }}
+            >
+              <div>
+                <span className="font-bold" style={{ color: "#22c55e" }}>Correct</span>{" "}
+                = gain staked HP back
+              </div>
+              <div>
+                <span className="font-bold" style={{ color: "#dc2626" }}>Wrong</span>{" "}
+                = lose staked HP
+              </div>
+            </div>
+            <div className="space-y-1 pt-1">
+              <div className="font-bold uppercase tracking-wider" style={{ color: "#a89870", fontSize: "9px" }}>
+                Special Skills
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>
+                  <span className="font-bold" style={{ color: "#3b82f6" }}>Trader</span>{" "}
+                  INSIDER_INFO = forced success
+                </span>
+                <span>
+                  <span className="font-bold" style={{ color: "#f59e0b" }}>Gambler</span>{" "}
+                  ALL_IN = 2x stake
+                </span>
+                <span>
+                  <span className="font-bold" style={{ color: "#22c55e" }}>Survivor</span>{" "}
+                  FORTIFY = block losses
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -357,6 +518,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
     winner,
     gridTiles,
     agentPositions: streamAgentPositions,
+    recentMoves,
   } = useBattleStream(battleId);
 
   const { address, isConnected: walletConnected } = useAccount();
@@ -670,13 +832,14 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <WatcherCount isLive={!winner} />
           <span className="hidden text-gray-700 sm:inline">|</span>
           <span>
-            Epoch <span className="text-white">{currentEpoch}</span>/20
+            Epoch <span className="text-white">{currentEpoch}</span>
+            {winner?.totalEpochs ? `/${winner.totalEpochs}` : ""}
           </span>
           <span>
             <span className="text-white">{aliveCount}</span> alive
           </span>
           <span className="hidden sm:inline text-gray-700">
-            Pool: <span className="text-gold">2,450 $HNADS</span>
+            Pool: <span className="text-gold">-- $HNADS</span>
           </span>
           {/* Share button */}
           <ShareButton
@@ -711,18 +874,19 @@ export default function BattleView({ battleId }: BattleViewProps) {
       <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
           <EpochTimer currentEpoch={currentEpoch} />
+          <EpochPhaseIndicator isFinished={!!winner} />
         </div>
         <div className="card">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
               Pool
             </h2>
-            <span className="text-lg font-bold text-gold">2,450 $HNADS</span>
+            <span className="text-lg font-bold text-gold">-- $HNADS</span>
           </div>
           <div className="mt-2 h-px w-full bg-colosseum-surface-light" />
           <div className="mt-2 flex justify-between text-[10px] text-gray-600">
-            <span>Bettors: 42</span>
-            <span>Sponsors: 7</span>
+            <span>Bettors: --</span>
+            <span>Sponsors: --</span>
           </div>
           <button
             onClick={() => setSponsorModalOpen(true)}
@@ -788,6 +952,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
             sponsorEventCount={sponsorEventCount}
             agentPositions={hexAgentPositions}
             tileItems={hexTileItems}
+            recentMoves={recentMoves}
           />
         </div>
 
@@ -843,6 +1008,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Prediction explainer */}
+      <PredictionExplainer />
 
       {/* Bottom dramatic footer */}
       <div className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-700">
