@@ -17,6 +17,7 @@ import {
   getEpochActions,
   insertBattle,
   insertAgent,
+  updateBattle,
   getAgentWins,
   getAgentBattleCount,
   checkFaucetEligibility,
@@ -29,6 +30,7 @@ import {
   getStreakTracking,
   getTopStreakers,
   getStreakPool,
+  getOpenLobbies,
   type BattleRow,
   type FaucetClaimRow,
 } from '../db/schema';
@@ -89,7 +91,9 @@ app.get('/', (c) => {
     endpoints: {
       skill: 'GET /skill.md (OpenClaw agent integration)',
       health: '/health',
+      battleLobbies: 'GET /battle/lobbies',
       battleCreate: 'POST /battle/create',
+      battleJoin: 'POST /battle/:id/join',
       battleStart: 'POST /battle/start (legacy)',
       battleState: 'GET /battle/:id',
       battleEpochs: 'GET /battle/:id/epochs',
@@ -156,74 +160,49 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
 /**
  * POST /battle/create
  *
- * Create a new battle with full configuration.
+ * Create a new battle in LOBBY status. No agents are spawned yet — they
+ * join individually via POST /battle/:id/join.
  *
  * Body (all fields optional — sensible defaults applied):
- *   - agentClasses:        AgentClass[]  — classes to include (default: one of each)
- *   - agentCount:          number        — how many agents to spawn (2–20). If agentClasses
- *                                          is also provided, agentCount is ignored.
+ *   - maxPlayers:          number        — max agents allowed in the lobby (default 8, range 2–20)
+ *   - feeAmount:           string        — entry fee in MON (default '0')
  *   - maxEpochs:           number        — max epochs before timeout (default 10, range 5–500)
  *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
- * Response: { ok, battleId, config, agents, arena }
+ * Response: { ok, battleId, status: 'LOBBY', config, maxPlayers, feeAmount }
  */
 app.post('/battle/create', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
 
-    // ── Parse & validate agentClasses ──────────────────────────────
-    let agentClasses: AgentClass[];
-
-    if (body.agentClasses) {
-      if (!Array.isArray(body.agentClasses)) {
-        return c.json({ error: 'agentClasses must be an array' }, 400);
+    // ── Parse & validate maxPlayers ─────────────────────────────────
+    let maxPlayers = 8;
+    if (body.maxPlayers !== undefined) {
+      if (typeof body.maxPlayers !== 'number' || !Number.isInteger(body.maxPlayers)) {
+        return c.json({ error: 'maxPlayers must be an integer' }, 400);
       }
-      // Validate each class
-      for (const cls of body.agentClasses) {
-        const parsed = AgentClassSchema.safeParse(cls);
-        if (!parsed.success) {
-          return c.json(
-            {
-              error: `Invalid agent class '${cls}'. Valid classes: ${AGENT_CLASSES.join(', ')}`,
-            },
-            400,
-          );
-        }
-      }
-      agentClasses = body.agentClasses as AgentClass[];
-    } else if (typeof body.agentCount === 'number') {
-      // Generate agentClasses from agentCount by cycling through all classes
-      const count = body.agentCount;
-      if (!Number.isInteger(count) || count < MIN_AGENTS || count > MAX_AGENTS) {
+      if (body.maxPlayers < MIN_AGENTS || body.maxPlayers > MAX_AGENTS) {
         return c.json(
-          {
-            error: `agentCount must be an integer between ${MIN_AGENTS} and ${MAX_AGENTS}`,
-          },
+          { error: `maxPlayers must be between ${MIN_AGENTS} and ${MAX_AGENTS}` },
           400,
         );
       }
-      agentClasses = [];
-      for (let i = 0; i < count; i++) {
-        agentClasses.push(AGENT_CLASSES[i % AGENT_CLASSES.length]);
-      }
-    } else {
-      // Default: one of each class
-      agentClasses = [...AGENT_CLASSES];
+      maxPlayers = body.maxPlayers;
     }
 
-    // Enforce agent count limits
-    if (agentClasses.length < MIN_AGENTS) {
-      return c.json(
-        { error: `Need at least ${MIN_AGENTS} agents, got ${agentClasses.length}` },
-        400,
-      );
-    }
-    if (agentClasses.length > MAX_AGENTS) {
-      return c.json(
-        { error: `Cannot exceed ${MAX_AGENTS} agents, got ${agentClasses.length}` },
-        400,
-      );
+    // ── Parse & validate feeAmount ──────────────────────────────────
+    let feeAmount = '0';
+    if (body.feeAmount !== undefined) {
+      if (typeof body.feeAmount !== 'string') {
+        return c.json({ error: 'feeAmount must be a string (e.g. "0.1")' }, 400);
+      }
+      // Basic sanity: must parse as a non-negative number
+      const parsed = parseFloat(body.feeAmount);
+      if (isNaN(parsed) || parsed < 0) {
+        return c.json({ error: 'feeAmount must be a non-negative number string' }, 400);
+      }
+      feeAmount = body.feeAmount;
     }
 
     // ── Parse & validate maxEpochs ─────────────────────────────────
@@ -279,26 +258,11 @@ app.post('/battle/create', async (c) => {
       maxEpochs,
       bettingWindowEpochs,
       assets,
+      feeAmount,
     };
 
-    // ── Generate IDs ───────────────────────────────────────────────
+    // ── Generate battle ID ─────────────────────────────────────────
     const battleId = crypto.randomUUID();
-    const agentIds: string[] = [];
-    for (let i = 0; i < agentClasses.length; i++) {
-      agentIds.push(crypto.randomUUID());
-    }
-
-    // ── Persist agents to D1 ───────────────────────────────────────
-    for (let i = 0; i < agentIds.length; i++) {
-      const agentClass = agentClasses[i];
-      const agentName = `${agentClass}-${agentIds[i].slice(0, 6)}`;
-      await insertAgent(c.env.DB, {
-        id: agentIds[i],
-        class: agentClass,
-        name: agentName,
-        created_at: new Date().toISOString(),
-      });
-    }
 
     // ── Assign to current season ─────────────────────────────────
     let seasonId: string | null = null;
@@ -310,77 +274,49 @@ app.post('/battle/create', async (c) => {
       console.error('[battle/create] Season assignment failed:', err);
     }
 
-    // ── Persist battle to D1 with betting phase OPEN ───────────────
+    // ── Persist battle to D1 in LOBBY status ───────────────────────
+    // No agents yet — they join individually via POST /battle/:id/join
     await insertBattle(c.env.DB, {
       id: battleId,
-      status: 'active',
-      started_at: new Date().toISOString(),
+      status: 'LOBBY',
+      started_at: null,
       epoch_count: 0,
       betting_phase: 'OPEN',
       season_id: seasonId,
+      max_players: maxPlayers,
+      fee_amount: feeAmount,
     });
 
-    // ── Start via ArenaDO ──────────────────────────────────────────
+    // ── Initialize ArenaDO in lobby mode ───────────────────────────
     const arenaId = c.env.ARENA_DO.idFromName(battleId);
     const arenaStub = c.env.ARENA_DO.get(arenaId);
 
-    const agentNames = agentIds.map(
-      (id: string, i: number) => `${agentClasses[i]}-${id.slice(0, 6)}`,
-    );
-
-    const startResponse = await arenaStub.fetch(
-      new Request('http://arena/start', {
+    const initResponse = await arenaStub.fetch(
+      new Request('http://arena/init-lobby', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           battleId,
-          agentIds,
-          agentClasses,
-          agentNames,
           config: battleConfig,
+          maxPlayers,
+          feeAmount,
         }),
       }),
     );
 
-    const arenaResult = await startResponse.json() as Record<string, unknown>;
+    const arenaResult = await initResponse.json() as Record<string, unknown>;
 
-    // ── On-chain registration (non-blocking) ──────────────────────
-    const chainClient = createChainClient(c.env);
-    if (chainClient) {
-      const numericAgentIds = agentIds.map((_: string, i: number) => i + 1);
-      const chainWork = (async () => {
-        try {
-          await chainClient.registerBattle(battleId, numericAgentIds);
-          console.log(`[chain] Battle ${battleId} registered on-chain`);
-        } catch (err) {
-          console.error(`[chain] registerBattle failed for ${battleId}:`, err);
-        }
-        try {
-          await chainClient.createBettingPool(battleId);
-          console.log(`[chain] Betting pool created on-chain for ${battleId}`);
-        } catch (err) {
-          console.error(`[chain] createBettingPool failed for ${battleId}:`, err);
-        }
-        try {
-          await chainClient.activateBattle(battleId);
-          console.log(`[chain] Battle ${battleId} activated on-chain`);
-        } catch (err) {
-          console.error(`[chain] activateBattle failed for ${battleId}:`, err);
-        }
-      })();
-      c.executionCtx.waitUntil(chainWork);
-    }
+    // NOTE: No on-chain registration yet — that happens when the battle
+    // transitions from LOBBY → ACTIVE (after countdown).
 
     return c.json({
       ok: true,
       battleId,
+      status: 'LOBBY' as const,
       seasonId,
       config: battleConfig,
-      agents: agentIds.map((id, i) => ({
-        id,
-        class: agentClasses[i],
-        name: `${agentClasses[i]}-${id.slice(0, 6)}`,
-      })),
+      maxPlayers,
+      feeAmount,
       arena: arenaResult,
     });
   } catch (error) {
@@ -452,7 +388,7 @@ app.post('/battle/start', async (c) => {
     // Persist battle to D1 with betting phase OPEN
     await insertBattle(c.env.DB, {
       id: battleId,
-      status: 'active',
+      status: 'ACTIVE',
       started_at: new Date().toISOString(),
       epoch_count: 0,
       betting_phase: 'OPEN',
@@ -523,6 +459,214 @@ app.post('/battle/start', async (c) => {
     console.error('Failed to start battle:', error);
     return c.json(
       { error: 'Failed to start battle', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /battle/lobbies
+ *
+ * List battles currently in LOBBY or COUNTDOWN status.
+ * Returns lobby metadata including player count, max players, countdown info.
+ * Returns an empty list (not an error) when no lobbies exist.
+ */
+app.get('/battle/lobbies', async (c) => {
+  try {
+    const rows = await getOpenLobbies(c.env.DB);
+
+    const lobbies = rows.map((row) => ({
+      battleId: row.id,
+      status: row.status as 'LOBBY' | 'COUNTDOWN',
+      playerCount: row.player_count,
+      maxPlayers: row.max_players,
+      countdownEndsAt: row.countdown_ends_at ?? undefined,
+      createdAt: row.started_at ?? new Date().toISOString(),
+      feeAmount: row.fee_amount !== '0' ? row.fee_amount : undefined,
+    }));
+
+    return c.json({ lobbies });
+  } catch (error) {
+    console.error('Failed to list lobbies:', error);
+    return c.json(
+      { error: 'Failed to list lobbies', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * POST /battle/:id/join
+ *
+ * Register an agent into a lobby battle.
+ * Validates input, forwards to ArenaDO for game-state validation,
+ * then inserts the agent record into D1.
+ *
+ * If the battle has a non-zero feeAmount, the client must send the fee
+ * to the HungernadsArena contract and provide the txHash. Returns 402
+ * if feeAmount > 0 and no txHash is provided.
+ *
+ * Body:
+ *   - agentClass:     string  (required) WARRIOR | TRADER | SURVIVOR | PARASITE | GAMBLER
+ *   - agentName:      string  (required) max 12 chars, alphanumeric + underscore
+ *   - imageUrl?:      string  (optional) https URL for custom portrait
+ *   - walletAddress?: string  (optional) 0x + 40 hex chars, for fee tracking
+ *   - txHash?:        string  (optional) 0x + 64 hex chars, fee payment tx hash
+ *
+ * Response: { agentId, position, battleStatus }
+ */
+app.post('/battle/:id/join', async (c) => {
+  try {
+    const battleId = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+
+    // ── Validate agentClass ─────────────────────────────────────
+    const agentClass = body.agentClass;
+    if (!agentClass || typeof agentClass !== 'string') {
+      return c.json({ error: 'agentClass is required' }, 400);
+    }
+    if (!(AGENT_CLASSES as readonly string[]).includes(agentClass)) {
+      return c.json(
+        {
+          error: `Invalid agentClass '${agentClass}'. Valid classes: ${AGENT_CLASSES.join(', ')}`,
+        },
+        400,
+      );
+    }
+
+    // ── Validate agentName ──────────────────────────────────────
+    const agentName = body.agentName;
+    if (!agentName || typeof agentName !== 'string') {
+      return c.json({ error: 'agentName is required' }, 400);
+    }
+    if (agentName.length > 12) {
+      return c.json(
+        { error: 'agentName must be at most 12 characters' },
+        400,
+      );
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(agentName)) {
+      return c.json(
+        { error: 'agentName must be alphanumeric + underscore only' },
+        400,
+      );
+    }
+
+    // ── Validate optional imageUrl ──────────────────────────────
+    const imageUrl = body.imageUrl;
+    if (imageUrl !== undefined) {
+      if (typeof imageUrl !== 'string' || !imageUrl.startsWith('https://')) {
+        return c.json(
+          { error: 'imageUrl must be an https URL' },
+          400,
+        );
+      }
+    }
+
+    // ── Validate optional walletAddress ──────────────────────────
+    const walletAddress: string | undefined = body.walletAddress;
+    if (walletAddress !== undefined) {
+      if (typeof walletAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) {
+        return c.json(
+          { error: 'walletAddress must be a valid Ethereum address (0x + 40 hex chars)' },
+          400,
+        );
+      }
+    }
+
+    // ── Validate optional txHash ─────────────────────────────────
+    const txHash: string | undefined = body.txHash;
+    if (txHash !== undefined) {
+      if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+        return c.json(
+          { error: 'txHash must be a valid transaction hash (0x + 64 hex chars)' },
+          400,
+        );
+      }
+    }
+
+    // ── Validate battle exists in D1 ────────────────────────────
+    const battle = await getBattle(c.env.DB, battleId);
+    if (!battle) {
+      return c.json({ error: 'Battle not found' }, 404);
+    }
+
+    // Quick pre-check: D1 status must be LOBBY or COUNTDOWN
+    if (battle.status !== 'LOBBY' && battle.status !== 'COUNTDOWN') {
+      return c.json(
+        { error: `Cannot join battle with status '${battle.status}'` },
+        409,
+      );
+    }
+
+    // ── Fee gate: require txHash if feeAmount > 0 ────────────────
+    const feeAmount = parseFloat(battle.fee_amount ?? '0');
+    if (feeAmount > 0 && !txHash) {
+      return c.json(
+        {
+          error: 'Payment required: this battle has an entry fee',
+          feeAmount: battle.fee_amount,
+          hint: 'Send the fee to the HungernadsArena contract and provide the txHash',
+        },
+        402,
+      );
+    }
+
+    // ── Forward to ArenaDO for game-state validation ────────────
+    const arenaId = c.env.ARENA_DO.idFromName(battleId);
+    const arenaStub = c.env.ARENA_DO.get(arenaId);
+
+    const joinResponse = await arenaStub.fetch(
+      new Request('http://arena/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName,
+          agentClass,
+          imageUrl: imageUrl ?? undefined,
+          walletAddress: walletAddress ?? undefined,
+        }),
+      }),
+    );
+
+    const joinResult = await joinResponse.json() as Record<string, unknown>;
+
+    if (!joinResponse.ok) {
+      // Forward the error from ArenaDO with the same status code
+      return c.json(joinResult, joinResponse.status as 400 | 404 | 409 | 500);
+    }
+
+    // ── Insert agent record into D1 ─────────────────────────────
+    // ArenaDO returned the agentId — use it for the D1 record.
+    const agentId = joinResult.agentId as string;
+
+    await insertAgent(c.env.DB, {
+      id: agentId,
+      class: agentClass,
+      name: agentName,
+      created_at: new Date().toISOString(),
+      wallet_address: walletAddress ?? null,
+      image_url: imageUrl ?? null,
+      battle_id: battleId,
+      tx_hash: txHash ?? null,
+    });
+
+    // ── If countdown triggered, update D1 battle status ─────────
+    if (joinResult.countdownTriggered) {
+      await updateBattle(c.env.DB, battleId, {
+        status: 'COUNTDOWN',
+      });
+    }
+
+    return c.json({
+      agentId,
+      position: joinResult.position as number,
+      battleStatus: joinResult.battleStatus as string,
+    });
+  } catch (error) {
+    console.error('Failed to join battle:', error);
+    return c.json(
+      { error: 'Failed to join battle', detail: String(error) },
       500,
     );
   }
@@ -614,7 +758,7 @@ app.get('/battle/:id/epochs', async (c) => {
  * GET /battles
  *
  * List recent/active battles from D1.
- * Query params: ?status=active|completed|pending&limit=20
+ * Query params: ?status=ACTIVE|COMPLETED|PENDING&limit=20
  */
 app.get('/battles', async (c) => {
   try {
@@ -756,7 +900,7 @@ app.post('/bet', async (c) => {
     if (!battle) {
       return c.json({ error: 'Battle not found' }, 404);
     }
-    if (battle.status !== 'betting' && battle.status !== 'active') {
+    if (battle.status !== 'BETTING_OPEN' && battle.status !== 'ACTIVE') {
       return c.json(
         { error: `Cannot bet on battle with status '${battle.status}'` },
         400,
@@ -1065,7 +1209,7 @@ app.post('/battle/:id/settle', async (c) => {
     let winnerId = battle.winner_id;
 
     // If D1 doesn't have winner info yet, check the ArenaDO
-    if (!winnerId || battle.status !== 'completed') {
+    if (!winnerId || battle.status !== 'COMPLETED') {
       const arenaId = c.env.ARENA_DO.idFromName(battleId);
       const arenaStub = c.env.ARENA_DO.get(arenaId);
       const stateResponse = await arenaStub.fetch(new Request('http://arena/state'));
@@ -1076,7 +1220,7 @@ app.post('/battle/:id/settle', async (c) => {
           winnerId?: string;
         };
 
-        if (arenaState.status === 'completed' && arenaState.winnerId) {
+        if (arenaState.status === 'COMPLETED' && arenaState.winnerId) {
           winnerId = arenaState.winnerId;
         }
       }
@@ -1556,7 +1700,7 @@ app.post('/bet/buy', async (c) => {
     if (!battle) {
       return c.json({ error: 'Battle not found' }, 404);
     }
-    if (battle.status !== 'betting' && battle.status !== 'active') {
+    if (battle.status !== 'BETTING_OPEN' && battle.status !== 'ACTIVE') {
       return c.json(
         { error: `Cannot bet on battle with status '${battle.status}'` },
         400,

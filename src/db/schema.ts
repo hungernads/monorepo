@@ -12,6 +12,14 @@ export interface AgentRow {
   class: string;
   name: string;
   created_at: string;
+  /** Wallet address of the player who registered this agent in the lobby. */
+  wallet_address: string | null;
+  /** Optional profile image URL for the agent. */
+  image_url: string | null;
+  /** The battle this agent is registered to (lobby join). */
+  battle_id: string | null;
+  /** Transaction hash of the participation fee payment (off-chain tracking). */
+  tx_hash: string | null;
 }
 
 export interface BattleRow {
@@ -25,6 +33,14 @@ export interface BattleRow {
   betting_phase: string;
   /** Season this battle belongs to (nullable for pre-season battles). */
   season_id: string | null;
+  /** Maximum number of players allowed in the lobby (default 8). */
+  max_players: number;
+  /** Entry fee amount as a string (to handle large numbers / decimals). */
+  fee_amount: string;
+  /** ISO timestamp when the countdown expires and battle starts. */
+  countdown_ends_at: string | null;
+  /** ISO timestamp when the battle was cancelled (null if not cancelled). */
+  cancelled_at: string | null;
 }
 
 export interface EpochRow {
@@ -158,13 +174,22 @@ export interface SeasonAgentLeaderboardRow {
 
 export async function insertAgent(
   db: D1Database,
-  agent: AgentRow,
+  agent: Pick<AgentRow, 'id' | 'class' | 'name' | 'created_at'> & Partial<AgentRow>,
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO agents (id, class, name, created_at) VALUES (?, ?, ?, ?)',
+      'INSERT INTO agents (id, class, name, created_at, wallet_address, image_url, battle_id, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .bind(agent.id, agent.class, agent.name, agent.created_at)
+    .bind(
+      agent.id,
+      agent.class,
+      agent.name,
+      agent.created_at,
+      agent.wallet_address ?? null,
+      agent.image_url ?? null,
+      agent.battle_id ?? null,
+      agent.tx_hash ?? null,
+    )
     .run();
 }
 
@@ -191,17 +216,21 @@ export async function insertBattle(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO battles (id, status, started_at, ended_at, winner_id, epoch_count, betting_phase, season_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO battles (id, status, started_at, ended_at, winner_id, epoch_count, betting_phase, season_id, max_players, fee_amount, countdown_ends_at, cancelled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       battle.id,
-      battle.status ?? 'pending',
+      battle.status ?? 'PENDING',
       battle.started_at ?? null,
       battle.ended_at ?? null,
       battle.winner_id ?? null,
       battle.epoch_count ?? 0,
       battle.betting_phase ?? 'OPEN',
       battle.season_id ?? null,
+      battle.max_players ?? 8,
+      battle.fee_amount ?? '0',
+      battle.countdown_ends_at ?? null,
+      battle.cancelled_at ?? null,
     )
     .run();
 }
@@ -263,6 +292,22 @@ export async function updateBattle(
     setClauses.push('season_id = ?');
     values.push(fields.season_id);
   }
+  if (fields.max_players !== undefined) {
+    setClauses.push('max_players = ?');
+    values.push(fields.max_players);
+  }
+  if (fields.fee_amount !== undefined) {
+    setClauses.push('fee_amount = ?');
+    values.push(fields.fee_amount);
+  }
+  if (fields.countdown_ends_at !== undefined) {
+    setClauses.push('countdown_ends_at = ?');
+    values.push(fields.countdown_ends_at);
+  }
+  if (fields.cancelled_at !== undefined) {
+    setClauses.push('cancelled_at = ?');
+    values.push(fields.cancelled_at);
+  }
 
   if (setClauses.length === 0) return;
 
@@ -271,6 +316,35 @@ export async function updateBattle(
     .prepare(`UPDATE battles SET ${setClauses.join(', ')} WHERE id = ?`)
     .bind(...values)
     .run();
+}
+
+/**
+ * Get battles in LOBBY or COUNTDOWN status with agent counts.
+ * Uses a LEFT JOIN to count agents per battle efficiently.
+ * Returns battles ordered by most recently created first.
+ */
+export async function getOpenLobbies(
+  db: D1Database,
+): Promise<
+  Array<
+    BattleRow & { player_count: number }
+  >
+> {
+  const result = await db
+    .prepare(
+      `SELECT b.*, COALESCE(a.cnt, 0) as player_count
+       FROM battles b
+       LEFT JOIN (
+         SELECT battle_id, COUNT(*) as cnt
+         FROM agents
+         WHERE battle_id IS NOT NULL
+         GROUP BY battle_id
+       ) a ON a.battle_id = b.id
+       WHERE b.status IN ('LOBBY', 'COUNTDOWN')
+       ORDER BY b.rowid DESC`,
+    )
+    .all<BattleRow & { player_count: number }>();
+  return result.results;
 }
 
 // ─── Epoch Queries ───────────────────────────────────────────────
@@ -963,7 +1037,7 @@ export async function getCompletedBattleCount(
   db: D1Database,
 ): Promise<number> {
   const row = await db
-    .prepare("SELECT COUNT(*) as cnt FROM battles WHERE status = 'completed'")
+    .prepare("SELECT COUNT(*) as cnt FROM battles WHERE status = 'COMPLETED'")
     .first<{ cnt: number }>();
   return row?.cnt ?? 0;
 }

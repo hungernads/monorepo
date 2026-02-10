@@ -7,7 +7,15 @@
  * The ArenaManager ties together all the engine pieces but does NOT
  * run epochs itself -- that's the epoch processor's job.
  *
- * Lifecycle: PENDING -> BETTING_OPEN -> ACTIVE -> COMPLETED
+ * Two lifecycle paths:
+ *
+ * Classic (CLI/quick-start):
+ *   PENDING -> BETTING_OPEN -> ACTIVE -> COMPLETED
+ *
+ * Lobby (multiplayer join):
+ *   LOBBY -> COUNTDOWN -> ACTIVE -> COMPLETED
+ *   LOBBY -> CANCELLED  (timeout / not enough players)
+ *   COUNTDOWN -> CANCELLED  (manual cancel)
  */
 
 import { BaseAgent } from '../agents/base-agent';
@@ -36,12 +44,14 @@ import {
   addBuff,
 } from './items';
 import type { ItemBuff, BuffTickResult } from './items';
+import type { BattleStatus } from './types/status';
+
+// Re-export BattleStatus so consumers can import from arena.ts or arena/index.ts
+export type { BattleStatus } from './types/status';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export type BattleStatus = 'PENDING' | 'BETTING_OPEN' | 'ACTIVE' | 'COMPLETED';
 
 /** Serializable battle state for broadcasting to spectators / API consumers. */
 export interface BattleState {
@@ -55,6 +65,10 @@ export interface BattleState {
   winnerName: string | null;
   /** Serialized hex grid state (37-tile arena). */
   grid?: ReturnType<typeof serializeGrid>;
+  /** Lobby agents waiting to be spawned (only present in LOBBY/COUNTDOWN status). */
+  lobbyAgents?: LobbyAgent[];
+  /** ISO timestamp when countdown ends (only present in COUNTDOWN status). */
+  countdownEndsAt?: string | null;
 }
 
 /** Record of an eliminated agent, produced when eliminateAgent() is called. */
@@ -66,10 +80,30 @@ export interface EliminationRecord {
   finalHp: number;
 }
 
+/**
+ * Pre-spawn agent data for lobby-based battles.
+ * Holds all the information needed to instantiate an agent when the battle starts,
+ * without actually creating a BaseAgent instance yet.
+ */
+export interface LobbyAgent {
+  /** Unique agent ID (generated on join). */
+  id: string;
+  /** Display name chosen by the player or auto-generated. */
+  name: string;
+  /** Agent class (WARRIOR, TRADER, etc.). */
+  agentClass: AgentClass;
+  /** Optional profile image URL. */
+  imageUrl?: string;
+  /** Wallet address of the player who joined. */
+  walletAddress?: string;
+  /** ISO timestamp when the agent joined the lobby. */
+  joinedAt: string;
+}
+
 /** Complete battle record produced on completion, suitable for DB persistence. */
 export interface BattleRecord {
   battleId: string;
-  status: 'COMPLETED';
+  status: 'COMPLETED' | 'CANCELLED';
   epochCount: number;
   startedAt: string;
   endedAt: string;
@@ -88,19 +122,31 @@ export interface BattleRecord {
   eliminations: EliminationRecord[];
 }
 
+/** Agent count limits for battles. */
+export const MIN_AGENTS = 2;
+export const MAX_AGENTS = 20;
+
 export interface BattleConfig {
   maxEpochs: number;
   epochIntervalMs: number;
+  /** Initial status for the battle. Defaults to PENDING (classic flow). Set to LOBBY for lobby flow. */
+  initialStatus?: 'PENDING' | 'LOBBY';
+  /** Countdown duration in ms (LOBBY → COUNTDOWN → ACTIVE). Default 30 seconds. */
+  countdownDurationMs?: number;
+  /** Minimum agents required to start countdown. Default 2. */
+  minLobbyAgents?: number;
+  /** Maximum agents allowed in lobby. Default MAX_AGENTS (20). */
+  maxLobbyAgents?: number;
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
   maxEpochs: 10,
   epochIntervalMs: 5 * 60 * 1000, // 5 minutes
+  initialStatus: 'PENDING',
+  countdownDurationMs: 30_000, // 30 seconds
+  minLobbyAgents: MIN_AGENTS,
+  maxLobbyAgents: MAX_AGENTS,
 };
-
-/** Agent count limits for battles. */
-export const MIN_AGENTS = 2;
-export const MAX_AGENTS = 20;
 
 /** All five agent classes in canonical order. */
 const ALL_CLASSES: AgentClass[] = ['WARRIOR', 'TRADER', 'SURVIVOR', 'PARASITE', 'GAMBLER'];
@@ -148,19 +194,29 @@ export class ArenaManager {
   /** Active item buffs per agent (agentId -> ItemBuff[]). */
   public agentBuffs: Map<string, ItemBuff[]>;
 
+  /** Lobby agents waiting to be spawned (lobby flow only). Keyed by agent ID. */
+  public lobbyAgents: Map<string, LobbyAgent>;
+  /** ISO timestamp when countdown ends and battle should start (set by startCountdown). */
+  public countdownEndsAt: string | null;
+  /** ISO timestamp when the battle was cancelled (set by cancelBattle). */
+  public cancelledAt: string | null;
+
   private eliminations: EliminationRecord[];
 
   constructor(battleId: string, config: Partial<BattleConfig> = {}) {
     this.battleId = battleId;
     this.config = { ...DEFAULT_BATTLE_CONFIG, ...config };
-    this.status = 'PENDING';
+    this.status = this.config.initialStatus ?? 'PENDING';
     this.agents = new Map();
     this.epochCount = 0;
     this.startedAt = null;
     this.endedAt = null;
+    this.cancelledAt = null;
     this.eliminations = [];
     this.grid = createGrid(); // 37-tile hex grid (radius 3)
     this.agentBuffs = new Map();
+    this.lobbyAgents = new Map();
+    this.countdownEndsAt = null;
   }
 
   // -------------------------------------------------------------------------
@@ -228,7 +284,179 @@ export class ArenaManager {
   }
 
   // -------------------------------------------------------------------------
-  // Battle Lifecycle Transitions
+  // Lobby Agent Management (lobby flow only)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Add an agent to the lobby. Does NOT spawn on the grid yet.
+   * Can only be called while the battle is in LOBBY or COUNTDOWN status.
+   *
+   * Returns the LobbyAgent that was added.
+   * Throws if the lobby is full or the battle is not in a lobby-compatible state.
+   */
+  addLobbyAgent(agent: Omit<LobbyAgent, 'joinedAt'>): LobbyAgent {
+    if (this.status !== 'LOBBY' && this.status !== 'COUNTDOWN') {
+      throw new Error(`Cannot add lobby agent: battle is ${this.status}, expected LOBBY or COUNTDOWN`);
+    }
+
+    const maxLobby = this.config.maxLobbyAgents ?? MAX_AGENTS;
+    if (this.lobbyAgents.size >= maxLobby) {
+      throw new Error(`Lobby is full (max ${maxLobby} agents)`);
+    }
+
+    if (this.lobbyAgents.has(agent.id)) {
+      throw new Error(`Agent ${agent.id} already in lobby`);
+    }
+
+    const lobbyAgent: LobbyAgent = {
+      ...agent,
+      joinedAt: new Date().toISOString(),
+    };
+
+    this.lobbyAgents.set(agent.id, lobbyAgent);
+    return lobbyAgent;
+  }
+
+  /**
+   * Remove an agent from the lobby (e.g. player leaves before battle starts).
+   * Can only be called while the battle is in LOBBY status.
+   * Cannot remove during COUNTDOWN (they committed by staying).
+   */
+  removeLobbyAgent(agentId: string): void {
+    if (this.status !== 'LOBBY') {
+      throw new Error(`Cannot remove lobby agent: battle is ${this.status}, expected LOBBY`);
+    }
+    if (!this.lobbyAgents.has(agentId)) {
+      throw new Error(`Agent ${agentId} not found in lobby`);
+    }
+    this.lobbyAgents.delete(agentId);
+  }
+
+  /** Get the current lobby agent count. */
+  getLobbyAgentCount(): number {
+    return this.lobbyAgents.size;
+  }
+
+  /** Check if the minimum number of agents have joined the lobby. */
+  hasMinimumLobbyAgents(): boolean {
+    const minRequired = this.config.minLobbyAgents ?? MIN_AGENTS;
+    return this.lobbyAgents.size >= minRequired;
+  }
+
+  /**
+   * Spawn all lobby agents onto the hex grid and into the agents map.
+   * Converts LobbyAgent data into real BaseAgent instances placed on the grid.
+   *
+   * Call this when transitioning from COUNTDOWN → ACTIVE.
+   * Throws if no lobby agents exist or agents are already spawned.
+   */
+  spawnFromLobby(): void {
+    if (this.agents.size > 0) {
+      throw new Error('Agents already spawned for this battle');
+    }
+    if (this.lobbyAgents.size === 0) {
+      throw new Error('No lobby agents to spawn');
+    }
+    if (this.lobbyAgents.size < (this.config.minLobbyAgents ?? MIN_AGENTS)) {
+      throw new Error(
+        `Need at least ${this.config.minLobbyAgents ?? MIN_AGENTS} agents, only ${this.lobbyAgents.size} in lobby`
+      );
+    }
+
+    const agentIds: string[] = [];
+
+    for (const lobbyAgent of this.lobbyAgents.values()) {
+      const agent = createAgent(lobbyAgent.agentClass, lobbyAgent.id, lobbyAgent.name);
+      this.agents.set(lobbyAgent.id, agent);
+      agentIds.push(lobbyAgent.id);
+    }
+
+    // Place agents on random tiles across the 37-tile hex grid
+    const allTiles = getEmptyTiles(this.grid);
+    const shuffled = [...allTiles];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    for (let i = 0; i < agentIds.length; i++) {
+      const tile = shuffled[i % shuffled.length];
+      const pos = tile.coord;
+      const agentId = agentIds[i];
+      this.grid = placeAgent(agentId, pos, this.grid);
+      const agent = this.agents.get(agentId);
+      if (agent) {
+        agent.position = { q: pos.q, r: pos.r };
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Lobby Lifecycle Transitions
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start the countdown. Transition: LOBBY → COUNTDOWN.
+   * Sets countdownEndsAt based on config.countdownDurationMs.
+   *
+   * Throws if minimum agents not reached or battle is not in LOBBY status.
+   */
+  startCountdown(): void {
+    if (this.status !== 'LOBBY') {
+      throw new Error(`Cannot start countdown: battle is ${this.status}, expected LOBBY`);
+    }
+    if (!this.hasMinimumLobbyAgents()) {
+      const minRequired = this.config.minLobbyAgents ?? MIN_AGENTS;
+      throw new Error(
+        `Cannot start countdown: need at least ${minRequired} agents, only ${this.lobbyAgents.size} in lobby`
+      );
+    }
+
+    this.status = 'COUNTDOWN';
+    const durationMs = this.config.countdownDurationMs ?? 30_000;
+    this.countdownEndsAt = new Date(Date.now() + durationMs).toISOString();
+  }
+
+  /**
+   * Cancel the battle. Transition: LOBBY/COUNTDOWN → CANCELLED.
+   * Terminal state -- no further transitions allowed.
+   *
+   * Throws if battle is not in a cancellable state.
+   */
+  cancelBattle(): void {
+    if (this.status !== 'LOBBY' && this.status !== 'COUNTDOWN') {
+      throw new Error(`Cannot cancel battle: status is ${this.status}, expected LOBBY or COUNTDOWN`);
+    }
+
+    this.status = 'CANCELLED';
+    this.endedAt = new Date();
+    this.cancelledAt = new Date().toISOString();
+  }
+
+  /**
+   * Start a lobby battle. Transition: COUNTDOWN → ACTIVE.
+   * Spawns lobby agents on the grid, records start time, and spawns cornucopia items.
+   *
+   * This is the lobby equivalent of startBattle() / startBattleImmediate().
+   */
+  startBattleFromLobby(): void {
+    if (this.status !== 'COUNTDOWN') {
+      throw new Error(`Cannot start battle from lobby: status is ${this.status}, expected COUNTDOWN`);
+    }
+
+    // Spawn lobby agents onto the grid
+    this.spawnFromLobby();
+
+    this.status = 'ACTIVE';
+    this.startedAt = new Date();
+
+    // Spawn cornucopia items on the 7 center tiles
+    const cornucopiaItems = spawnCornucopiaItems(this.grid);
+    this.grid = addItemsToGrid(cornucopiaItems, this.grid);
+  }
+
+  // -------------------------------------------------------------------------
+  // Battle Lifecycle Transitions (Classic Flow)
   // -------------------------------------------------------------------------
 
   /**
@@ -409,11 +637,12 @@ export class ArenaManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Check if the battle is complete (1 or fewer agents alive).
-   * Does NOT transition state -- call completeBattle() for that.
+   * Check if the battle is complete (1 or fewer agents alive, or cancelled).
+   * Does NOT transition state -- call completeBattle() or cancelBattle() for that.
    */
   isComplete(): boolean {
     if (this.status === 'COMPLETED') return true;
+    if (this.status === 'CANCELLED') return true;
     if (this.status !== 'ACTIVE') return false;
 
     const alive = this.getActiveAgents();
@@ -480,7 +709,7 @@ export class ArenaManager {
     const agents: ArenaAgentState[] = Array.from(this.agents.values()).map(a => a.getState());
     const winner = this.getWinner();
 
-    return {
+    const state: BattleState = {
       battleId: this.battleId,
       status: this.status,
       epochCount: this.epochCount,
@@ -491,6 +720,14 @@ export class ArenaManager {
       winnerName: winner?.name ?? null,
       grid: serializeGrid(this.grid),
     };
+
+    // Include lobby-specific fields when relevant
+    if (this.status === 'LOBBY' || this.status === 'COUNTDOWN') {
+      state.lobbyAgents = Array.from(this.lobbyAgents.values());
+      state.countdownEndsAt = this.countdownEndsAt;
+    }
+
+    return state;
   }
 
   /** Update the hex grid state (called by epoch processor after movement/items). */

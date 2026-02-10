@@ -331,6 +331,46 @@ export interface TrapTriggeredEvent {
   };
 }
 
+/**
+ * Emitted when an agent joins or leaves a lobby, or lobby status changes.
+ */
+export interface LobbyUpdateEvent {
+  type: 'lobby_update';
+  data: {
+    battleId: string;
+    status: 'LOBBY' | 'COUNTDOWN';
+    agents: Array<{
+      id: string;
+      name: string;
+      class: string;
+      imageUrl?: string;
+      position: number;
+    }>;
+    playerCount: number;
+    maxPlayers: number;
+    countdownEndsAt?: string;
+  };
+}
+
+/**
+ * Emitted when the countdown ends and the battle is about to begin.
+ * Sent by transitionToActive() (tk-csc.10) to notify spectators that agents
+ * have been placed on the hex grid and the first epoch is imminent.
+ */
+export interface BattleStartingEvent {
+  type: 'battle_starting';
+  data: {
+    battleId: string;
+    agents: Array<{
+      id: string;
+      name: string;
+      class: string;
+      position: { q: number; r: number };
+    }>;
+    startsAt: number;
+  };
+}
+
 /** Discriminated union of all events streamed to spectators. */
 export type BattleEvent =
   | EpochStartEvent
@@ -353,7 +393,9 @@ export type BattleEvent =
   | AgentMovedEvent
   | ItemSpawnedEvent
   | ItemPickedUpEvent
-  | TrapTriggeredEvent;
+  | TrapTriggeredEvent
+  | LobbyUpdateEvent
+  | BattleStartingEvent;
 
 // ─── Broadcast Helper ─────────────────────────────────────────────────────────
 
