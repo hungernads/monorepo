@@ -11,6 +11,8 @@ import AgentRank from '@/components/home/AgentRank';
 import type { RankedAgent } from '@/components/home/AgentRank';
 import BettorRank from '@/components/home/BettorRank';
 import type { RankedBettor } from '@/components/home/BettorRank';
+import LobbyCard from '@/components/lobby/LobbyCard';
+import type { LobbyData } from '@/components/lobby/LobbyCard';
 import { useFetch } from '@/hooks/useFetch';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,11 @@ interface BettorLeaderboardEntry {
 interface BettorLeaderboardResponse {
   leaderboard: BettorLeaderboardEntry[];
   count: number;
+}
+
+/** Shape returned by GET /battle/lobbies */
+interface LobbiesResponse {
+  lobbies: LobbyData[];
 }
 
 /** Shape returned by GET /agent/:id (for winner lookups) */
@@ -154,7 +161,7 @@ export default function HomePage() {
 
       // Step 1: Get active battle IDs
       const listRes = await fetch(
-        `${API_BASE}/battles?status=active&limit=10`,
+        `${API_BASE}/battles?status=ACTIVE&limit=10`,
       );
       if (!listRes.ok) {
         setLiveBattles([]);
@@ -205,6 +212,27 @@ export default function HomePage() {
     }
   }, []);
 
+  // ── Open lobbies ──────────────────────────────────────────────
+  const [lobbies, setLobbies] = useState<LobbyData[]>([]);
+  const [lobbiesLoading, setLobbiesLoading] = useState(true);
+
+  const fetchLobbies = useCallback(async () => {
+    try {
+      setLobbiesLoading(true);
+      const res = await fetch(`${API_BASE}/battle/lobbies`);
+      if (!res.ok) {
+        setLobbies([]);
+        return;
+      }
+      const data = (await res.json()) as LobbiesResponse;
+      setLobbies(data.lobbies ?? []);
+    } catch {
+      setLobbies([]);
+    } finally {
+      setLobbiesLoading(false);
+    }
+  }, []);
+
   // ── Recent results ────────────────────────────────────────────
   const [recentResults, setRecentResults] = useState<RecentResult[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
@@ -214,7 +242,7 @@ export default function HomePage() {
       setRecentLoading(true);
 
       const res = await fetch(
-        `${API_BASE}/battles?status=completed&limit=5`,
+        `${API_BASE}/battles?status=COMPLETED&limit=5`,
       );
       if (!res.ok) {
         setRecentResults([]);
@@ -311,54 +339,84 @@ export default function HomePage() {
     }),
   );
 
-  // ── Start a new battle ──────────────────────────────────────────
-  const [startingBattle, setStartingBattle] = useState(false);
+  // ── Create a new lobby ──────────────────────────────────────────
+  const [creatingLobby, setCreatingLobby] = useState(false);
 
-  const handleStartBattle = useCallback(async () => {
+  const handleCreateLobby = useCallback(async () => {
     try {
-      setStartingBattle(true);
-      const res = await fetch(`${API_BASE}/battle/start`, {
+      setCreatingLobby(true);
+      const res = await fetch(`${API_BASE}/battle/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // defaults to all 5 agent classes
+        body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { battleId: string };
-      // Navigate to the new battle
-      window.location.href = `/battle/${data.battleId}`;
+      window.location.href = `/lobby/${data.battleId}`;
     } catch (err) {
-      console.error('Failed to start battle:', err);
-      setStartingBattle(false);
+      console.error('Failed to create lobby:', err);
+      setCreatingLobby(false);
     }
   }, []);
 
   // ── Kick off fetches on mount ─────────────────────────────────
   useEffect(() => {
     fetchLiveBattles();
+    fetchLobbies();
     fetchRecentResults();
 
-    // Poll live battles every 30 seconds
-    const interval = setInterval(fetchLiveBattles, 30_000);
+    // Poll live battles + lobbies every 15 seconds
+    const interval = setInterval(() => {
+      fetchLiveBattles();
+      fetchLobbies();
+    }, 15_000);
     return () => clearInterval(interval);
-  }, [fetchLiveBattles, fetchRecentResults]);
+  }, [fetchLiveBattles, fetchLobbies, fetchRecentResults]);
 
   // ── Render ────────────────────────────────────────────────────
   return (
     <div>
       <HeroSection activeBattleCount={liveBattles.length} />
 
-      {/* Start Battle CTA */}
-      {liveBattles.length === 0 && !liveBattlesLoading && (
-        <div className="mt-6 flex justify-center">
+      {/* Open Lobbies Section */}
+      <div className="mt-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-500">
+            <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+            Open Arenas
+          </h2>
           <button
-            onClick={handleStartBattle}
-            disabled={startingBattle}
-            className="rounded-lg border border-gold/40 bg-gold/10 px-8 py-4 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98] disabled:opacity-60 sm:py-3"
+            onClick={handleCreateLobby}
+            disabled={creatingLobby}
+            className="rounded-lg border border-gold/40 bg-gold/10 px-5 py-2 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.97] disabled:opacity-60"
           >
-            {startingBattle ? 'Summoning Gladiators...' : 'Start New Battle'}
+            {creatingLobby ? 'Creating...' : 'Create Lobby'}
           </button>
         </div>
-      )}
+
+        {lobbiesLoading ? (
+          <LoadingSkeleton label="open arenas" />
+        ) : lobbies.length === 0 ? (
+          <div className="card flex flex-col items-center justify-center gap-3 py-8">
+            <p className="text-sm text-gray-500">
+              No open arenas. Create one and fight!
+            </p>
+            <button
+              onClick={handleCreateLobby}
+              disabled={creatingLobby}
+              className="rounded-lg border border-gold/40 bg-gold/10 px-8 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98] disabled:opacity-60"
+            >
+              {creatingLobby ? 'Creating...' : 'Create Lobby'}
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {lobbies.map((lobby) => (
+              <LobbyCard key={lobby.battleId} lobby={lobby} />
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-5">
         {/* Left column: live battles + recent results */}

@@ -8,7 +8,7 @@ export type Asset = "ETH" | "BTC" | "SOL" | "MON";
 export type Direction = "UP" | "DOWN";
 
 /** Battle lifecycle status */
-export type BattleStatus = "PENDING" | "ACTIVE" | "COMPLETED";
+export type BattleStatus = "PENDING" | "LOBBY" | "COUNTDOWN" | "BETTING_OPEN" | "ACTIVE" | "COMPLETED" | "CANCELLED" | "SETTLED";
 
 /** Agent state within a battle */
 export interface AgentState {

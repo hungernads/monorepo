@@ -262,6 +262,42 @@ export interface SponsorBoostEvent {
   };
 }
 
+// ─── Lobby Events ─────────────────────────────────────────────────────
+
+/** Broadcast when an agent joins the lobby or countdown status changes. */
+export interface LobbyUpdateEvent {
+  type: 'lobby_update';
+  data: {
+    battleId: string;
+    status: 'LOBBY' | 'COUNTDOWN';
+    agents: Array<{
+      id: string;
+      name: string;
+      class: string;
+      imageUrl?: string;
+      position: number;
+    }>;
+    playerCount: number;
+    maxPlayers: number;
+    countdownEndsAt?: string;
+  };
+}
+
+/** Emitted when countdown ends and the battle is about to begin. */
+export interface BattleStartingEvent {
+  type: 'battle_starting';
+  data: {
+    battleId: string;
+    agents: Array<{
+      id: string;
+      name: string;
+      class: string;
+      position: { q: number; r: number };
+    }>;
+    startsAt: number;
+  };
+}
+
 export type BattleEvent =
   | EpochStartEvent
   | AgentActionEvent
@@ -280,7 +316,9 @@ export type BattleEvent =
   | AgentMovedEvent
   | ItemSpawnedEvent
   | ItemPickedUpEvent
-  | TrapTriggeredEvent;
+  | TrapTriggeredEvent
+  | LobbyUpdateEvent
+  | BattleStartingEvent;
 
 export type BattleEventHandler = (event: BattleEvent) => void;
 export type ConnectionHandler = (connected: boolean) => void;
