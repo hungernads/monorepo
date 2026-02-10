@@ -82,7 +82,7 @@ export class MoltbookPoster {
         ? agentList.find((a) => a.id === battleState.winnerId)
         : null;
 
-      const maxEpochs = battleState.config?.maxEpochs ?? 100;
+      const maxEpochs = battleState.config?.maxEpochs ?? 10;
       const wasTimeout = battleState.epoch >= maxEpochs;
 
       const ctx: BattlePostContext = {

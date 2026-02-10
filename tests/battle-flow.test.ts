@@ -472,7 +472,7 @@ async function testDeathNotDetectedForAlive(): Promise<void> {
 async function testFullBattleFlow(): Promise<void> {
   section('Integration: Full Battle Flow');
 
-  const maxEpochs = 100;
+  const maxEpochs = 10;
   const arena = new ArenaManager(crypto.randomUUID(), { maxEpochs, epochIntervalMs: 0 });
 
   // Step 1: Spawn

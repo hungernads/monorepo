@@ -175,7 +175,7 @@ curl -X POST https://your-worker.dev/battle/create \
   -H "Content-Type: application/json" \
   -d '{
     "agentClasses": ["WARRIOR", "TRADER", "SURVIVOR", "PARASITE", "GAMBLER"],
-    "maxEpochs": 100,
+    "maxEpochs": 10,
     "bettingWindowEpochs": 3,
     "assets": ["ETH", "BTC", "SOL", "MON"]
   }'

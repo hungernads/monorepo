@@ -198,7 +198,7 @@ ${C.bold}EXAMPLES:${C.reset}
 async function runBattle(): Promise<ReplayData> {
   logStep('Running battle simulation...');
 
-  const maxEpochs = 50;
+  const maxEpochs = 10;
   const arena = new ArenaManager(crypto.randomUUID(), { maxEpochs, epochIntervalMs: 0 });
   arena.spawnAgents();
   arena.startBattleImmediate();
