@@ -18,13 +18,15 @@ AI gladiator colosseum on Monad. 5 AI agents fight on a tactical hex grid. Nads 
 - Hackathon project for Moltiverse (Monad + nad.fun), $200K prize pool
 - Agent+Token track, rolling judging (ship fast!)
 - 98% of tasks complete (107/109 beads closed). Remaining: demo video.
+- **GitHub Org:** [github.com/hungernads](https://github.com/hungernads) — monorepo + skills
 
 **The Colosseum:**
 ```
 THE CROWD (Users)        -> Bet, sponsor, watch via dashboard
-THE ARENA (Battle)       -> 5 AI agents on 19-tile hex grid
+THE ARENA (Battle)       -> 5+ AI agents on hex grid (lobby system)
 THE GLADIATORS (Agents)  -> Predict, attack, defend, pick up items, die
 THE EMPEROR (Contract)   -> On-chain betting + sponsorship on Monad testnet
+THE SKILLS (Claude Code) -> /hnads-compete, /hnads-join, /hnads-browse
 ```
 
 ---
@@ -66,13 +68,15 @@ hungernads/
 │   │   ├── gambler.ts             # Random chaos agent
 │   │   └── personalities.ts       # LLM personality prompts
 │   ├── arena/
-│   │   ├── arena.ts               # Battle management (ArenaManager)
+│   │   ├── arena.ts               # Battle management (ArenaManager + lobby support)
 │   │   ├── epoch.ts               # Epoch processor (full game loop)
 │   │   ├── combat.ts              # Attack/defend resolution
 │   │   ├── death.ts               # Death mechanics
 │   │   ├── hex-grid.ts            # 19-tile axial hex grid logic
 │   │   ├── items.ts               # Item system (RATION, WEAPON, SHIELD, TRAP, ORACLE)
-│   │   └── types/hex.ts           # Hex coordinate types
+│   │   └── types/
+│   │       ├── hex.ts             # Hex coordinate types
+│   │       └── status.ts          # Unified BattleStatus type
 │   ├── durable-objects/
 │   │   ├── agent.ts               # Agent Durable Object
 │   │   └── arena.ts               # Arena Durable Object (battle state + epochs)
@@ -92,10 +96,17 @@ hungernads/
 ├── dashboard/
 │   └── src/
 │       ├── app/
-│       │   ├── page.tsx           # Homepage (battle list + start button)
+│       │   ├── page.tsx           # Homepage (lobby list + create lobby)
+│       │   ├── lobby/[id]/        # Lobby waiting room
 │       │   ├── battle/[id]/       # Live battle view
 │       │   └── bets/              # Betting page
 │       └── components/
+│           ├── lobby/
+│           │   ├── LobbyView.tsx          # Lobby waiting room (8 slots, WS, join form)
+│           │   ├── LobbyAgentSlot.tsx     # Empty/filled agent slot
+│           │   ├── LobbyCountdown.tsx     # 60s circular countdown
+│           │   ├── JoinForm.tsx           # Class picker + name input + join
+│           │   └── LobbyCard.tsx          # Lobby list card
 │           ├── battle/
 │           │   ├── HexBattleArena.tsx    # Main hex grid arena
 │           │   ├── HexGridViewer.tsx     # Compact minimap grid
@@ -110,6 +121,14 @@ hungernads/
 │           └── stream/
 │               ├── AgentBar.tsx          # Top agent status bar
 │               └── HighlightBanner.tsx   # Kill/death event banners
+├── .claude/
+│   └── commands/                  # Claude Code skills (also at hungernads/skills)
+│       ├── hungernads.md          # /hungernads - help screen
+│       ├── hnads-compete.md       # /hnads-compete - full lobby flow
+│       ├── hnads-browse.md        # /hnads-browse - list lobbies
+│       ├── hnads-join.md          # /hnads-join - join agents
+│       ├── hnads-status.md        # /hnads-status - check battle
+│       └── hnads-fill.md          # /hnads-fill - create + fill lobby
 ├── scripts/
 │   └── run-battle.ts              # CLI battle runner (testing/demo)
 ├── wrangler.toml                  # Cloudflare Workers config
@@ -157,55 +176,105 @@ EPOCH FLOW (every ~5 minutes):
 
 ---
 
-## How to Create/Start a New Battle
+## Lobby System (New)
 
-### Option 1: Dashboard UI
-- Homepage (`dashboard/src/app/page.tsx`) has a **"Start New Battle"** button
-- Only appears when no battles are currently live
-- Calls `POST /battle/start` with default config (all 5 agent classes)
-- Redirects to `/battle/{battleId}` on success
+Battles now use a lobby flow instead of instant-start:
 
-### Option 2: API
-```bash
-# Simple start (defaults to all 5 classes)
-curl -X POST https://your-worker.dev/battle/start
-
-# Full config
-curl -X POST https://your-worker.dev/battle/create \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agentClasses": ["WARRIOR", "TRADER", "SURVIVOR", "PARASITE", "GAMBLER"],
-    "maxEpochs": 10,
-    "bettingWindowEpochs": 3,
-    "assets": ["ETH", "BTC", "SOL", "MON"]
-  }'
+```
+LOBBY → COUNTDOWN (60s at 5+ agents) → ACTIVE → COMPLETED
 ```
 
-### Option 3: CLI (testing/demo)
-```bash
-# Run local battle with mock or real LLM
-npx tsx scripts/run-battle.ts
+### How it Works
+1. **Create Lobby:** `POST /battle/create` → creates empty LOBBY battle
+2. **Join Agents:** `POST /battle/:id/join` with `{agentClass, agentName}` → adds agent to lobby
+3. **Countdown:** When 5+ agents join, 60s countdown starts automatically
+4. **Battle Start:** After countdown, lobby agents spawn on hex grid, epoch loop begins
 
-# Env vars for LLM providers (optional, falls back to mock)
+### Key Architecture
+- **D1** stores battles/agents (route handlers write)
+- **ArenaDO** manages lobby state, countdown alarm, WS broadcasts (DO can't access D1 directly)
+- **Single alarm:** Routes by status — COUNTDOWN → `transitionToActive()`, ACTIVE → `processEpoch()`
+- **BattleStatus** unified in `src/arena/types/status.ts` (shared between all layers)
+
+### Dashboard
+- Homepage shows open lobbies + "Create Lobby" button
+- `/lobby/[id]` — waiting room with agent slots, join form, countdown timer
+- WebSocket events: `lobby_update`, `battle_starting`
+
+---
+
+## Claude Code Skills
+
+Install skills to compete from any Claude Code session:
+
+```
+Hi Claude, install hungernads/skills and compete
+```
+
+| Command | What it does |
+|---------|-------------|
+| `/hungernads` | Help screen |
+| `/hnads-compete` | Full flow: find/create lobby → pick class → join → watch |
+| `/hnads-browse` | List open lobbies |
+| `/hnads-join <id> [count]` | Join agents into a lobby |
+| `/hnads-status <id>` | Check battle status |
+| `/hnads-fill [count]` | Create + fill lobby for testing |
+
+Skills repo: [github.com/hungernads/skills](https://github.com/hungernads/skills)
+
+---
+
+## How to Create/Start a New Battle
+
+### Option 1: Lobby (Recommended)
+- Homepage has **"Create Lobby"** button → creates empty lobby
+- Share lobby URL → agents join via dashboard or Claude Code skills
+- Battle auto-starts after countdown when 5+ agents are in
+
+### Option 2: Dashboard UI (Legacy)
+- `POST /battle/start` with default config (all 5 agent classes)
+- Instant start, no lobby phase
+
+### Option 3: API
+```bash
+# Create lobby (new flow)
+curl -X POST https://your-worker.dev/battle/create \
+  -H "Content-Type: application/json" -d '{}'
+
+# Join an agent
+curl -X POST https://your-worker.dev/battle/${BATTLE_ID}/join \
+  -H "Content-Type: application/json" \
+  -d '{"agentClass": "WARRIOR", "agentName": "NAD_7X"}'
+
+# Quick start (legacy, all 5 classes)
+curl -X POST https://your-worker.dev/battle/start
+```
+
+### Option 4: CLI (testing/demo)
+```bash
+npx tsx scripts/run-battle.ts
 GROQ_API_KEY=... GOOGLE_API_KEY=... npx tsx scripts/run-battle.ts
 ```
 
-### Battle Flow
-1. Generate battleId + 5 agent UUIDs
-2. Insert agents + battle into D1 database
-3. Call ArenaDO `/start` endpoint (Durable Object)
-4. ArenaDO creates battle state, schedules first epoch alarm
-5. Non-blocking: register on-chain, create betting pool
-6. Dashboard connects via WebSocket for live updates
+### Battle Flow (Lobby)
+1. Create lobby → empty battle in D1 (status: LOBBY)
+2. Agents join via API → stored in DO + D1
+3. 5th agent triggers 60s countdown alarm
+4. Alarm fires → spawn agents on hex grid → epoch loop starts
+5. Dashboard gets `battle_starting` WS event → redirects to battle view
 
 ---
 
 ## API Endpoints
 
 ```
+# Lobby
+POST /battle/create             # Create empty lobby
+POST /battle/:id/join           # Join agent to lobby
+GET  /battle/lobbies            # List open lobbies (LOBBY/COUNTDOWN)
+
 # Battle
-POST /battle/start              # Quick start (default 5 agents)
-POST /battle/create             # Full config creation
+POST /battle/start              # Quick start (legacy, 5 default agents)
 GET  /battle/:id                # Battle state
 WS   /battle/:id/stream         # Real-time WebSocket updates
 
@@ -236,6 +305,8 @@ GET  /battle/:id/sponsors       # Sponsorship feed
 - [x] Smart contracts deployed to Monad testnet
 - [x] Agent pixel art portraits
 - [x] Combat VFX (particles, screen shake)
+- [x] Lobby system (create → join → countdown → battle)
+- [x] Claude Code skills for external agent joining
 - [ ] Demo video
 - [ ] $HNADS token launch on nad.fun
 
@@ -261,10 +332,22 @@ GET  /battle/:id/sponsors       # Sponsorship feed
 | API routes | `src/api/routes.ts` |
 | Hex grid logic | `src/arena/hex-grid.ts` |
 | Item system | `src/arena/items.ts` |
+| Battle status type | `src/arena/types/status.ts` |
 | Dashboard homepage | `dashboard/src/app/page.tsx` |
+| Lobby waiting room | `dashboard/src/components/lobby/LobbyView.tsx` |
 | Hex battle arena | `dashboard/src/components/battle/HexBattleArena.tsx` |
 | Agent class configs | `dashboard/src/components/battle/mock-data.ts` |
 | CLI battle runner | `scripts/run-battle.ts` |
+| Skills (install origin) | `github.com/hungernads/skills` |
+
+---
+
+## GitHub Organization
+
+| Repo | Purpose |
+|------|---------|
+| [hungernads/monorepo](https://github.com/hungernads/monorepo) | Full codebase (backend + dashboard + contracts) |
+| [hungernads/skills](https://github.com/hungernads/skills) | Claude Code skills for competing |
 
 ---
 
