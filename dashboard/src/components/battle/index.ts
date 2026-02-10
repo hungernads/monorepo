@@ -6,6 +6,8 @@ export { default as ActionFeed } from "./ActionFeed";
 export { default as EpochTimer } from "./EpochTimer";
 export { default as MarketTicker } from "./MarketTicker";
 export { default as HexGridViewer } from "./HexGridViewer";
+export { default as PhaseIndicator } from "./PhaseIndicator";
+export { default as PrizeClaim } from "./PrizeClaim";
 export { default as ParticleEffects, useParticleEffects } from "./ParticleEffects";
 export { useScreenShake } from "./useScreenShake";
 export type { ShakeIntensity } from "./useScreenShake";
@@ -22,3 +24,4 @@ export {
 export type { BattleAgent, FeedEntry, MarketPrice, MockItemType } from "./mock-data";
 export type { AgentPosition, HexGridViewerProps } from "./HexGridViewer";
 export type { ParticleEffect, ParticleEffectType, ParticleEffectsProps } from "./ParticleEffects";
+export type { PhaseIndicatorProps } from "./PhaseIndicator";

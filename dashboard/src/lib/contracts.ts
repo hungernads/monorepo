@@ -8,6 +8,8 @@
  *   useOdds         - per-agent pool sizes for a battle
  *   useUserBets     - the connected user's bets for a battle
  *   useBattlePool   - total pool size for a battle
+ *   useClaimable    - claimable prize amount for connected user
+ *   useClaimed      - whether connected user has already claimed
  *
  * Write hooks:
  *   usePlaceBet     - place a payable bet on an agent
@@ -72,6 +74,16 @@ const bettingAbi = [
       { name: 'user', type: 'address' },
     ],
     outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'claimed',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'battleId', type: 'bytes32' },
+      { name: 'user', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
   },
   // ── Write ──
   {
@@ -186,6 +198,25 @@ export function useClaimable(battleId: string) {
     address: BETTING_ADDRESS,
     abi: bettingAbi,
     functionName: 'claimable',
+    args: [battleBytes, address as Address],
+    query: {
+      enabled: !!address,
+    },
+  });
+}
+
+/**
+ * Check whether the connected user has already claimed their prize.
+ *
+ * @param battleId - Human-readable battle ID
+ */
+export function useClaimed(battleId: string) {
+  const { address } = useAccount();
+  const battleBytes = battleIdToBytes32(battleId);
+  return useReadContract({
+    address: BETTING_ADDRESS,
+    abi: bettingAbi,
+    functionName: 'claimed',
     args: [battleBytes, address as Address],
     query: {
       enabled: !!address,

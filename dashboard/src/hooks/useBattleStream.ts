@@ -19,11 +19,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   BattleWebSocket,
   type BattleEvent,
+  type BattlePhase,
   type EpochEndEvent,
   type EpochStartEvent,
   type BattleEndEvent,
   type GridStateEvent,
   type AgentMovedEvent,
+  type PhaseChangeEvent,
   type ItemType,
   type TileType,
 } from '@/lib/websocket';
@@ -52,6 +54,22 @@ export interface StreamGridTile {
   level: number;
   occupantId: string | null;
   items: { id: string; type: ItemType }[];
+}
+
+/** Current battle phase state derived from phase_change WS events. */
+export interface StreamPhaseState {
+  /** Current phase name. */
+  phase: BattlePhase;
+  /** Epochs remaining in the current phase (decremented on each epoch_start). */
+  epochsRemaining: number;
+  /** Whether combat is enabled in the current phase. */
+  combatEnabled: boolean;
+  /** Storm ring level for the current phase. */
+  stormRing: number;
+  /** Epoch number when this phase started. */
+  phaseStartEpoch: number;
+  /** Total epochs in this phase (computed: phaseStartEpoch + epochsRemaining - 1 at transition). */
+  phaseTotalEpochs: number;
 }
 
 /** Recent agent movement from agent_moved events (cleared each epoch). */
@@ -85,6 +103,10 @@ export interface UseBattleStreamResult {
   agentPositions: StreamAgentPositions;
   /** Recent movement events from the current epoch (cleared on epoch_start). */
   recentMoves: RecentMove[];
+  /** Current battle phase state (null until first phase_change event or client-side computation). */
+  phaseState: StreamPhaseState | null;
+  /** Storm tile coordinates from the most recent grid_state event. Empty during LOOT. */
+  stormTiles: { q: number; r: number }[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -104,6 +126,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
   const [gridTiles, setGridTiles] = useState<StreamGridTile[]>([]);
   const [agentPositions, setAgentPositions] = useState<StreamAgentPositions>({});
   const [recentMoves, setRecentMoves] = useState<RecentMove[]>([]);
+  const [phaseState, setPhaseState] = useState<StreamPhaseState | null>(null);
+  const [stormTiles, setStormTiles] = useState<{ q: number; r: number }[]>([]);
 
   const wsRef = useRef<BattleWebSocket | null>(null);
 
@@ -122,6 +146,12 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
         setMarketData(e.data.marketData);
         // Clear movement trails from previous epoch
         setRecentMoves([]);
+        // Decrement epochs remaining in current phase (if tracked)
+        setPhaseState((prev) => {
+          if (!prev) return prev;
+          const remaining = Math.max(0, prev.epochsRemaining - 1);
+          return { ...prev, epochsRemaining: remaining };
+        });
         break;
       }
 
@@ -157,6 +187,7 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
         const e = event as GridStateEvent;
         setGridTiles(e.data.tiles);
         setAgentPositions(e.data.agentPositions);
+        setStormTiles(e.data.stormTiles ?? []);
         break;
       }
 
@@ -172,6 +203,19 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
             success: e.data.success,
           },
         ]);
+        break;
+      }
+
+      case 'phase_change': {
+        const e = event as PhaseChangeEvent;
+        setPhaseState({
+          phase: e.data.phase,
+          epochsRemaining: e.data.epochsRemaining,
+          combatEnabled: e.data.combatEnabled,
+          stormRing: e.data.stormRing,
+          phaseStartEpoch: e.data.epochNumber,
+          phaseTotalEpochs: e.data.epochsRemaining,
+        });
         break;
       }
 
@@ -214,6 +258,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
     gridTiles,
     agentPositions,
     recentMoves,
+    phaseState,
+    stormTiles,
   };
 }
 

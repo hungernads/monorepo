@@ -54,6 +54,9 @@ interface RecentMove {
   success: boolean;
 }
 
+/** Battle phase — mirrors backend BattlePhase type. */
+type BattlePhase = "LOOT" | "HUNT" | "BLOOD" | "FINAL_STAND";
+
 /** Extended hex definition for the 37-tile grid */
 interface ArenaHex extends HexCoord {
   label: string;
@@ -72,6 +75,10 @@ interface HexBattleArenaProps {
   sponsorEventCount?: number;
   /** Recent agent movements for drawing movement trail arrows. */
   recentMoves?: RecentMove[];
+  /** Storm tile coordinates from the backend. Empty during LOOT phase. */
+  stormTiles?: HexCoord[];
+  /** Current battle phase (null if phase data not yet available). */
+  currentPhase?: BattlePhase | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +275,44 @@ const LEVEL_BADGE: Record<TileLevel, { label: string; color: string }> = {
   3: { label: "Lv3", color: "#b45309" },
   2: { label: "Lv2", color: "#4a4a6a" },
   1: { label: "Lv1", color: "#3a3a55" },
+};
+
+// ---------------------------------------------------------------------------
+// Storm visual config — colors and animation classes per battle phase
+// ---------------------------------------------------------------------------
+
+/** Storm overlay fill + pulse animation per phase. */
+const STORM_PHASE_VISUALS: Record<BattlePhase, {
+  fill: string;
+  stroke: string;
+  animClass: string;
+  /** Safe zone glow (applied to non-storm tiles). null = no glow. */
+  safeGlow: string | null;
+}> = {
+  LOOT: {
+    fill: "transparent",
+    stroke: "transparent",
+    animClass: "",
+    safeGlow: null,
+  },
+  HUNT: {
+    fill: "rgba(245, 158, 11, 0.12)",
+    stroke: "rgba(245, 158, 11, 0.35)",
+    animClass: "storm-pulse-hunt",
+    safeGlow: null,
+  },
+  BLOOD: {
+    fill: "rgba(220, 38, 38, 0.18)",
+    stroke: "rgba(220, 38, 38, 0.45)",
+    animClass: "storm-pulse-blood",
+    safeGlow: "rgba(34, 197, 94, 0.08)",
+  },
+  FINAL_STAND: {
+    fill: "rgba(124, 58, 237, 0.22)",
+    stroke: "rgba(124, 58, 237, 0.50)",
+    animClass: "storm-pulse-final",
+    safeGlow: "rgba(34, 197, 94, 0.12)",
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1223,6 +1268,140 @@ function MovementTrail({
 }
 
 // ---------------------------------------------------------------------------
+// Storm overlay — semi-transparent hex polygon on storm tiles
+// ---------------------------------------------------------------------------
+
+/** Render a storm overlay polygon on a single hex tile. Uses CSS class for pulse animation. */
+function StormHexOverlay({
+  center,
+  phase,
+}: {
+  center: PixelPoint;
+  phase: BattlePhase;
+}) {
+  const visual = STORM_PHASE_VISUALS[phase];
+  if (!visual.fill || visual.fill === "transparent") return null;
+
+  const vertices = hexVertices(center.x, center.y, HEX_SIZE - 2);
+  return (
+    <polygon
+      points={vertices}
+      fill={visual.fill}
+      stroke="none"
+      className={visual.animClass}
+      style={{ pointerEvents: "none" }}
+    />
+  );
+}
+
+/** Render a safe-zone glow on a non-storm hex tile. Only shown in BLOOD/FINAL_STAND. */
+function SafeZoneGlow({
+  center,
+  phase,
+}: {
+  center: PixelPoint;
+  phase: BattlePhase;
+}) {
+  const visual = STORM_PHASE_VISUALS[phase];
+  if (!visual.safeGlow) return null;
+
+  const vertices = hexVertices(center.x, center.y, HEX_SIZE - 2);
+  return (
+    <polygon
+      points={vertices}
+      fill={visual.safeGlow}
+      stroke="rgba(34, 197, 94, 0.2)"
+      strokeWidth="1"
+      className="safe-zone-glow"
+      style={{ pointerEvents: "none" }}
+    />
+  );
+}
+
+/**
+ * Compute the boundary edges between storm and safe tiles.
+ * Returns an array of line segments (pairs of pixel points) on the shared hex edges.
+ *
+ * For flat-top hexagons, the 6 edge midpoints correspond to the 6 axial neighbors.
+ * We draw a line segment along the hex edge (vertex[i] to vertex[(i+1)%6]) for each
+ * edge where one side is storm and the other is safe.
+ */
+function computeStormBoundaryEdges(
+  stormKeySet: Set<string>,
+  hexCenters: Map<string, PixelPoint>,
+  arenaHexes: ArenaHex[],
+): { x1: number; y1: number; x2: number; y2: number }[] {
+  const edges: { x1: number; y1: number; x2: number; y2: number }[] = [];
+
+  // Axial neighbor directions for flat-top hex
+  const AXIAL_DIRS: [number, number][] = [
+    [1, 0], [1, -1], [0, -1],
+    [-1, 0], [-1, 1], [0, 1],
+  ];
+
+  // For flat-top hexes, neighbor direction i shares the edge between vertex i and vertex (i+1)%6
+  // But the mapping between axial direction index and vertex index depends on orientation.
+  // For flat-top: direction 0 (+q) shares edge between vertex 0 (right) and vertex 5 (bottom-right)
+  // Actually let me compute precisely.
+  //
+  // Flat-top vertex angles: 0, 60, 120, 180, 240, 300 degrees
+  // Vertex 0 is at 0 deg (right), vertex 1 at 60 deg, etc.
+  //
+  // Neighbor directions (axial):
+  //   dir 0: (+1, 0)  -> neighbor is to the right   -> shared edge: vertex 5 to vertex 0
+  //   dir 1: (+1,-1)  -> neighbor is upper-right     -> shared edge: vertex 0 to vertex 1
+  //   dir 2: (0, -1)  -> neighbor is upper-left      -> shared edge: vertex 1 to vertex 2
+  //   dir 3: (-1, 0)  -> neighbor is to the left     -> shared edge: vertex 2 to vertex 3
+  //   dir 4: (-1,+1)  -> neighbor is lower-left      -> shared edge: vertex 3 to vertex 4
+  //   dir 5: (0, +1)  -> neighbor is lower-right     -> shared edge: vertex 4 to vertex 5
+  const DIR_TO_EDGE: [number, number][] = [
+    [5, 0], // dir 0: right
+    [0, 1], // dir 1: upper-right
+    [1, 2], // dir 2: upper-left
+    [2, 3], // dir 3: left
+    [3, 4], // dir 4: lower-left
+    [4, 5], // dir 5: lower-right
+  ];
+
+  for (const hex of arenaHexes) {
+    const key = `${hex.q},${hex.r}`;
+    const isStorm = stormKeySet.has(key);
+    if (!isStorm) continue; // Only process storm tiles looking outward to safe neighbors
+
+    const center = hexCenters.get(key);
+    if (!center) continue;
+
+    for (let d = 0; d < 6; d++) {
+      const [dq, dr] = AXIAL_DIRS[d];
+      const nq = hex.q + dq;
+      const nr = hex.r + dr;
+      const neighborKey = `${nq},${nr}`;
+
+      // Boundary exists if neighbor is safe (exists and not in storm set)
+      // OR neighbor is outside the grid (we don't draw boundary at grid edge)
+      const neighborExists = hexCenters.has(neighborKey);
+      if (!neighborExists) continue; // Don't draw boundary at grid edge
+      if (stormKeySet.has(neighborKey)) continue; // Both storm — no boundary
+
+      // Draw edge segment: vertices of the storm hex on the shared side
+      const [v1Idx, v2Idx] = DIR_TO_EDGE[d];
+      const size = HEX_SIZE - 2; // Match the tile polygon size
+      const v1Angle = (v1Idx * 60) * (Math.PI / 180);
+      const v2Angle = (v2Idx * 60) * (Math.PI / 180);
+
+      edges.push({
+        x1: center.x + size * Math.cos(v1Angle),
+        y1: center.y + size * Math.sin(v1Angle),
+        x2: center.x + size * Math.cos(v2Angle),
+        y2: center.y + size * Math.sin(v2Angle),
+      });
+    }
+  }
+
+  return edges;
+}
+
+// ---------------------------------------------------------------------------
 // Portrait helper — uses React state so fallback survives re-renders
 // ---------------------------------------------------------------------------
 
@@ -1257,6 +1436,8 @@ export default function HexBattleArena({
   tileItems: externalTileItems,
   sponsorEventCount = 0,
   recentMoves = [],
+  stormTiles: externalStormTiles = [],
+  currentPhase = null,
 }: HexBattleArenaProps) {
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
 
@@ -1602,6 +1783,26 @@ export default function HexBattleArena({
     }).filter((t) => t.from && t.to);
   }, [recentMoves, hexCenters, agents]);
 
+  // ---------------------------------------------------------------------------
+  // Storm overlay data — derive set of storm tile keys + boundary edges
+  // ---------------------------------------------------------------------------
+
+  const stormKeySet = useMemo(() => {
+    const set = new Set<string>();
+    for (const tile of externalStormTiles) {
+      set.add(`${tile.q},${tile.r}`);
+    }
+    return set;
+  }, [externalStormTiles]);
+
+  const stormBoundaryEdges = useMemo(() => {
+    if (stormKeySet.size === 0) return [];
+    return computeStormBoundaryEdges(stormKeySet, hexCenters, ARENA_HEXES);
+  }, [stormKeySet, hexCenters]);
+
+  /** Effective phase for visuals (fall back to LOOT if unknown). */
+  const effectivePhase: BattlePhase = currentPhase ?? "LOOT";
+
   return (
     <ShakeWrapper>
     <div className="relative">
@@ -1762,6 +1963,54 @@ export default function HexBattleArena({
               />
             );
           })}
+
+          {/* Storm overlays — rendered on top of hex tiles, below agents */}
+          {stormKeySet.size > 0 && effectivePhase !== "LOOT" && (
+            <>
+              {/* Storm tile overlays */}
+              {ARENA_HEXES.map((hex) => {
+                const key = `${hex.q},${hex.r}`;
+                const center = hexCenters.get(key)!;
+                const isStorm = stormKeySet.has(key);
+
+                if (isStorm) {
+                  return (
+                    <StormHexOverlay
+                      key={`storm-${key}`}
+                      center={center}
+                      phase={effectivePhase}
+                    />
+                  );
+                }
+
+                // Safe zone glow (only in BLOOD/FINAL_STAND)
+                return (
+                  <SafeZoneGlow
+                    key={`safe-${key}`}
+                    center={center}
+                    phase={effectivePhase}
+                  />
+                );
+              })}
+
+              {/* Storm boundary — thick dashed red line between safe and storm zones */}
+              {stormBoundaryEdges.map((edge, i) => (
+                <line
+                  key={`storm-boundary-${i}`}
+                  x1={edge.x1}
+                  y1={edge.y1}
+                  x2={edge.x2}
+                  y2={edge.y2}
+                  stroke={STORM_PHASE_VISUALS[effectivePhase].stroke}
+                  strokeWidth="3"
+                  strokeDasharray="6,4"
+                  strokeLinecap="round"
+                  className="storm-boundary-line"
+                  style={{ pointerEvents: "none" }}
+                />
+              ))}
+            </>
+          )}
 
           {/* Movement trails */}
           {movementTrails.map((trail, i) => (
@@ -1927,6 +2176,18 @@ export default function HexBattleArena({
           <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "#0c0c18", border: "1px dashed #1e1e38" }} />
           Lv1
         </span>
+        {stormKeySet.size > 0 && (
+          <>
+            <span className="ml-2 flex items-center gap-1">
+              <span className="storm-pulse-hunt inline-block h-2 w-4 rounded-sm" style={{ background: "rgba(220,38,38,0.25)", border: "2px dashed rgba(220,38,38,0.5)" }} />
+              Storm
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-4 rounded-sm" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)" }} />
+              Safe
+            </span>
+          </>
+        )}
       </div>
     </div>
     </ShakeWrapper>

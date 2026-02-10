@@ -17,6 +17,8 @@ import type {
   EpochStartEvent,
   OddsUpdateEvent,
   BattleEndEvent,
+  PhaseChangeEvent,
+  StormDamageEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 import StreamHighlightBanner from "@/components/stream/HighlightBanner";
@@ -238,6 +240,66 @@ function eventToFeedEntries(
           epoch: latestEpoch,
           type: "MARKET",
           message: `Odds updated for ${agentNames}.`,
+        },
+      ];
+    }
+
+    case "phase_change": {
+      const e = event as PhaseChangeEvent;
+      const phaseLabels: Record<string, string> = {
+        LOOT: "LOOT PHASE",
+        HUNT: "HUNT PHASE",
+        BLOOD: "BLOOD PHASE",
+        FINAL_STAND: "FINAL STAND",
+      };
+      const phaseDescriptions: Record<string, string> = {
+        LOOT: "Race for cornucopia loot. No combat.",
+        HUNT: "Combat enabled. Outer ring is now dangerous!",
+        BLOOD: "Storm tightens. Forced fights!",
+        FINAL_STAND: "Only center safe. Kill or die!",
+      };
+      const stormWarnings: Record<string, string> = {
+        HUNT: "Storm closing -- Lv1 tiles become dangerous!",
+        BLOOD: "Storm closing -- Lv2 tiles become dangerous next epoch!",
+        FINAL_STAND: "Storm closing -- Only center tile is safe!",
+      };
+      const phaseEntries: FeedEntry[] = [
+        {
+          id: `ws-${index}-phase`,
+          timestamp: ts,
+          epoch: e.data.epochNumber,
+          type: "PHASE_CHANGE",
+          message: `${phaseLabels[e.data.phase] ?? e.data.phase} BEGINS -- ${phaseDescriptions[e.data.phase] ?? ""} (${e.data.epochsRemaining} epochs remaining)`,
+        },
+      ];
+      const warning = stormWarnings[e.data.phase];
+      if (warning) {
+        phaseEntries.push({
+          id: `ws-${index}-storm-warn`,
+          timestamp: ts,
+          epoch: e.data.epochNumber,
+          type: "STORM",
+          message: warning,
+        });
+      }
+      return phaseEntries;
+    }
+
+    case "storm_damage": {
+      const e = event as StormDamageEvent;
+      const meta = agentMeta.get(e.data.agentId);
+      const agentName = meta?.name ?? e.data.agentName;
+      const agentClass = meta?.class;
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "STORM",
+          agentId: e.data.agentId,
+          agentName,
+          agentClass,
+          message: `${agentName} takes ${Math.round(e.data.damage)} storm damage on (${e.data.tile.q},${e.data.tile.r})! (${Math.round(e.data.hpAfter)} HP remaining)`,
         },
       ];
     }

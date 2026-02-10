@@ -16,7 +16,7 @@ export interface FeedEntry {
   id: string;
   timestamp: number;
   epoch: number;
-  type: "PREDICTION" | "ATTACK" | "DEFEND" | "DEATH" | "SPONSOR" | "MARKET";
+  type: "PREDICTION" | "ATTACK" | "DEFEND" | "DEATH" | "SPONSOR" | "MARKET" | "STORM" | "PHASE_CHANGE";
   agentId?: string;
   agentName?: string;
   agentClass?: AgentClass;
