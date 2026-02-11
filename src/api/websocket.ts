@@ -287,6 +287,8 @@ export interface GridStateEvent {
       items: { id: string; type: ItemType }[];
     }[];
     agentPositions: Record<string, { q: number; r: number }>;
+    /** Positions of dead agents at their last known tile (for ghost rendering). */
+    deadAgentPositions?: Record<string, { q: number; r: number }>;
     /** Storm tiles for the current phase. Empty during LOOT. */
     stormTiles?: { q: number; r: number }[];
   };
@@ -874,6 +876,7 @@ export function epochToEvents(result: EpochResult): BattleEvent[] {
 export function gridStateToEvent(
   grid: HexGridState,
   stormTiles?: { q: number; r: number }[],
+  agents?: Map<string, { position: { q: number; r: number } | null; isAlive: boolean }>,
 ): GridStateEvent {
   const tiles: GridStateEvent['data']['tiles'] = [];
   const agentPositions: Record<string, { q: number; r: number }> = {};
@@ -894,6 +897,23 @@ export function gridStateToEvent(
   }
 
   const data: GridStateEvent['data'] = { tiles, agentPositions };
+
+  // Collect dead agent positions for ghost rendering.
+  // Dead agents are removed from tile occupants (removeAgentFromGrid clears occupantId)
+  // but retain their last position on the BaseAgent instance.
+  // Include them so the frontend can render ghosts at their death location.
+  if (agents) {
+    const deadAgentPositions: Record<string, { q: number; r: number }> = {};
+    for (const [id, agent] of agents) {
+      if (!agent.isAlive && agent.position) {
+        deadAgentPositions[id] = { q: agent.position.q, r: agent.position.r };
+      }
+    }
+    if (Object.keys(deadAgentPositions).length > 0) {
+      data.deadAgentPositions = deadAgentPositions;
+    }
+  }
+
   if (stormTiles && stormTiles.length > 0) {
     data.stormTiles = stormTiles;
   }

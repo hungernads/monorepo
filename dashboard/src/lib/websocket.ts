@@ -208,6 +208,8 @@ export interface GridStateEvent {
       items: { id: string; type: ItemType }[];
     }[];
     agentPositions: Record<string, { q: number; r: number }>;
+    /** Positions of dead agents at their last known tile (for ghost rendering). */
+    deadAgentPositions?: Record<string, { q: number; r: number }>;
     /** Storm tiles for the current phase. Empty/undefined during LOOT. */
     stormTiles?: { q: number; r: number }[];
   };

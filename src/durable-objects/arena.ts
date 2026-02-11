@@ -545,7 +545,7 @@ export class ArenaDO implements DurableObject {
       const stormTiles = result.stormTiles && result.stormTiles.length > 0
         ? result.stormTiles
         : undefined;
-      const gridSnapshot = gridStateToEvent(arena.grid, stormTiles);
+      const gridSnapshot = gridStateToEvent(arena.grid, stormTiles, arena.agents);
       await this.state.storage.put('gridSnapshot', gridSnapshot);
     } catch (err) {
       console.error('[ArenaDO] Failed to persist grid snapshot:', err);
@@ -842,7 +842,7 @@ export class ArenaDO implements DurableObject {
       const stormTiles = epochResult.stormTiles && epochResult.stormTiles.length > 0
         ? epochResult.stormTiles
         : undefined;
-      events.push(gridStateToEvent(arena.grid, stormTiles));
+      events.push(gridStateToEvent(arena.grid, stormTiles, arena.agents));
     }
 
     broadcastEvents(sockets, events);

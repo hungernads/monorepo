@@ -198,7 +198,19 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
       case 'grid_state': {
         const e = event as GridStateEvent;
         setGridTiles(e.data.tiles);
-        setAgentPositions(e.data.agentPositions);
+        // Merge dead agent positions into agentPositions so the frontend
+        // can render ghosts at their last known tile. Living agents from
+        // agentPositions take priority (dead agents are only added if not
+        // already present as a live occupant).
+        const mergedPositions = { ...e.data.agentPositions };
+        if (e.data.deadAgentPositions) {
+          for (const [id, pos] of Object.entries(e.data.deadAgentPositions)) {
+            if (!mergedPositions[id]) {
+              mergedPositions[id] = pos;
+            }
+          }
+        }
+        setAgentPositions(mergedPositions);
         setStormTiles(e.data.stormTiles ?? []);
         break;
       }
