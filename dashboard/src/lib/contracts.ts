@@ -19,7 +19,7 @@
 
 import { useReadContract, useWriteContract, useAccount } from 'wagmi';
 import { parseEther, type Address, keccak256, encodePacked } from 'viem';
-import { BETTING_ADDRESS } from './wallet';
+import { BETTING_ADDRESS, ARENA_ADDRESS } from './wallet';
 
 // ─── ABI Subsets (user-facing functions only) ────────────────────────
 
@@ -113,6 +113,28 @@ const bettingAbi = [
     stateMutability: 'nonpayable',
     inputs: [{ name: 'battleId', type: 'bytes32' }],
     outputs: [],
+  },
+] as const;
+
+// ─── Arena ABI (entry fee functions only) ────────────────────────────
+
+const arenaAbi = [
+  {
+    type: 'function',
+    name: 'payEntryFee',
+    stateMutability: 'payable',
+    inputs: [{ name: '_battleId', type: 'bytes32' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'feePaid',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'battleId', type: 'bytes32' },
+      { name: 'player', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
   },
 ] as const;
 
@@ -313,4 +335,54 @@ export function useClaimPrize() {
   }
 
   return { claim, isPending, isSuccess, error, hash };
+}
+
+// ─── Arena Entry Fee Hooks ──────────────────────────────────────────
+
+/**
+ * Pay the entry fee for a battle on the Arena contract.
+ *
+ * Usage:
+ *   const { payFee, isPending } = usePayEntryFee();
+ *   payFee({ battleId: 'battle-1', feeAmountMon: '0.1' });
+ */
+export function usePayEntryFee() {
+  const { writeContract, isPending, isSuccess, error, data: hash } = useWriteContract();
+
+  function payFee({
+    battleId,
+    feeAmountMon,
+  }: {
+    battleId: string;
+    feeAmountMon: string;
+  }) {
+    const battleBytes = battleIdToBytes32(battleId);
+    writeContract({
+      address: ARENA_ADDRESS,
+      abi: arenaAbi,
+      functionName: 'payEntryFee',
+      args: [battleBytes],
+      value: parseEther(feeAmountMon),
+    });
+  }
+
+  return { payFee, isPending, isSuccess, error, hash };
+}
+
+/**
+ * Check whether the connected user has paid the entry fee for a battle.
+ */
+export function useFeePaid(battleId: string) {
+  const { address } = useAccount();
+  const battleBytes = battleIdToBytes32(battleId);
+  return useReadContract({
+    address: ARENA_ADDRESS,
+    abi: arenaAbi,
+    functionName: 'feePaid',
+    args: [battleBytes, address as Address],
+    query: {
+      enabled: !!address,
+      refetchInterval: 10_000,
+    },
+  });
 }

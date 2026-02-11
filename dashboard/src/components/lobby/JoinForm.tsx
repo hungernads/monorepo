@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { parseEther } from "viem";
 import type { AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
 import { ARENA_ADDRESS, monadTestnet } from "@/lib/wallet";
+import { battleIdToBytes32 } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,16 +60,28 @@ export default function JoinForm({
 
   const hasFee = parseFloat(feeAmount) > 0;
 
-  // ---- Wallet + on-chain payment ----
+  // ---- Wallet + on-chain fee payment via Arena contract ----
   const { address: walletAddress, isConnected, chain } = useAccount();
   const wrongChain = isConnected && chain?.id !== monadTestnet.id;
+
+  // Arena ABI for payEntryFee
+  const arenaFeeAbi = [
+    {
+      type: 'function' as const,
+      name: 'payEntryFee' as const,
+      stateMutability: 'payable' as const,
+      inputs: [{ name: '_battleId', type: 'bytes32' as const }],
+      outputs: [],
+    },
+  ] as const;
+
   const {
-    sendTransaction,
+    writeContract,
     data: paymentHash,
     isPending: isSendingTx,
     error: txError,
     reset: resetTx,
-  } = useSendTransaction();
+  } = useWriteContract();
   const {
     isFetching: isConfirmingTx,
     isSuccess: txConfirmed,
@@ -361,9 +374,11 @@ export default function JoinForm({
                 onClick={() => {
                   setError("");
                   resetTx();
-                  sendTransaction({
-                    chainId: monadTestnet.id,
-                    to: ARENA_ADDRESS,
+                  writeContract({
+                    address: ARENA_ADDRESS,
+                    abi: arenaFeeAbi,
+                    functionName: 'payEntryFee',
+                    args: [battleIdToBytes32(battleId)],
                     value: parseEther(feeAmount),
                   });
                 }}
