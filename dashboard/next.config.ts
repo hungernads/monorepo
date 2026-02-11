@@ -6,11 +6,6 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
 
-  // Skip TypeScript errors during build (handled by CI separately)
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-
   webpack: (config, { isServer }) => {
     // Fix wagmi connector optional peer deps that aren't installed
     if (!isServer) {
