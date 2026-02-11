@@ -19,7 +19,8 @@ API_BASE = environment variable HUNGERNADS_API, or default "http://localhost:878
 DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "http://localhost:3000"
 RPC_URL = "https://testnet-rpc.monad.xyz"
 CHAIN_ID = 10143
-ARENA_CONTRACT = "0xc4CebF58836707611439e23996f4FA4165Ea6A28"
+TREASURY_ADDRESS = "0x77C037fbF42e85dB1487B390b08f58C00f438812"
+AGENT_FAUCET = "https://agents.devnads.com/v1/faucet"
 ```
 
 ## Execution
@@ -97,54 +98,44 @@ Check if the selected lobby has a non-zero `feeAmount` (from the lobbies list or
 
 **If fee > 0**:
 
-1. **Find private key**: Check `HUNGERNADS_PRIVATE_KEY` env var. If not set, look for `PRIVATE_KEY` in `.env` file. If neither found, error:
-   ```
-   ERROR: Wallet required — this lobby has a ${feeAmount} MON entry fee.
-   Set HUNGERNADS_PRIVATE_KEY env var or add PRIVATE_KEY to .env
-   ```
+No user private key needed — funded via the Monad agent faucet (free, no auth).
 
-2. **Derive funder address**:
-   ```bash
-   cast wallet address --private-key $MAIN_PK
-   ```
-
-3. **Check funder balance**:
-   ```bash
-   cast balance --rpc-url https://testnet-rpc.monad.xyz $FUNDER_ADDRESS --ether
-   ```
-
-4. **Show cost**:
+1. **Show cost**:
    ```
    === PAYMENT REQUIRED ===
    Lobby fee: ${feeAmount} MON
-   Funding per agent: 1 MON
-   Funder: 0x1234...abcd (balance: 10.5 MON)
+   Funding: Agent faucet (1 MON, free)
    ```
 
-   If balance < 1 MON, error with clear message.
-
-5. **Generate ephemeral wallet**:
+2. **Generate ephemeral wallet**:
    ```bash
    cast wallet new --json
    ```
    Extract `address` and `privateKey`.
 
-6. **Fund ephemeral wallet with 1 MON**:
+3. **Fund ephemeral wallet via agent faucet**:
+   ```bash
+   curl -s -X POST "https://agents.devnads.com/v1/faucet" \
+     -H "Content-Type: application/json" \
+     -d '{"chainId": 10143, "address": "'$AGENT_ADDRESS'"}'
+   ```
+   Check response for success. If faucet fails, fall back to `HUNGERNADS_PRIVATE_KEY` if available:
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $MAIN_PK \
      $AGENT_ADDRESS \
      --value 1ether
    ```
+   If neither works, error and abort.
 
-7. **Pay entrance fee**:
+4. **Pay entrance fee** (send to treasury EOA — arena contract has no receive()):
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $AGENT_PK \
-     0xc4CebF58836707611439e23996f4FA4165Ea6A28 \
+     0x77C037fbF42e85dB1487B390b08f58C00f438812 \
      --value ${FEE}ether
    ```
-   Capture the transaction hash.
+   Capture the transaction hash. The API only validates that a txHash exists, not the recipient.
 
 ### Step 5: Join the battle
 
@@ -187,9 +178,8 @@ If the lobby still needs agents to trigger countdown, suggest `/hnads-join` to f
 
 ## Error Handling
 
-- **No private key**: Clear error message with setup instructions
-- **Insufficient balance**: Show required vs available, abort before payment
-- **Funding tx fails**: Report error, do not attempt join
+- **Faucet fails**: Fall back to `HUNGERNADS_PRIVATE_KEY` if available, otherwise abort
+- **Faucet + PK both unavailable**: Report error, do not attempt join
 - **Fee payment fails**: Report error, do not attempt join
 - **402 Payment Required**: Fee required but no txHash — triggers wallet flow
 - **cast not found**: Error "Foundry's cast CLI is required. Install: curl -L https://foundry.paradigm.xyz | bash"
