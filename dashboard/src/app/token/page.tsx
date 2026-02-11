@@ -79,6 +79,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
 const NADFUN_BASE_URL = 'https://testnet.nad.fun/token';
 
+/** When set, enables the "Buy $HNADS on nad.fun" CTA across the page. */
+const NADFUN_TOKEN_URL = process.env.NEXT_PUBLIC_NADFUN_TOKEN_URL ?? '';
+
 const TIER_ICONS: Record<number, React.ComponentType<{ className?: string; size?: number }>> = {
   1: Droplets,
   2: Coins,
@@ -220,10 +223,10 @@ function TokenHero({
         </div>
       )}
 
-      {/* Buy CTA */}
-      {isConfigured && (
+      {/* Buy CTA — prefer explicit env URL, fall back to constructed URL */}
+      {(NADFUN_TOKEN_URL || isConfigured) && (
         <a
-          href={`${NADFUN_BASE_URL}/${tokenAddress}`}
+          href={NADFUN_TOKEN_URL || `${NADFUN_BASE_URL}/${tokenAddress}`}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-6 inline-flex items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-8 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_20px_rgba(245,158,11,0.2)] active:scale-[0.98]"
@@ -499,6 +502,24 @@ function FaucetSection({
             <p className="text-center text-xs text-green-400">
               {faucetStatus.totalClaimable} $HNADS available to claim now
             </p>
+          )}
+
+          {/* Buy more CTA — only when nad.fun token URL is configured */}
+          {NADFUN_TOKEN_URL && (
+            <div className="rounded-lg border border-gold/20 bg-gold/5 p-3 text-center">
+              <p className="mb-2 text-xs text-gray-500">
+                Want more $HNADS? Skip the cooldown.
+              </p>
+              <a
+                href={NADFUN_TOKEN_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-gold/40 bg-gold/10 px-5 py-2 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_16px_rgba(245,158,11,0.15)] active:scale-[0.98]"
+              >
+                Buy $HNADS on nad.fun
+                <ExternalLink size={12} />
+              </a>
+            </div>
           )}
         </div>
       )}
