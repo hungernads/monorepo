@@ -2,12 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {HungernadsArena} from "../src/HungernadsArena.sol";
 import {HungernadsBetting} from "../src/HungernadsBetting.sol";
 
 /// @title Deploy
-/// @notice Deploys HungernadsArena and HungernadsBetting to Monad testnet
-///         and wires them together (shared oracle, treasury config).
+/// @notice Deploys UUPS proxy contracts for HungernadsArena and HungernadsBetting.
+///         Each contract is deployed as: Implementation (logic) + ERC1967Proxy (state).
+///         The proxy address is the permanent address used by all integrations.
 ///
 /// @dev Usage:
 ///   forge script script/Deploy.s.sol:Deploy \
@@ -27,7 +29,7 @@ contract Deploy is Script {
         address oracle = vm.envOr("ORACLE_ADDRESS", deployer);
         address treasury = vm.envOr("TREASURY_ADDRESS", deployer);
 
-        console2.log("=== HUNGERNADS Deployment ===");
+        console2.log("=== HUNGERNADS Proxy Deployment ===");
         console2.log("Deployer: ", deployer);
         console2.log("Oracle:   ", oracle);
         console2.log("Treasury: ", treasury);
@@ -35,15 +37,32 @@ contract Deploy is Script {
 
         vm.startBroadcast();
 
-        // 1. Deploy Arena (oracle writes results, deployer is Ownable owner)
-        HungernadsArena arena = new HungernadsArena(oracle);
-        console2.log("HungernadsArena deployed at:", address(arena));
+        // 1. Deploy Arena implementation (no constructor args — has _disableInitializers)
+        HungernadsArena arenaImpl = new HungernadsArena();
+        console2.log("Arena implementation:", address(arenaImpl));
+
+        // 2. Deploy Arena proxy with initializer call
+        ERC1967Proxy arenaProxy = new ERC1967Proxy(
+            address(arenaImpl),
+            abi.encodeCall(HungernadsArena.initialize, (oracle))
+        );
+        HungernadsArena arena = HungernadsArena(address(arenaProxy));
+        console2.log("Arena proxy:         ", address(arena));
         console2.log("  owner: ", arena.owner());
         console2.log("  oracle:", arena.oracle());
 
-        // 2. Deploy Betting (oracle settles battles, treasury gets 5% cut)
-        HungernadsBetting betting = new HungernadsBetting(oracle, treasury);
-        console2.log("HungernadsBetting deployed at:", address(betting));
+        // 3. Deploy Betting implementation
+        HungernadsBetting bettingImpl = new HungernadsBetting();
+        console2.log("Betting implementation:", address(bettingImpl));
+
+        // 4. Deploy Betting proxy with initializer call
+        ERC1967Proxy bettingProxy = new ERC1967Proxy(
+            address(bettingImpl),
+            abi.encodeCall(HungernadsBetting.initialize, (oracle, treasury))
+        );
+        HungernadsBetting betting = HungernadsBetting(address(bettingProxy));
+        console2.log("Betting proxy:       ", address(betting));
+        console2.log("  owner:   ", betting.owner());
         console2.log("  oracle:  ", betting.oracle());
         console2.log("  treasury:", betting.treasury());
 
@@ -52,12 +71,15 @@ contract Deploy is Script {
         // --- Post-deployment instructions ---
         console2.log("");
         console2.log("=== Deployment Complete ===");
-        console2.log("Arena:   ", address(arena));
-        console2.log("Betting: ", address(betting));
+        console2.log("ARENA PROXY:   ", address(arena));
+        console2.log("BETTING PROXY: ", address(betting));
+        console2.log("");
+        console2.log("These proxy addresses are PERMANENT. Future upgrades use upgradeTo().");
         console2.log("");
         console2.log("Next steps:");
-        console2.log("  1. wrangler secret put ARENA_CONTRACT_ADDRESS");
-        console2.log("  2. wrangler secret put BETTING_CONTRACT_ADDRESS");
-        console2.log("  3. Fund Worker wallet on Monad testnet for gas");
+        console2.log("  1. wrangler secret put ARENA_CONTRACT_ADDRESS  (use proxy address)");
+        console2.log("  2. wrangler secret put BETTING_CONTRACT_ADDRESS (use proxy address)");
+        console2.log("  3. Update dashboard .env.local with proxy addresses");
+        console2.log("  4. Verify contracts on Monad explorer");
     }
 }
