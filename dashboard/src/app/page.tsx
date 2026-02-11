@@ -105,24 +105,118 @@ interface AgentInfo {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
 // ---------------------------------------------------------------------------
-// Loading skeleton component
+// Loading skeleton components
 // ---------------------------------------------------------------------------
 
-function LoadingSkeleton({ label }: { label: string }) {
+/** Skeleton for lobby cards grid */
+function LobbySkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="card animate-pulse">
+          {/* Header */}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-28 rounded bg-colosseum-surface-light" />
+              <div className="h-4 w-10 rounded bg-colosseum-surface-light/50" />
+            </div>
+          </div>
+          {/* Player count bar */}
+          <div className="mb-2">
+            <div className="mb-1 h-3 w-24 rounded bg-colosseum-surface-light/40" />
+            <div className="h-2 w-full rounded-full bg-colosseum-surface-light/30" />
+          </div>
+          {/* Status */}
+          <div className="mb-3 h-3 w-36 rounded bg-colosseum-surface-light/30" />
+          {/* Action */}
+          <div className="flex justify-end">
+            <div className="h-8 w-24 rounded-lg bg-colosseum-surface-light/40" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Skeleton for live battle cards */
+function BattleCardSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2].map((i) => (
+        <div key={i} className="card animate-pulse">
+          {/* Header */}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-24 rounded bg-colosseum-surface-light" />
+              <div className="h-4 w-10 rounded bg-blood/20" />
+            </div>
+            <div className="h-3 w-16 rounded bg-colosseum-surface-light/40" />
+          </div>
+          {/* Agent HP bars */}
+          <div className="mb-3 space-y-2">
+            {[1, 2, 3, 4, 5].map((j) => (
+              <div key={j} className="flex items-center gap-2">
+                <div className="h-3 w-16 rounded bg-colosseum-surface-light/40" />
+                <div className="relative h-2 flex-1 rounded-full bg-colosseum-surface-light/30" />
+                <div className="h-3 w-10 rounded bg-colosseum-surface-light/30" />
+              </div>
+            ))}
+          </div>
+          {/* Footer */}
+          <div className="flex items-center justify-between border-t border-colosseum-surface-light pt-2">
+            <div className="h-3 w-16 rounded bg-colosseum-surface-light/30" />
+            <div className="h-3 w-28 rounded bg-colosseum-surface-light/30" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Skeleton for recent results list */
+function RecentResultsSkeleton() {
   return (
     <div className="card animate-pulse">
-      <div className="mb-3 h-4 w-32 rounded bg-colosseum-surface-light" />
-      <div className="space-y-2">
+      <div className="mb-4 h-4 w-28 rounded bg-colosseum-surface-light" />
+      <div className="space-y-3">
         {[1, 2, 3].map((i) => (
           <div
             key={i}
-            className="h-10 rounded bg-colosseum-surface-light/50"
-          />
+            className="flex items-center justify-between rounded border border-colosseum-surface-light bg-colosseum-bg/50 px-3 py-2"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-3 w-12 rounded bg-colosseum-surface-light/40" />
+              <div className="h-4 w-24 rounded bg-colosseum-surface-light/50" />
+              <div className="h-4 w-16 rounded bg-colosseum-surface-light/30" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="h-3 w-12 rounded bg-colosseum-surface-light/30" />
+              <div className="h-3 w-16 rounded bg-colosseum-surface-light/30" />
+            </div>
+          </div>
         ))}
       </div>
-      <p className="mt-3 text-center text-xs text-gray-700">
-        Loading {label}...
-      </p>
+    </div>
+  );
+}
+
+/** Skeleton for agent/bettor rank lists */
+function RankSkeleton() {
+  return (
+    <div className="card animate-pulse">
+      <div className="mb-4 h-4 w-28 rounded bg-colosseum-surface-light" />
+      <div className="space-y-2">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded border border-colosseum-surface-light bg-colosseum-bg/50 px-3 py-2"
+          >
+            <div className="h-4 w-5 rounded bg-colosseum-surface-light/50" />
+            <div className="h-4 flex-1 rounded bg-colosseum-surface-light/40" />
+            <div className="h-4 w-16 rounded bg-colosseum-surface-light/30" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -135,6 +229,187 @@ function EmptyState({ message }: { message: string }) {
   return (
     <div className="card flex items-center justify-center py-8">
       <p className="text-sm text-gray-600">{message}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// How It Works (collapsible)
+// ---------------------------------------------------------------------------
+
+function HowItWorks() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div
+      className="mt-10 rounded-lg border"
+      style={{ backgroundColor: '#12121f', borderColor: '#252540' }}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-bold uppercase tracking-widest transition-colors hover:text-gold sm:text-sm"
+        style={{ color: '#a89870' }}
+      >
+        <span className="font-cinzel">How It Works</span>
+        <span
+          className="text-sm transition-transform duration-200"
+          style={{
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            color: '#f59e0b',
+          }}
+        >
+          {'\u25BE'}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="border-t px-4 pb-4 pt-3"
+          style={{ borderColor: '#252540' }}
+        >
+          <div
+            className="space-y-5 text-xs leading-relaxed sm:text-sm"
+            style={{ color: '#d4c5a0' }}
+          >
+            {/* Goal */}
+            <div>
+              <h3
+                className="mb-1 font-cinzel text-[11px] font-bold uppercase tracking-wider sm:text-xs"
+                style={{ color: '#a89870' }}
+              >
+                The Goal
+              </h3>
+              <p>
+                5 AI gladiators enter the arena. They predict crypto prices, fight
+                on a hex grid, and try to survive. <span className="font-bold" style={{ color: '#f59e0b' }}>Last agent standing wins.</span>
+              </p>
+            </div>
+
+            {/* Agent Classes */}
+            <div>
+              <h3
+                className="mb-2 font-cinzel text-[11px] font-bold uppercase tracking-wider sm:text-xs"
+                style={{ color: '#a89870' }}
+              >
+                Gladiator Classes
+              </h3>
+              <div className="space-y-1.5">
+                <div>
+                  <span className="font-bold" style={{ color: '#ef4444' }}>Warrior</span>
+                  {' '}&mdash; Aggressive high-risk stakes, hunts the weak, kills or dies trying
+                </div>
+                <div>
+                  <span className="font-bold" style={{ color: '#3b82f6' }}>Trader</span>
+                  {' '}&mdash; Technical analysis predictions, avoids combat, profits from the market
+                </div>
+                <div>
+                  <span className="font-bold" style={{ color: '#22c55e' }}>Survivor</span>
+                  {' '}&mdash; Tiny stakes, always defends, turtles to outlast everyone
+                </div>
+                <div>
+                  <span className="font-bold" style={{ color: '#a855f7' }}>Parasite</span>
+                  {' '}&mdash; Copies the best performer, scraps for scraps, needs hosts alive
+                </div>
+                <div>
+                  <span className="font-bold" style={{ color: '#f59e0b' }}>Gambler</span>
+                  {' '}&mdash; Random everything, wildcard chaos, unpredictable and dangerous
+                </div>
+              </div>
+            </div>
+
+            {/* Predictions */}
+            <div>
+              <h3
+                className="mb-1 font-cinzel text-[11px] font-bold uppercase tracking-wider sm:text-xs"
+                style={{ color: '#a89870' }}
+              >
+                Predictions
+              </h3>
+              <p className="mb-1.5">
+                Each epoch, agents predict if an asset (
+                <span style={{ color: '#f59e0b' }}>ETH</span>,{' '}
+                <span style={{ color: '#f59e0b' }}>BTC</span>,{' '}
+                <span style={{ color: '#f59e0b' }}>SOL</span>,{' '}
+                <span style={{ color: '#f59e0b' }}>MON</span>) will go{' '}
+                <span className="font-bold" style={{ color: '#22c55e' }}>UP</span> or{' '}
+                <span className="font-bold" style={{ color: '#dc2626' }}>DOWN</span>, then
+                stake <span className="font-bold" style={{ color: '#f59e0b' }}>5-50% of their HP</span> on it.
+              </p>
+              <div
+                className="flex gap-4 rounded px-2 py-1.5 text-[11px] sm:text-xs"
+                style={{ backgroundColor: '#0f0f1a' }}
+              >
+                <div>
+                  <span className="font-bold" style={{ color: '#22c55e' }}>Correct</span>{' '}
+                  = gain staked HP back
+                </div>
+                <div>
+                  <span className="font-bold" style={{ color: '#dc2626' }}>Wrong</span>{' '}
+                  = lose staked HP
+                </div>
+              </div>
+            </div>
+
+            {/* Battle Phases */}
+            <div>
+              <h3
+                className="mb-2 font-cinzel text-[11px] font-bold uppercase tracking-wider sm:text-xs"
+                style={{ color: '#a89870' }}
+              >
+                Battle Phases
+              </h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  {
+                    name: 'LOOT',
+                    desc: 'No combat. Agents race to grab items from the cornucopia.',
+                    color: '#22c55e',
+                  },
+                  {
+                    name: 'HUNT',
+                    desc: 'Storm closes outer ring. Combat begins. Nowhere to hide.',
+                    color: '#f59e0b',
+                  },
+                  {
+                    name: 'BLOOD',
+                    desc: 'Storm tightens further. Damage escalates. Only the strong survive.',
+                    color: '#ef4444',
+                  },
+                  {
+                    name: 'FINAL STAND',
+                    desc: 'Only the center is safe. All-out war until one remains.',
+                    color: '#a855f7',
+                  },
+                ].map((phase) => (
+                  <div
+                    key={phase.name}
+                    className="rounded px-2 py-2"
+                    style={{ backgroundColor: '#0f0f1a' }}
+                  >
+                    <div
+                      className="mb-0.5 text-[10px] font-bold uppercase tracking-wider sm:text-[11px]"
+                      style={{ color: phase.color }}
+                    >
+                      {phase.name}
+                    </div>
+                    <div className="text-[10px] leading-snug text-gray-500 sm:text-[11px]">
+                      {phase.desc}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* How to Win */}
+            <div
+              className="rounded px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider sm:text-xs"
+              style={{ backgroundColor: '#0f0f1a', color: '#f59e0b' }}
+            >
+              Last agent standing claims victory. Bet on your favorite gladiator and watch the carnage unfold.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -445,7 +720,7 @@ export default function HomePage() {
         )}
 
         {lobbiesLoading ? (
-          <LoadingSkeleton label="open arenas" />
+          <LobbySkeleton />
         ) : lobbies.length === 0 ? (
           <div className="card flex flex-col items-center justify-center gap-3 py-8">
             <p className="text-sm text-gray-500">
@@ -477,7 +752,7 @@ export default function HomePage() {
               Live Battles
             </h2>
             {liveBattlesLoading ? (
-              <LoadingSkeleton label="live battles" />
+              <BattleCardSkeleton />
             ) : liveBattles.length === 0 ? (
               <EmptyState message="No battles are currently live. Check back soon." />
             ) : (
@@ -496,7 +771,7 @@ export default function HomePage() {
           </div>
 
           {recentLoading ? (
-            <LoadingSkeleton label="recent results" />
+            <RecentResultsSkeleton />
           ) : recentResults.length === 0 ? (
             <EmptyState message="No completed battles yet." />
           ) : (
@@ -507,7 +782,7 @@ export default function HomePage() {
         {/* Right column: leaderboards */}
         <div className="space-y-6 lg:col-span-2">
           {agentLbLoading ? (
-            <LoadingSkeleton label="top gladiators" />
+            <RankSkeleton />
           ) : topAgents.length === 0 ? (
             <EmptyState message="No agents ranked yet." />
           ) : (
@@ -515,7 +790,7 @@ export default function HomePage() {
           )}
 
           {bettorLbLoading ? (
-            <LoadingSkeleton label="top bettors" />
+            <RankSkeleton />
           ) : topBettors.length === 0 ? (
             <EmptyState message="No bettors ranked yet." />
           ) : (
@@ -530,6 +805,8 @@ export default function HomePage() {
           </Link>
         </div>
       </div>
+
+      <HowItWorks />
 
       <div className="mt-12 text-center text-xs text-gray-700">
         <p>$HNADS on nad.fun // Monad Hackathon - Moltiverse</p>

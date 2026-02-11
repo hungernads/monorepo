@@ -68,6 +68,15 @@
 }
 
 @layer utilities {
+  /* Page fade-in on mount / navigation */
+  .page-fade-in {
+    animation: page-fade-in 200ms ease-out both;
+  }
+  @keyframes page-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   /* Thin scrollbar for action feed */
   .scrollbar-thin {
     scrollbar-width: thin;
@@ -207,6 +216,57 @@
   @keyframes storm-boundary-crawl {
     from { stroke-dashoffset: 20; }
     to { stroke-dashoffset: 0; }
+  }
+
+  /* ──────────────────────────────────────────────
+     Per-tile terrain styling (storm / safe / cornucopia)
+     ────────────────────────────────────────────── */
+
+  /* HUNT phase storm tiles: amber pulsing stroke + dash crawl */
+  .tile-storm-hunt {
+    animation: tile-storm-hunt-pulse 2.5s ease-in-out infinite, storm-boundary-crawl 2s linear infinite;
+  }
+  @keyframes tile-storm-hunt-pulse {
+    0%, 100% { stroke-opacity: 0.4; }
+    50% { stroke-opacity: 1; }
+  }
+
+  /* BLOOD phase storm tiles: red pulsing stroke + dash crawl */
+  .tile-storm-blood {
+    animation: tile-storm-blood-pulse 1.8s ease-in-out infinite, storm-boundary-crawl 1.5s linear infinite;
+  }
+  @keyframes tile-storm-blood-pulse {
+    0%, 100% { stroke-opacity: 0.4; }
+    50% { stroke-opacity: 1; }
+  }
+
+  /* FINAL_STAND phase storm tiles: purple rapid pulse + dash crawl */
+  .tile-storm-final {
+    animation: tile-storm-final-pulse 1.2s ease-in-out infinite, storm-boundary-crawl 1s linear infinite;
+  }
+  @keyframes tile-storm-final-pulse {
+    0%, 100% { stroke-opacity: 0.4; }
+    30% { stroke-opacity: 1; }
+    60% { stroke-opacity: 0.6; }
+    80% { stroke-opacity: 1; }
+  }
+
+  /* Cornucopia center tile — persistent gold glow halo */
+  .tile-cornucopia-glow {
+    animation: cornucopia-glow-pulse 3s ease-in-out infinite;
+  }
+  @keyframes cornucopia-glow-pulse {
+    0%, 100% { stroke-opacity: 0.2; stroke-width: 2; }
+    50% { stroke-opacity: 0.5; stroke-width: 3; }
+  }
+
+  /* Cornucopia center tile — inner gold shimmer */
+  .tile-cornucopia-inner {
+    animation: cornucopia-inner-pulse 4s ease-in-out infinite;
+  }
+  @keyframes cornucopia-inner-pulse {
+    0%, 100% { fill-opacity: 0.1; }
+    50% { fill-opacity: 0.25; }
   }
 
   /* ──────────────────────────────────────────────
