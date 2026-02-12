@@ -28,7 +28,7 @@ export default function ShareButton({
     if (winner) {
       // Battle finished
       text = [
-        `BATTLE #${battleId} - FINISHED`,
+        `BATTLE #${battleId.slice(0, 8)} - FINISHED`,
         "",
         `${winner.winnerName} is the LAST NAD STANDING after ${winner.totalEpochs} epochs!`,
         topKiller.kills > 0
@@ -44,7 +44,7 @@ export default function ShareButton({
     } else {
       // Battle in progress
       text = [
-        `BATTLE #${battleId} - LIVE NOW`,
+        `BATTLE #${battleId.slice(0, 8)} - LIVE NOW`,
         "",
         `${aliveCount}/${agents.length} gladiators still standing!`,
         topKiller.kills > 0
@@ -60,10 +60,7 @@ export default function ShareButton({
     }
 
     // Construct the battle URL (current page)
-    const battleUrl =
-      typeof window !== "undefined"
-        ? window.location.href
-        : `https://hungernads.xyz/battle/${battleId}`;
+    const battleUrl = `https://hungernads.xyz/battle/${battleId}`;
 
     const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(battleUrl)}`;
     window.open(tweetUrl, "_blank", "noopener,noreferrer,width=550,height=420");
