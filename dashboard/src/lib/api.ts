@@ -8,7 +8,7 @@
 // ─── Base URL ───────────────────────────────────────────────────────
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://hungernads-api.workers.dev";
+  process.env.NEXT_PUBLIC_API_URL ?? "https://hungernads.amr-robb.workers.dev";
 
 // ─── Types (matching backend response shapes) ───────────────────────
 

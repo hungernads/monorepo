@@ -80,4 +80,4 @@ export const HNADS_TOKEN_ADDRESS =
   '0x0000000000000000000000000000000000000000';
 
 export const WS_BASE_URL =
-  process.env.NEXT_PUBLIC_WS_URL ?? 'wss://hungernads-api.workers.dev';
+  process.env.NEXT_PUBLIC_WS_URL ?? 'wss://hungernads.amr-robb.workers.dev';
