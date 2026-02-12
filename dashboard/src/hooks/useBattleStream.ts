@@ -228,6 +228,12 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
             epoch: latestEpochRef.current,
           },
         ]);
+        if (e.data.success) {
+          setAgentPositions(prev => ({
+            ...prev,
+            [e.data.agentId]: { q: e.data.to.q, r: e.data.to.r }
+          }));
+        }
         break;
       }
 

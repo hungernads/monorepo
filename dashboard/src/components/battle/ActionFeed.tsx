@@ -59,7 +59,7 @@ export default function ActionFeed({ entries }: ActionFeedProps) {
 
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-1 scrollbar-thin"
+        className="max-h-64 space-y-1 overflow-y-auto pr-1 scrollbar-thin"
       >
         {entries.map((entry) => {
           const style = EVENT_STYLE[entry.type];
