@@ -12,6 +12,7 @@ import type { BattleAgent, FeedEntry } from "@/components/battle";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import type {
   BattleEvent,
+  BattlePhase,
   AgentActionEvent,
   PredictionResultEvent,
   CombatResultEvent,
@@ -342,6 +343,24 @@ function eventToFeedEntries(
       ];
     }
 
+    case "battle_end": {
+      const e = event as BattleEndEvent;
+      const reason = e.data.reason ?? "Last nad standing";
+      const isMutualRekt = reason.toLowerCase().includes("mutual rekt");
+      const message = isMutualRekt
+        ? `ALL REKT -- ${e.data.winnerName} wins! ${reason}`
+        : `${e.data.winnerName} WINS after ${e.data.totalEpochs} epochs! ${reason}`;
+      return [
+        {
+          id: `ws-${index}-battle-end`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "BATTLE_END",
+          message,
+        },
+      ];
+    }
+
     default:
       return [];
   }
@@ -382,11 +401,14 @@ function detectHighlights(
 
   // Winner
   if (winner) {
+    const isMutualRekt = winner.reason?.toLowerCase().includes("mutual rekt");
     highlights.push({
       id: "hl-victory",
       type: "VICTORY",
-      title: `${winner.winnerName} WINS`,
-      subtitle: `Last nad standing after ${winner.totalEpochs} epochs!`,
+      title: isMutualRekt
+        ? `ALL REKT -- ${winner.winnerName} WINS`
+        : `${winner.winnerName} WINS`,
+      subtitle: winner.reason ?? `Last nad standing after ${winner.totalEpochs} epochs!`,
       timestamp: Date.now(),
     });
   }
@@ -411,6 +433,222 @@ function detectHighlights(
 }
 
 // ---------------------------------------------------------------------------
+// Phase color config (mirrored from BattleView)
+// ---------------------------------------------------------------------------
+
+const PHASE_COLORS: Record<BattlePhase, { color: string; label: string }> = {
+  LOOT: { color: "#22c55e", label: "LOOT" },
+  HUNT: { color: "#f59e0b", label: "HUNT" },
+  BLOOD: { color: "#dc2626", label: "BLOOD" },
+  FINAL_STAND: { color: "#a855f7", label: "FINAL STAND" },
+};
+
+// ---------------------------------------------------------------------------
+// Unified Stream Top Bar (mirrors BattleView's BattleTopBar for streaming)
+// ---------------------------------------------------------------------------
+
+function StreamTopBar({
+  battleId,
+  currentEpoch,
+  currentPhase,
+  epochsRemaining,
+  aliveCount,
+  totalAgents,
+  agents,
+  winner,
+  connected,
+  isComplete,
+}: {
+  battleId: string;
+  currentEpoch: number;
+  currentPhase: BattlePhase | null;
+  epochsRemaining: number;
+  aliveCount: number;
+  totalAgents: number;
+  agents: BattleAgent[];
+  winner: { winnerId: string; winnerName: string; totalEpochs: number; reason?: string } | null;
+  connected: boolean;
+  isComplete: boolean;
+}) {
+  const phaseConfig = currentPhase ? PHASE_COLORS[currentPhase] : null;
+
+  return (
+    <div
+      className="flex items-center justify-between border-b px-4 py-2 sm:px-6"
+      style={{
+        backgroundColor: "#0d0d1aCC",
+        borderColor: phaseConfig ? `${phaseConfig.color}30` : "#252540",
+        backdropFilter: "blur(8px)",
+        minHeight: "48px",
+        maxHeight: "56px",
+      }}
+    >
+      {/* Left cluster: branding + status + phase + epoch */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        <span className="font-cinzel text-sm font-black tracking-widest text-gold sm:text-base">
+          HUNGERNADS
+        </span>
+
+        <span className="h-4 w-px bg-gray-800" />
+
+        {/* Live / GG indicator */}
+        {isComplete ? (
+          <span className="rounded bg-gold/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold">
+            GG
+          </span>
+        ) : (
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blood" />
+            <span className="text-[9px] font-bold uppercase tracking-wider text-blood">
+              LIVE
+            </span>
+          </span>
+        )}
+
+        <span className="hidden text-[10px] text-gray-600 sm:inline">#{battleId}</span>
+
+        <span className="hidden h-4 w-px bg-gray-800 sm:inline-block" />
+
+        {/* Epoch number */}
+        <span className="font-mono text-sm font-bold tabular-nums text-white sm:text-base">
+          EPOCH {currentEpoch}
+          {winner?.totalEpochs ? <span className="text-gray-600">/{winner.totalEpochs}</span> : ""}
+        </span>
+
+        {/* Phase badge */}
+        {phaseConfig && !isComplete && (
+          <>
+            <span className="hidden h-4 w-px bg-gray-800 sm:inline-block" />
+            <span
+              className="hidden rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider sm:inline-block"
+              style={{
+                backgroundColor: `${phaseConfig.color}15`,
+                color: phaseConfig.color,
+                border: `1px solid ${phaseConfig.color}30`,
+              }}
+            >
+              {phaseConfig.label}
+            </span>
+            {epochsRemaining > 0 && (
+              <span className="hidden text-[10px] text-gray-600 sm:inline">
+                {epochsRemaining} ep left
+              </span>
+            )}
+          </>
+        )}
+
+        {/* Connection indicator */}
+        {connected ? (
+          <span className="hidden items-center gap-1 text-[9px] text-green-600 sm:flex">
+            <span className="h-1 w-1 rounded-full bg-green-600" />
+            WS
+          </span>
+        ) : (
+          <span className="hidden items-center gap-1 text-[9px] text-gray-700 sm:flex">
+            <span className="h-1 w-1 rounded-full bg-gray-700" />
+            OFF
+          </span>
+        )}
+      </div>
+
+      {/* Center cluster: agent portrait thumbnails with HP rings */}
+      <div className="hidden items-center gap-1 md:flex">
+        {agents.map((agent) => {
+          const config = CLASS_CONFIG[agent.class];
+          const hpPct = agent.maxHp > 0 ? agent.hp / agent.maxHp : 0;
+          const radius = 12;
+          const circumference = 2 * Math.PI * radius;
+          const strokeDash = hpPct * circumference;
+
+          const hpColor =
+            !agent.alive
+              ? "#4a0000"
+              : hpPct > 0.5
+                ? "#22c55e"
+                : hpPct > 0.25
+                  ? "#f59e0b"
+                  : "#dc2626";
+
+          return (
+            <div
+              key={agent.id}
+              className="relative"
+              title={`${agent.name} (${agent.class}) - ${Math.round(agent.hp)} HP`}
+            >
+              <svg width="30" height="30" viewBox="0 0 30 30" className="flex-shrink-0">
+                <circle cx="15" cy="15" r={radius} fill="none" stroke="#1a1a2e" strokeWidth="2" />
+                <circle
+                  cx="15"
+                  cy="15"
+                  r={radius}
+                  fill="none"
+                  stroke={hpColor}
+                  strokeWidth="2"
+                  strokeDasharray={`${strokeDash} ${circumference}`}
+                  strokeLinecap="round"
+                  transform="rotate(-90 15 15)"
+                  style={{
+                    transition: "stroke-dasharray 0.5s ease",
+                    filter: agent.isWinner ? "drop-shadow(0 0 3px #f59e0b)" : undefined,
+                  }}
+                />
+                <clipPath id={`stream-topbar-clip-${agent.id}`}>
+                  <circle cx="15" cy="15" r="10" />
+                </clipPath>
+                <foreignObject
+                  x="5"
+                  y="5"
+                  width="20"
+                  height="20"
+                  clipPath={`url(#stream-topbar-clip-${agent.id})`}
+                >
+                  <img
+                    src={config.image}
+                    alt={agent.name}
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      objectFit: "cover",
+                      opacity: agent.alive ? 1 : 0.3,
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                </foreignObject>
+                {!agent.alive && (
+                  <text
+                    x="15"
+                    y="17"
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="bold"
+                    fill="#dc2626"
+                    opacity="0.7"
+                  >
+                    X
+                  </text>
+                )}
+              </svg>
+            </div>
+          );
+        })}
+        <span className="ml-1 text-[10px] text-gray-600">
+          <span className="text-white">{aliveCount}</span>/{totalAgents}
+        </span>
+      </div>
+
+      {/* Right cluster: alive count (mobile) */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        <span className="text-[10px] text-gray-600 md:hidden">
+          <span className="text-white">{aliveCount}</span>/{totalAgents} alive
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -424,7 +662,7 @@ export default function StreamView({
   showStats = true,
   showHighlights = true,
 }: StreamViewProps) {
-  const { connected, events, agentStates, latestEpoch, winner } =
+  const { connected, events, agentStates, latestEpoch, winner, phaseState } =
     useBattleStream(battleId);
 
   // Build agent metadata from events
@@ -620,9 +858,10 @@ export default function StreamView({
 
   // Layout: overlay -- bottom bar only (agent stats + feed ticker)
   if (layout === "overlay") {
+    const overlayPhaseConfig = phaseState?.phase ? PHASE_COLORS[phaseState.phase] : null;
     return (
       <div className={`relative h-screen w-screen overflow-hidden ${bgClass}`}>
-        {/* Top: branding + status */}
+        {/* Top: branding + status + phase */}
         <div className="absolute left-4 top-4 z-20 flex items-center gap-3">
           <div className="rounded-lg border border-gold/30 bg-colosseum-bg/80 px-3 py-1.5 backdrop-blur-sm">
             <span className="font-cinzel text-sm font-black tracking-widest text-gold">
@@ -635,20 +874,40 @@ export default function StreamView({
             </span>
             <span className="mx-2 text-gray-700">|</span>
             <span className="text-xs text-gray-400">
-              Epoch <span className="text-white">{currentEpoch}</span>
+              Epoch{" "}
+              <span className="font-bold text-white">{currentEpoch}</span>
+              {winner?.totalEpochs ? <span className="text-gray-600">/{winner.totalEpochs}</span> : ""}
             </span>
             <span className="mx-2 text-gray-700">|</span>
             <span className="text-xs text-gray-400">
               <span className="text-white">{aliveCount}</span>/{agents.length} alive
             </span>
+            {overlayPhaseConfig && !winner && (
+              <>
+                <span className="mx-2 text-gray-700">|</span>
+                <span
+                  className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                  style={{
+                    backgroundColor: `${overlayPhaseConfig.color}15`,
+                    color: overlayPhaseConfig.color,
+                    border: `1px solid ${overlayPhaseConfig.color}30`,
+                  }}
+                >
+                  {overlayPhaseConfig.label}
+                </span>
+              </>
+            )}
           </div>
           {winner ? (
             <span className="rounded-lg border border-gold/40 bg-gold/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-gold backdrop-blur-sm">
-              FINISHED
+              GG
             </span>
           ) : (
-            <span className="rounded-lg border border-green-500/40 bg-green-500/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-green-400 backdrop-blur-sm animate-pulse">
-              LIVE
+            <span className="flex items-center gap-1.5 rounded-lg border border-blood/40 bg-blood/20 px-3 py-1.5 backdrop-blur-sm">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blood" />
+              <span className="text-xs font-bold uppercase tracking-wider text-blood">
+                LIVE
+              </span>
             </span>
           )}
         </div>
@@ -675,64 +934,32 @@ export default function StreamView({
     );
   }
 
-  // Layout: full (default) -- arena + sidebar feed + agent bar
+  // Layout: full (default) -- unified top bar + 2fr/1fr grid (arena + feed) + agent bar
   return (
-    <div className={`relative h-screen w-screen overflow-hidden ${bgClass}`}>
-      {/* Top bar: branding + battle info */}
-      <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between border-b border-colosseum-surface-light/50 bg-colosseum-bg/80 px-6 py-2 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <span className="font-cinzel text-base font-black tracking-widest text-gold">
-            HUNGERNADS
-          </span>
-          <span className="text-[10px] uppercase tracking-wider text-gray-600">
-            AI Colosseum
-          </span>
-        </div>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="text-gray-500">
-            Battle <span className="font-bold text-white">#{battleId}</span>
-          </span>
-          <span className="text-gray-700">|</span>
-          <span className="text-gray-500">
-            Epoch{" "}
-            <span className="font-bold text-white">{currentEpoch}</span>/20
-          </span>
-          <span className="text-gray-700">|</span>
-          <span className="text-gray-500">
-            <span className="font-bold text-white">{aliveCount}</span>/
-            {agents.length} alive
-          </span>
-          <span className="text-gray-700">|</span>
-          {winner ? (
-            <span className="rounded bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold">
-              FINISHED
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blood" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blood">
-                LIVE
-              </span>
-            </span>
-          )}
-          {connected ? (
-            <span className="flex items-center gap-1 text-[10px] text-green-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-              WS
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-[10px] text-gray-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-gray-600" />
-              OFF
-            </span>
-          )}
-        </div>
+    <div className={`relative h-screen w-screen overflow-hidden ${bgClass} flex flex-col`}>
+      {/* Unified top bar: phase + epoch + agent portraits (mirrors BattleView's BattleTopBar) */}
+      <div className="z-20 flex-shrink-0">
+        <StreamTopBar
+          battleId={battleId}
+          currentEpoch={currentEpoch}
+          currentPhase={phaseState?.phase ?? null}
+          epochsRemaining={phaseState?.epochsRemaining ?? 0}
+          aliveCount={aliveCount}
+          totalAgents={agents.length || 5}
+          agents={agents}
+          winner={winner}
+          connected={connected}
+          isComplete={!!winner}
+        />
       </div>
 
-      {/* Main content: arena + feed */}
-      <div className="flex h-full pt-12">
-        {/* Arena (center) */}
-        <div className="flex flex-1 items-center justify-center p-4">
+      {/* Main content: 2fr/1fr grid layout (arena left, feed right) */}
+      <div
+        className="flex-1 grid grid-cols-1 overflow-hidden md:grid-cols-[2fr_1fr]"
+        style={{ minHeight: 0 }}
+      >
+        {/* Left: Arena */}
+        <div className="flex items-center justify-center p-4">
           <div className="w-full max-w-[800px]">
             <HexBattleArena
               agents={agents}
@@ -742,9 +969,9 @@ export default function StreamView({
           </div>
         </div>
 
-        {/* Right sidebar: action feed */}
+        {/* Right: Action feed sidebar */}
         {showFeed && (
-          <div className="flex w-80 flex-col border-l border-colosseum-surface-light/50 bg-colosseum-bg/60 backdrop-blur-sm">
+          <div className="flex flex-col border-l border-colosseum-surface-light/30 bg-colosseum-bg/60 backdrop-blur-sm">
             <div className="flex-1 overflow-hidden p-3">
               <StreamActionFeed entries={feed.slice(-30)} />
             </div>
@@ -754,7 +981,7 @@ export default function StreamView({
 
       {/* Bottom: agent status bar */}
       {showStats && (
-        <div className="absolute bottom-0 left-0 right-0 z-20">
+        <div className="z-20 flex-shrink-0">
           <StreamAgentBar agents={agents} />
         </div>
       )}
@@ -765,11 +992,12 @@ export default function StreamView({
         const victoryCfg = victoryAgent
           ? CLASS_CONFIG[victoryAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
           : CLASS_CONFIG.WARRIOR;
+        const isMutualRekt = winner.reason?.toLowerCase().includes("mutual rekt");
         return (
           <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
             <div className="pointer-events-auto rounded-xl border-2 border-gold/60 bg-colosseum-bg/90 px-12 py-8 text-center shadow-2xl shadow-gold/20 backdrop-blur-md">
               <div className="font-cinzel text-4xl font-black tracking-[0.2em] text-gold animate-winner-glow">
-                VICTORY
+                {isMutualRekt ? "ALL REKT" : "VICTORY"}
               </div>
               <div className="mt-4 flex items-center justify-center gap-4">
                 <AgentPortrait
@@ -784,8 +1012,15 @@ export default function StreamView({
                 {winner.winnerName}
               </div>
               <div className="mt-1 text-sm text-gray-400">
-                Last nad standing after {winner.totalEpochs} epochs
+                {isMutualRekt
+                  ? `Wins by tiebreak after ${winner.totalEpochs} epochs`
+                  : `Last nad standing after ${winner.totalEpochs} epochs`}
               </div>
+              {winner.reason && (
+                <div className="mt-1.5 text-xs text-gold/70">
+                  {winner.reason}
+                </div>
+              )}
             </div>
           </div>
         );

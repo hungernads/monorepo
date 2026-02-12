@@ -32,6 +32,22 @@ import {
   type TileType,
 } from '@/lib/websocket';
 
+// ─── API Base URL (matches pattern used across the dashboard) ─────
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
+
+// ─── Persisted Event Shape (from GET /battle/:id/events) ──────────
+
+interface PersistedEventRow {
+  epoch: number;
+  eventType: string;
+  eventJson: string;
+  createdAt: string;
+}
+
+interface PersistedEventsResponse {
+  events: PersistedEventRow[];
+}
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 export interface StreamAgentState {
@@ -120,6 +136,47 @@ export interface UseBattleStreamResult {
 /** Cap event history to prevent unbounded memory growth. */
 const MAX_EVENTS = 500;
 
+// ─── Hydration Helper ─────────────────────────────────────────────
+
+/**
+ * Fetch persisted battle events from the REST API and reconstruct them
+ * as typed BattleEvent objects. The API stores `event_json` as the stringified
+ * `data` payload, so we reconstruct the full `{ type, data }` shape.
+ */
+async function fetchPersistedEvents(
+  battleId: string,
+): Promise<BattleEvent[]> {
+  try {
+    const res = await fetch(`${API_BASE}/battle/${battleId}/events`);
+    if (!res.ok) {
+      console.warn(
+        `[hydrate] Failed to fetch persisted events: HTTP ${res.status}`,
+      );
+      return [];
+    }
+
+    const json = (await res.json()) as PersistedEventsResponse;
+    if (!json.events || !Array.isArray(json.events)) return [];
+
+    const events: BattleEvent[] = [];
+    for (const row of json.events) {
+      try {
+        const data = JSON.parse(row.eventJson);
+        events.push({ type: row.eventType, data } as BattleEvent);
+      } catch {
+        console.warn(
+          `[hydrate] Skipping unparseable event: type=${row.eventType}, epoch=${row.epoch}`,
+        );
+      }
+    }
+
+    return events;
+  } catch (err) {
+    console.warn('[hydrate] Failed to fetch persisted events:', err);
+    return [];
+  }
+}
+
 // ─── Hook ────────────────────────────────────────────────────────────
 
 export function useBattleStream(battleId: string): UseBattleStreamResult {
@@ -139,9 +196,40 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
   const wsRef = useRef<BattleWebSocket | null>(null);
   /** Ref tracking latest epoch number for use inside event callback (avoids stale closure). */
   const latestEpochRef = useRef(0);
+  /**
+   * Tracks the highest epoch that was fully hydrated from persisted events.
+   * WS events at or below this epoch are skipped to avoid duplicating history.
+   * -1 means hydration hasn't completed yet (no dedup applied).
+   */
+  const hydratedUpToEpochRef = useRef(-1);
+
+  /**
+   * Extract the epoch number from a BattleEvent if available.
+   * Used for dedup: WS events whose epoch is at or below the hydrated
+   * watermark are skipped (they were already loaded from the REST API).
+   * Returns -1 if the event has no epoch information (e.g. grid_state).
+   */
+  const getEventEpoch = useCallback((event: BattleEvent): number => {
+    const d = event.data as Record<string, unknown>;
+    if (typeof d.epochNumber === 'number') return d.epochNumber;
+    if (typeof d.epoch === 'number') return d.epoch;
+    return -1;
+  }, []);
 
   // Process incoming events and update derived state
-  const handleEvent = useCallback((event: BattleEvent) => {
+  const handleEvent = useCallback((event: BattleEvent, isHydration = false) => {
+    // ── Dedup: skip live WS events that overlap with hydrated history ──
+    if (!isHydration && hydratedUpToEpochRef.current >= 0) {
+      const epoch = getEventEpoch(event);
+      // Events with a known epoch at or below the hydration watermark
+      // were already loaded from the REST API — skip to avoid duplicates.
+      // Events without epoch info (epoch === -1) like grid_state are
+      // allowed through because the WS version is more up-to-date.
+      if (epoch >= 0 && epoch <= hydratedUpToEpochRef.current) {
+        return;
+      }
+    }
+
     // Append to event history (with cap)
     setEvents((prev) => {
       const next = [...prev, event];
@@ -284,27 +372,61 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
       default:
         break;
     }
-  }, []);
+  }, [getEventEpoch]);
 
   useEffect(() => {
     // Don't connect for empty battle IDs
     if (!battleId) return;
 
+    let cancelled = false;
+
+    // Reset hydration watermark for new battle
+    hydratedUpToEpochRef.current = -1;
+
     const ws = new BattleWebSocket(battleId);
     wsRef.current = ws;
 
-    const unsubEvent = ws.onEvent(handleEvent);
+    // WS events arriving before hydration completes are processed normally
+    // (hydratedUpToEpochRef is -1 so dedup is disabled). After hydration,
+    // the watermark is set and subsequent duplicate WS events are skipped.
+    const unsubEvent = ws.onEvent((event) => handleEvent(event, false));
     const unsubConn = ws.onConnectionChange(setConnected);
 
     ws.connect();
 
+    // ── Hydrate from persisted events (parallel with WS connect) ──
+    // Fetches all past events from the REST API so the battle log and
+    // derived state (agentStates, grid, phase, etc.) are populated
+    // immediately instead of waiting for new WS broadcasts.
+    fetchPersistedEvents(battleId).then((historicalEvents) => {
+      if (cancelled || historicalEvents.length === 0) return;
+
+      // Determine the highest epoch in the persisted data for dedup
+      let maxEpoch = -1;
+      for (const evt of historicalEvents) {
+        const epoch = getEventEpoch(evt);
+        if (epoch > maxEpoch) maxEpoch = epoch;
+      }
+
+      // Process historical events through the same handler to populate
+      // all derived state (agentStates, marketData, gridTiles, etc.)
+      for (const evt of historicalEvents) {
+        handleEvent(evt, true);
+      }
+
+      // Set the watermark AFTER processing so future WS events for
+      // already-hydrated epochs are skipped.
+      hydratedUpToEpochRef.current = maxEpoch;
+    });
+
     return () => {
+      cancelled = true;
       unsubEvent();
       unsubConn();
       ws.disconnect();
       wsRef.current = null;
     };
-  }, [battleId, handleEvent]);
+  }, [battleId, handleEvent, getEventEpoch]);
 
   return {
     connected,

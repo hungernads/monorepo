@@ -21,6 +21,7 @@ const EVENT_STYLE: Record<
   STORM: { icon: "\u26A1", color: "text-purple-400" },
   PHASE_CHANGE: { icon: "\uD83C\uDFFA", color: "text-amber-400" },
   TOKEN_TRADE: { icon: "\uD83D\uDCB0", color: "text-green-300" },
+  BATTLE_END: { icon: "\uD83C\uDFC6", color: "text-gold" },
 };
 
 function formatTime(ts: number): string {
@@ -83,7 +84,9 @@ export default function ActionFeed({ entries }: ActionFeedProps) {
                           ? "bg-amber-500/10 border-l-2 border-amber-500/40"
                           : entry.type === "TOKEN_TRADE"
                             ? "bg-green-500/5 border-l-2 border-green-500/30"
-                            : ""
+                            : entry.type === "BATTLE_END"
+                              ? "bg-gold/10 border-l-2 border-gold/40"
+                              : ""
               }`}
             >
               {/* Timestamp -- suppressHydrationWarning because locale-formatted

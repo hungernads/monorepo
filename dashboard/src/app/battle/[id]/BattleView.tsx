@@ -7,9 +7,7 @@ import {
   AgentPortrait,
   HexBattleArena,
   ActionFeed,
-  EpochTimer,
   MarketTicker,
-  PhaseIndicator,
   PrizeClaim,
   CLASS_CONFIG,
   MOCK_AGENTS,
@@ -18,12 +16,12 @@ import {
   MOCK_TILE_ITEMS,
 } from "@/components/battle";
 import type { BattleAgent, FeedEntry } from "@/components/battle";
+import type { BattlePhase } from "@/lib/websocket";
 import { BettingPanel, SponsorModal, SponsorFeed } from "@/components/betting";
 import {
   BattleChat,
   ShareButton,
   ToastContainer,
-  WatcherCount,
   FavoriteButton,
 } from "@/components/social";
 import { useBattleStream } from "@/hooks/useBattleStream";
@@ -38,6 +36,7 @@ import type {
   AgentDeathEvent,
   EpochStartEvent,
   OddsUpdateEvent,
+  BattleEndEvent,
   SponsorBoostEvent,
   AgentMovedEvent,
   ItemSpawnedEvent,
@@ -442,92 +441,330 @@ function eventToFeedEntries(
       ];
     }
 
-    // epoch_end, battle_end, grid_state don't generate feed entries (handled by state)
+    case "battle_end": {
+      const e = event as BattleEndEvent;
+      const reason = e.data.reason ?? "Last nad standing";
+      const isMutualRekt = reason.toLowerCase().includes("mutual rekt");
+      const message = isMutualRekt
+        ? `ALL REKT -- ${e.data.winnerName} wins! ${reason}`
+        : `${e.data.winnerName} WINS after ${e.data.totalEpochs} epochs! ${reason}`;
+      return [
+        {
+          id: `ws-${index}-battle-end`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "BATTLE_END",
+          message,
+        },
+      ];
+    }
+
+    // epoch_end, grid_state don't generate feed entries (handled by state)
     default:
       return [];
   }
 }
 
 // ---------------------------------------------------------------------------
-// Epoch Phase Indicator
+// Phase color config for the unified top bar
 // ---------------------------------------------------------------------------
 
-const EPOCH_PHASES = [
-  { key: "PREDICT", label: "Predict", icon: "\u25B2\u25BC" },
-  { key: "MOVE", label: "Move", icon: "\u2192" },
-  { key: "FIGHT", label: "Fight", icon: "\u2694" },
-  { key: "RESOLVE", label: "Resolve", icon: "\u2713" },
-] as const;
+const PHASE_COLORS: Record<BattlePhase, { color: string; label: string }> = {
+  LOOT: { color: "#22c55e", label: "LOOT" },
+  HUNT: { color: "#f59e0b", label: "HUNT" },
+  BLOOD: { color: "#dc2626", label: "BLOOD" },
+  FINAL_STAND: { color: "#a855f7", label: "FINAL STAND" },
+};
+
+// ---------------------------------------------------------------------------
+// Unified Battle Top Bar
+// ---------------------------------------------------------------------------
 
 /**
- * Animated phase stepper that cycles through epoch phases.
- * The backend processes all phases at once, so we animate through them
- * over a 12s cycle to give spectators a sense of progression.
+ * Consolidated top bar: phase + epoch + countdown (left), agent portraits (center),
+ * pool + share + markets (right). Height: 48-56px.
  */
-function EpochPhaseIndicator({ isFinished }: { isFinished: boolean }) {
-  const [activePhase, setActivePhase] = useState(0);
-  const [mounted, setMounted] = useState(false);
+function BattleTopBar({
+  battleId,
+  currentEpoch,
+  currentPhase,
+  aliveCount,
+  totalAgents,
+  agents,
+  winner,
+  connected,
+  isComplete,
+  epochDuration = 300,
+}: {
+  battleId: string;
+  currentEpoch: number;
+  currentPhase: BattlePhase | null;
+  aliveCount: number;
+  totalAgents: number;
+  agents: BattleAgent[];
+  winner: { winnerId: string; winnerName: string; totalEpochs: number; reason?: string } | null;
+  connected: boolean;
+  isComplete: boolean;
+  epochDuration?: number;
+}) {
+  // Inline countdown timer
+  const [remaining, setRemaining] = useState(() =>
+    Math.floor(epochDuration * 0.62)
+  );
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isFinished || !mounted) return;
+    if (isComplete) return;
     const interval = setInterval(() => {
-      setActivePhase((prev) => (prev + 1) % EPOCH_PHASES.length);
-    }, 3000);
+      setRemaining((prev) => {
+        if (prev <= 0) return epochDuration;
+        return prev - 1;
+      });
+    }, 1000);
     return () => clearInterval(interval);
-  }, [isFinished, mounted]);
+  }, [epochDuration, isComplete]);
+
+  // Reset timer on epoch change
+  const prevEpochRef = useRef(currentEpoch);
+  useEffect(() => {
+    if (currentEpoch !== prevEpochRef.current) {
+      prevEpochRef.current = currentEpoch;
+      setRemaining(epochDuration);
+    }
+  }, [currentEpoch, epochDuration]);
+
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  const isUrgent = remaining <= 30;
+
+  const phaseConfig = currentPhase ? PHASE_COLORS[currentPhase] : null;
 
   return (
-    <div className="mt-3 flex items-center justify-center gap-1">
-      {EPOCH_PHASES.map((phase, i) => {
-        const isActive = !isFinished && i === activePhase;
-        const isPast = !isFinished && i < activePhase;
-        return (
-          <div key={phase.key} className="flex items-center gap-1">
-            {i > 0 && (
-              <div
-                className="h-px w-3 sm:w-5"
-                style={{
-                  backgroundColor: isPast || isActive ? "#f59e0b" : "#252540",
-                }}
-              />
-            )}
-            <div
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all duration-300 sm:px-2 sm:text-[10px]"
+    <div
+      className="mb-3 flex items-center justify-between rounded-lg border px-3 py-2 sm:mb-4 sm:px-4"
+      style={{
+        backgroundColor: "#0d0d1a",
+        borderColor: phaseConfig ? `${phaseConfig.color}30` : "#252540",
+        minHeight: "48px",
+        maxHeight: "56px",
+      }}
+    >
+      {/* ── Left cluster: phase + epoch + countdown ── */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Battle ID + status dot */}
+        <div className="flex items-center gap-1.5">
+          {isComplete ? (
+            <span className="rounded bg-gold/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold">
+              GG
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+              <span className="text-[9px] font-bold uppercase tracking-wider text-green-400">
+                LIVE
+              </span>
+            </span>
+          )}
+          <span className="hidden text-[10px] text-gray-600 sm:inline">#{battleId}</span>
+        </div>
+
+        <span className="h-4 w-px bg-gray-800" />
+
+        {/* Epoch number */}
+        <span className="font-mono text-sm font-bold tabular-nums text-white sm:text-base">
+          EPOCH {currentEpoch}
+          {winner?.totalEpochs ? <span className="text-gray-600">/{winner.totalEpochs}</span> : ""}
+        </span>
+
+        {/* Phase badge */}
+        {phaseConfig && !isComplete && (
+          <>
+            <span className="hidden h-4 w-px bg-gray-800 sm:inline-block" />
+            <span
+              className="hidden rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider sm:inline-block"
               style={{
-                backgroundColor: isActive ? "#2a1f0a" : "transparent",
-                color: isActive
-                  ? "#f59e0b"
-                  : isPast
-                    ? "#b45309"
-                    : "#3a3a5c",
-                border: isActive ? "1px solid #f59e0b" : "1px solid transparent",
-                boxShadow: isActive ? "0 0 8px rgba(245,158,11,0.2)" : "none",
+                backgroundColor: `${phaseConfig.color}15`,
+                color: phaseConfig.color,
+                border: `1px solid ${phaseConfig.color}30`,
               }}
             >
-              <span>{phase.icon}</span>
-              <span className="hidden sm:inline">{phase.label}</span>
+              {phaseConfig.label}
+            </span>
+          </>
+        )}
+
+        {/* Countdown */}
+        {!isComplete && (
+          <>
+            <span className="hidden h-4 w-px bg-gray-800 sm:inline-block" />
+            <span className="flex items-center gap-1">
+              <span className="hidden text-[10px] text-gray-600 sm:inline">Next in</span>
+              <span
+                className={`font-mono text-sm font-bold tabular-nums ${
+                  isUrgent ? "text-blood animate-pulse" : "text-gray-400"
+                }`}
+              >
+                {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+              </span>
+            </span>
+          </>
+        )}
+
+        {/* Connection indicator */}
+        {connected ? (
+          <span className="hidden items-center gap-1 text-[9px] text-green-600 sm:flex">
+            <span className="h-1 w-1 rounded-full bg-green-600" />
+            WS
+          </span>
+        ) : (
+          <span className="hidden items-center gap-1 text-[9px] text-gray-700 sm:flex">
+            <span className="h-1 w-1 rounded-full bg-gray-700" />
+            OFF
+          </span>
+        )}
+      </div>
+
+      {/* ── Center cluster: agent portrait thumbnails with HP rings ── */}
+      <div className="hidden items-center gap-1 md:flex">
+        {agents.map((agent) => {
+          const config = CLASS_CONFIG[agent.class];
+          const hpPct = agent.maxHp > 0 ? agent.hp / agent.maxHp : 0;
+          // SVG arc for HP ring (28px diameter circle)
+          const radius = 12;
+          const circumference = 2 * Math.PI * radius;
+          const strokeDash = hpPct * circumference;
+
+          // HP color: green > 50%, gold 25-50%, red < 25%
+          const hpColor =
+            !agent.alive
+              ? "#4a0000"
+              : hpPct > 0.5
+                ? "#22c55e"
+                : hpPct > 0.25
+                  ? "#f59e0b"
+                  : "#dc2626";
+
+          return (
+            <div
+              key={agent.id}
+              className="relative"
+              title={`${agent.name} (${agent.class}) - ${Math.round(agent.hp)} HP`}
+            >
+              <svg width="30" height="30" viewBox="0 0 30 30" className="flex-shrink-0">
+                {/* Background ring */}
+                <circle
+                  cx="15"
+                  cy="15"
+                  r={radius}
+                  fill="none"
+                  stroke="#1a1a2e"
+                  strokeWidth="2"
+                />
+                {/* HP ring */}
+                <circle
+                  cx="15"
+                  cy="15"
+                  r={radius}
+                  fill="none"
+                  stroke={hpColor}
+                  strokeWidth="2"
+                  strokeDasharray={`${strokeDash} ${circumference}`}
+                  strokeLinecap="round"
+                  transform="rotate(-90 15 15)"
+                  style={{
+                    transition: "stroke-dasharray 0.5s ease",
+                    filter: agent.isWinner ? "drop-shadow(0 0 3px #f59e0b)" : undefined,
+                  }}
+                />
+                {/* Agent portrait (clipped circle) */}
+                <clipPath id={`topbar-clip-${agent.id}`}>
+                  <circle cx="15" cy="15" r="10" />
+                </clipPath>
+                <foreignObject
+                  x="5"
+                  y="5"
+                  width="20"
+                  height="20"
+                  clipPath={`url(#topbar-clip-${agent.id})`}
+                >
+                  <img
+                    src={config.image}
+                    alt={agent.name}
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      objectFit: "cover",
+                      opacity: agent.alive ? 1 : 0.3,
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                </foreignObject>
+                {/* Dead X overlay */}
+                {!agent.alive && (
+                  <text
+                    x="15"
+                    y="17"
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="bold"
+                    fill="#dc2626"
+                    opacity="0.7"
+                  >
+                    X
+                  </text>
+                )}
+              </svg>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+        {/* Alive count */}
+        <span className="ml-1 text-[10px] text-gray-600">
+          <span className="text-white">{aliveCount}</span>/{totalAgents}
+        </span>
+      </div>
+
+      {/* ── Right cluster: pool + share ── */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Mobile alive count (shown only on small screens) */}
+        <span className="text-[10px] text-gray-600 md:hidden">
+          <span className="text-white">{aliveCount}</span>/{totalAgents} alive
+        </span>
+
+        {/* Pool */}
+        <span className="hidden text-[10px] text-gray-600 lg:inline">
+          Pool: <span className="font-bold text-gold">-- $HNADS</span>
+        </span>
+
+        {/* Share button */}
+        <ShareButton
+          battleId={battleId}
+          winner={winner}
+          agents={agents}
+        />
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Prediction Explainer (collapsible)
+// Collapsible sidebar panel wrapper
 // ---------------------------------------------------------------------------
 
-function PredictionExplainer() {
-  const [open, setOpen] = useState(false);
+function CollapsiblePanel({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div
-      className="rounded-lg border"
+      className="rounded-lg border overflow-hidden"
       style={{
         backgroundColor: "#12121f",
         borderColor: "#252540",
@@ -538,7 +775,7 @@ function PredictionExplainer() {
         className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest transition-colors hover:text-gold sm:px-4 sm:text-xs"
         style={{ color: "#a89870" }}
       >
-        <span>How Predictions Work</span>
+        <span>{title}</span>
         <span
           className="text-xs transition-transform duration-200"
           style={{
@@ -552,60 +789,74 @@ function PredictionExplainer() {
 
       {open && (
         <div
-          className="border-t px-3 pb-3 pt-2 sm:px-4"
+          className="border-t"
           style={{ borderColor: "#252540" }}
         >
-          <div className="space-y-2 text-[10px] leading-relaxed sm:text-xs" style={{ color: "#d4c5a0" }}>
-            <p>
-              Each epoch, agents predict if an asset (
-              <span style={{ color: "#f59e0b" }}>ETH</span>,{" "}
-              <span style={{ color: "#f59e0b" }}>BTC</span>,{" "}
-              <span style={{ color: "#f59e0b" }}>SOL</span>,{" "}
-              <span style={{ color: "#f59e0b" }}>MON</span>) will go{" "}
-              <span className="font-bold" style={{ color: "#22c55e" }}>UP</span> or{" "}
-              <span className="font-bold" style={{ color: "#dc2626" }}>DOWN</span>.
-            </p>
-            <p>
-              They stake{" "}
-              <span className="font-bold" style={{ color: "#f59e0b" }}>5-50% of their HP</span>{" "}
-              on the prediction.
-            </p>
-            <div
-              className="flex gap-3 rounded px-2 py-1.5"
-              style={{ backgroundColor: "#0f0f1a" }}
-            >
-              <div>
-                <span className="font-bold" style={{ color: "#22c55e" }}>Correct</span>{" "}
-                = gain staked HP back
-              </div>
-              <div>
-                <span className="font-bold" style={{ color: "#dc2626" }}>Wrong</span>{" "}
-                = lose staked HP
-              </div>
-            </div>
-            <div className="space-y-1 pt-1">
-              <div className="font-bold uppercase tracking-wider" style={{ color: "#a89870", fontSize: "9px" }}>
-                Special Skills
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <span>
-                  <span className="font-bold" style={{ color: "#3b82f6" }}>Trader</span>{" "}
-                  INSIDER_INFO = forced success
-                </span>
-                <span>
-                  <span className="font-bold" style={{ color: "#f59e0b" }}>Gambler</span>{" "}
-                  ALL_IN = 2x stake
-                </span>
-                <span>
-                  <span className="font-bold" style={{ color: "#22c55e" }}>Survivor</span>{" "}
-                  FORTIFY = block losses
-                </span>
-              </div>
-            </div>
-          </div>
+          {children}
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Prediction Explainer (collapsible)
+// ---------------------------------------------------------------------------
+
+function PredictionExplainer() {
+  return (
+    <CollapsiblePanel title="How Predictions Work" defaultOpen={false}>
+      <div className="px-3 pb-3 pt-2 sm:px-4">
+        <div className="space-y-2 text-[10px] leading-relaxed sm:text-xs" style={{ color: "#d4c5a0" }}>
+          <p>
+            Each epoch, agents predict if an asset (
+            <span style={{ color: "#f59e0b" }}>ETH</span>,{" "}
+            <span style={{ color: "#f59e0b" }}>BTC</span>,{" "}
+            <span style={{ color: "#f59e0b" }}>SOL</span>,{" "}
+            <span style={{ color: "#f59e0b" }}>MON</span>) will go{" "}
+            <span className="font-bold" style={{ color: "#22c55e" }}>UP</span> or{" "}
+            <span className="font-bold" style={{ color: "#dc2626" }}>DOWN</span>.
+          </p>
+          <p>
+            They stake{" "}
+            <span className="font-bold" style={{ color: "#f59e0b" }}>5-50% of their HP</span>{" "}
+            on the prediction.
+          </p>
+          <div
+            className="flex gap-3 rounded px-2 py-1.5"
+            style={{ backgroundColor: "#0f0f1a" }}
+          >
+            <div>
+              <span className="font-bold" style={{ color: "#22c55e" }}>Correct</span>{" "}
+              = gain staked HP back
+            </div>
+            <div>
+              <span className="font-bold" style={{ color: "#dc2626" }}>Wrong</span>{" "}
+              = lose staked HP
+            </div>
+          </div>
+          <div className="space-y-1 pt-1">
+            <div className="font-bold uppercase tracking-wider" style={{ color: "#a89870", fontSize: "9px" }}>
+              Special Skills
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <span>
+                <span className="font-bold" style={{ color: "#3b82f6" }}>Trader</span>{" "}
+                INSIDER_INFO = forced success
+              </span>
+              <span>
+                <span className="font-bold" style={{ color: "#f59e0b" }}>Gambler</span>{" "}
+                ALL_IN = 2x stake
+              </span>
+              <span>
+                <span className="font-bold" style={{ color: "#22c55e" }}>Survivor</span>{" "}
+                FORTIFY = block losses
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </CollapsiblePanel>
   );
 }
 
@@ -900,73 +1151,34 @@ export default function BattleView({ battleId }: BattleViewProps) {
     }
   }, [winner, isFavorite, addToast]);
 
-  // Mobile sidebar tabs -- add "chat" tab
-  type SidebarTab = "bets" | "sponsors" | "markets" | "chat";
-  const [mobileSidebarTab, setMobileSidebarTab] = useState<SidebarTab>("bets");
+  // Mobile sidebar tabs (4-tab layout per spec: Log | Bets | Chat | More)
+  type SidebarTab = "log" | "bets" | "chat" | "more";
+  const [mobileSidebarTab, setMobileSidebarTab] = useState<SidebarTab>("log");
 
   const sidebarTabs: { key: SidebarTab; label: string }[] = [
+    { key: "log", label: "Log" },
     { key: "bets", label: "Bets" },
     { key: "chat", label: "Chat" },
-    { key: "sponsors", label: "Sponsors" },
-    { key: "markets", label: "Markets" },
+    { key: "more", label: "More" },
   ];
 
   return (
-    <div className="space-y-4 overflow-x-hidden sm:space-y-6">
+    <div className="overflow-x-hidden">
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
-      {/* Battle header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <h1 className="font-cinzel text-lg font-black tracking-wider text-gold sm:text-2xl">
-            BATTLE #{battleId}
-          </h1>
-          {winner ? (
-            <span className="rounded bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold sm:text-xs">
-              FINISHED
-            </span>
-          ) : (
-            <span className="rounded bg-green-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-green-400 animate-pulse sm:text-xs">
-              LIVE
-            </span>
-          )}
-          {/* Connection status */}
-          <span
-            className={`hidden items-center gap-1 text-[10px] uppercase tracking-wider sm:flex ${
-              connected ? "text-green-500" : "text-gray-600"
-            }`}
-          >
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${
-                connected ? "bg-green-500" : "bg-gray-600"
-              }`}
-            />
-            {connected ? "Connected" : "Disconnected"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-gray-500 sm:gap-4 sm:text-xs">
-          {/* Watcher count */}
-          <WatcherCount isLive={!winner} />
-          <span className="hidden text-gray-700 sm:inline">|</span>
-          <span>
-            Epoch <span className="text-white">{currentEpoch}</span>
-            {winner?.totalEpochs ? `/${winner.totalEpochs}` : ""}
-          </span>
-          <span>
-            <span className="text-white">{aliveCount}</span> alive
-          </span>
-          <span className="hidden sm:inline text-gray-700">
-            Pool: <span className="text-gold">-- $HNADS</span>
-          </span>
-          {/* Share button */}
-          <ShareButton
-            battleId={battleId}
-            winner={winner}
-            agents={agents}
-          />
-        </div>
-      </div>
+      {/* Unified top bar: epoch + phase + countdown | agent portraits | pool + share */}
+      <BattleTopBar
+        battleId={battleId}
+        currentEpoch={currentEpoch}
+        currentPhase={phaseState?.phase ?? null}
+        aliveCount={aliveCount}
+        totalAgents={agents.length || 5}
+        agents={agents}
+        winner={winner}
+        connected={connected}
+        isComplete={!!winner}
+      />
 
       {/* Winner announcement */}
       {winner && (() => {
@@ -974,10 +1186,11 @@ export default function BattleView({ battleId }: BattleViewProps) {
         const victoryCfg = victoryAgent
           ? CLASS_CONFIG[victoryAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
           : CLASS_CONFIG.WARRIOR;
+        const isMutualRekt = winner.reason?.toLowerCase().includes("mutual rekt");
         return (
-          <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4">
+          <div className="mb-3 rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:mb-4 sm:p-4">
             <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
-              VICTORY
+              {isMutualRekt ? "ALL REKT" : "VICTORY"}
             </div>
             <div className="mt-3 flex items-center justify-center gap-3">
               <AgentPortrait
@@ -992,10 +1205,17 @@ export default function BattleView({ battleId }: BattleViewProps) {
                   {winner.winnerName}
                 </div>
                 <div className="text-[10px] text-gray-400 sm:text-xs">
-                  Last nad standing after {winner.totalEpochs} epoch{winner.totalEpochs !== 1 ? "s" : ""}
+                  {isMutualRekt
+                    ? `Wins by tiebreak after ${winner.totalEpochs} epochs!`
+                    : `Last nad standing after ${winner.totalEpochs} epoch${winner.totalEpochs !== 1 ? "s" : ""}`}
                 </div>
               </div>
             </div>
+            {winner.reason && (
+              <div className="mt-1.5 text-[10px] uppercase tracking-wider text-gold/70 sm:text-xs">
+                {winner.reason}
+              </div>
+            )}
             <div className="mt-3 flex justify-center">
               <ShareButton
                 battleId={battleId}
@@ -1009,56 +1229,213 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
       {/* Prize claim section (shown after battle completes) */}
       {winner && (
-        <PrizeClaim
-          battleId={battleId}
-          winner={winner}
-          agents={agents}
-        />
+        <div className="mb-3 sm:mb-4">
+          <PrizeClaim
+            battleId={battleId}
+            winner={winner}
+            agents={agents}
+          />
+        </div>
       )}
 
-      {/* Battle phase indicator (LOOT / HUNT / BLOOD / FINAL STAND) */}
-      <PhaseIndicator
-        currentPhase={phaseState?.phase ?? null}
-        epochsRemaining={phaseState?.epochsRemaining ?? 0}
-        phaseTotalEpochs={phaseState?.phaseTotalEpochs ?? 0}
-        isComplete={!!winner}
-        currentEpoch={currentEpoch}
-      />
+      {/* ═══════════════════════════════════════════════════════════════
+          Main 2fr/1fr grid layout: Arena (left) + Sidebar (right)
+          Desktop: side-by-side. Mobile: stacked.
+          ═══════════════════════════════════════════════════════════════ */}
+      <div
+        className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]"
+        style={{ minHeight: "min(calc(100vh - 52px), 100%)" }}
+      >
+        {/* ─── Left column: Arena ─── */}
+        <div className="flex flex-col gap-4">
+          {/* Hex battle arena */}
+          <div className="card flex-1">
+            <HexBattleArena
+              agents={agents}
+              currentEpoch={currentEpoch}
+              sponsorEventCount={sponsorEventCount}
+              agentPositions={hexAgentPositions}
+              tileItems={hexTileItems}
+              recentMoves={recentMoves}
+              stormTiles={stormTiles}
+              currentPhase={phaseState?.phase ?? null}
+            />
+          </div>
 
-      {/* Cinematic top bar: epoch timer + pool + sponsor button */}
-      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
-        <div className="card md:col-span-2">
-          <EpochTimer
-            currentEpoch={currentEpoch}
-            isComplete={!!winner}
-            winnerName={winner?.winnerName}
-          />
-          <EpochPhaseIndicator isFinished={!!winner} />
+          {/* Mobile-only agent cards -- visible below hex grid on small screens */}
+          {agents.length > 0 && (
+            <div className="md:hidden">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                Gladiators
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {agents.map((agent) => (
+                  <AgentCard key={agent.id} agent={agent} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Favorite agents bar (desktop) */}
+          {agents.length > 0 && (
+            <div className="card hidden md:block">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
+                Favorite Gladiators
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {agents.map((agent) => {
+                  const fav = isFavorite(agent.id);
+                  return (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        const added = toggleFavorite(agent.id);
+                        if (added) {
+                          addToast(`${agent.name} added to favorites`, "gold");
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs transition-all ${
+                        fav
+                          ? "border-blood/40 bg-blood/10 text-blood-light"
+                          : "border-colosseum-surface-light bg-colosseum-surface text-gray-500 hover:border-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      <FavoriteButton
+                        agentId={agent.id}
+                        isFavorite={fav}
+                        onToggle={toggleFavorite}
+                        size="sm"
+                      />
+                      <span className={`font-bold ${fav ? "text-white" : ""}`}>
+                        {agent.name}
+                      </span>
+                      {!agent.alive && (
+                        <span className="text-[9px] font-bold tracking-wider text-blood/60">
+                          REKT
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-              Pool
-            </h2>
-            <span className="text-lg font-bold text-gold">-- $HNADS</span>
-          </div>
-          <div className="mt-2 h-px w-full bg-colosseum-surface-light" />
-          <div className="mt-2 flex justify-between text-[10px] text-gray-600">
-            <span>Bettors: --</span>
-            <span>Sponsors: --</span>
-          </div>
-          <button
-            onClick={() => setSponsorModalOpen(true)}
-            className="mt-3 w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98] sm:py-1.5"
+
+        {/* ─── Right column: Sidebar with collapsible panels ─── */}
+        <div className="flex flex-col gap-3">
+          {/* Mobile tab bar for sidebar panels */}
+          <div
+            className="sticky top-0 z-10 flex border-b border-colosseum-surface-light md:hidden"
+            style={{ backgroundColor: "#0a0a14" }}
           >
-            Sponsor a Gladiator
-          </button>
+            {sidebarTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setMobileSidebarTab(tab.key)}
+                className={`relative flex-1 whitespace-nowrap px-2 py-3.5 text-xs font-bold uppercase tracking-wider transition-colors ${
+                  mobileSidebarTab === tab.key
+                    ? "text-gold"
+                    : "text-gray-600 active:text-gray-400"
+                }`}
+                style={{ minHeight: "48px" }}
+              >
+                {tab.label}
+                {mobileSidebarTab === tab.key && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gold" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Battle Log (first in sidebar) */}
+          <div className={`${mobileSidebarTab !== "log" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Battle Log" defaultOpen={true}>
+              <div
+                className="max-h-[300px] md:max-h-[380px]"
+                style={{ display: "flex", flexDirection: "column" }}
+              >
+                <ActionFeed entries={feed} />
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Betting panel */}
+          <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Bet Slip" defaultOpen={false}>
+              <div className="p-3">
+                <BettingPanel agents={agents} battleId={battleId} winner={winner} />
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Sponsor feed (visible on desktop always, on mobile under "more" tab) */}
+          <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Sponsor Feed" defaultOpen={false}>
+              <div className="p-3">
+                <SponsorFeed events={events} agentMeta={agentMeta} />
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Battle chat */}
+          <div className={`${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Spectator Chat" defaultOpen={false}>
+              <div className="p-3">
+                <BattleChat
+                  battleId={battleId}
+                  isConnected={walletConnected}
+                  userDisplayName={userDisplayName}
+                />
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Pool + Sponsor CTA (visible on desktop always, on mobile under "more" tab) */}
+          <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Prize Pool" defaultOpen={true}>
+              <div className="p-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
+                    Pool
+                  </h2>
+                  <span className="text-lg font-bold text-gold">-- $HNADS</span>
+                </div>
+                <div className="mt-2 h-px w-full bg-colosseum-surface-light" />
+                <div className="mt-2 flex justify-between text-[10px] text-gray-600">
+                  <span>Bettors: --</span>
+                  <span>Sponsors: --</span>
+                </div>
+                <button
+                  onClick={() => setSponsorModalOpen(true)}
+                  className="mt-3 w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98]"
+                  style={{ minHeight: "44px" }}
+                >
+                  Sponsor a Gladiator
+                </button>
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Market ticker (visible on desktop always, on mobile under "more" tab) */}
+          <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
+            <CollapsiblePanel title="Markets" defaultOpen={false}>
+              <div className="p-3">
+                <MarketTicker />
+              </div>
+            </CollapsiblePanel>
+          </div>
+
+          {/* Prediction explainer (visible on desktop always, on mobile under "more" tab) */}
+          <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
+            <PredictionExplainer />
+          </div>
         </div>
       </div>
 
-      {/* Favorite agents bar */}
+      {/* Favorite agents bar (mobile only) */}
       {agents.length > 0 && (
-        <div className="card">
+        <div className="mt-4 card md:hidden">
           <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
             Favorite Gladiators
           </div>
@@ -1074,11 +1451,12 @@ export default function BattleView({ battleId }: BattleViewProps) {
                       addToast(`${agent.name} added to favorites`, "gold");
                     }
                   }}
-                  className={`flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs transition-all ${
+                  className={`flex items-center gap-1.5 rounded border px-3 py-2 text-xs transition-all ${
                     fav
                       ? "border-blood/40 bg-blood/10 text-blood-light"
-                      : "border-colosseum-surface-light bg-colosseum-surface text-gray-500 hover:border-gray-500 hover:text-gray-300"
+                      : "border-colosseum-surface-light bg-colosseum-surface text-gray-500 active:border-gray-500 active:text-gray-300"
                   }`}
+                  style={{ minHeight: "44px" }}
                 >
                   <FavoriteButton
                     agentId={agent.id}
@@ -1101,97 +1479,8 @@ export default function BattleView({ battleId }: BattleViewProps) {
         </div>
       )}
 
-      {/* Main layout: arena + sidebar */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3">
-        {/* Arena (full width on mobile, 2/3 on md+) */}
-        <div className="card md:col-span-2">
-          <HexBattleArena
-            agents={agents}
-            currentEpoch={currentEpoch}
-            sponsorEventCount={sponsorEventCount}
-            agentPositions={hexAgentPositions}
-            tileItems={hexTileItems}
-            recentMoves={recentMoves}
-            stormTiles={stormTiles}
-            currentPhase={phaseState?.phase ?? null}
-          />
-        </div>
-
-        {/* Mobile-only agent cards — visible below hex grid on small screens */}
-        {agents.length > 0 && (
-          <div className="md:hidden">
-            <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-              Gladiators
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {agents.map((agent) => (
-                <AgentCard key={agent.id} agent={agent} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Sidebar: desktop shows all panels stacked, mobile uses tabs */}
-        <div className="flex flex-col gap-4">
-          {/* Mobile tab bar for sidebar panels */}
-          <div className="flex overflow-x-auto border-b border-colosseum-surface-light md:hidden">
-            {sidebarTabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setMobileSidebarTab(tab.key)}
-                className={`relative flex-1 whitespace-nowrap px-3 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${
-                  mobileSidebarTab === tab.key
-                    ? "text-gold"
-                    : "text-gray-600 hover:text-gray-400"
-                }`}
-              >
-                {tab.label}
-                {mobileSidebarTab === tab.key && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gold" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Betting panel */}
-          <div className={`card ${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
-            <BettingPanel agents={agents} battleId={battleId} winner={winner} />
-          </div>
-
-          {/* Battle chat */}
-          <div className={`card flex flex-col ${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
-            <BattleChat
-              battleId={battleId}
-              isConnected={walletConnected}
-              userDisplayName={userDisplayName}
-            />
-          </div>
-
-          {/* Sponsor feed */}
-          <div className={`card ${mobileSidebarTab !== "sponsors" ? "hidden md:block" : ""}`}>
-            <SponsorFeed events={events} agentMeta={agentMeta} />
-          </div>
-
-          {/* Market ticker */}
-          <div className={`card ${mobileSidebarTab !== "markets" ? "hidden md:block" : ""}`}>
-            <MarketTicker />
-          </div>
-
-        </div>
-      </div>
-
-      {/* Battle Log -- full-width below arena for better readability */}
-      <div
-        className="card"
-      >
-        <ActionFeed entries={feed} />
-      </div>
-
-      {/* Prediction explainer */}
-      <PredictionExplainer />
-
       {/* Bottom dramatic footer */}
-      <div className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-700">
+      <div className="mt-4 text-center text-[10px] uppercase tracking-[0.3em] text-gray-700">
         May the nads be ever in your favor
       </div>
 

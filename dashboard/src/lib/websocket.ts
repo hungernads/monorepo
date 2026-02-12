@@ -105,6 +105,8 @@ export interface BattleEndEvent {
     winnerId: string;
     winnerName: string;
     totalEpochs: number;
+    /** How the winner was determined (e.g. "Last nad standing", "Mutual rekt -- tiebreak by kills"). */
+    reason?: string;
   };
 }
 

@@ -18,7 +18,7 @@ export interface FeedEntry {
   id: string;
   timestamp: number;
   epoch: number;
-  type: "PREDICTION" | "ATTACK" | "DEFEND" | "DEATH" | "SPONSOR" | "MARKET" | "STORM" | "PHASE_CHANGE" | "TOKEN_TRADE";
+  type: "PREDICTION" | "ATTACK" | "DEFEND" | "DEATH" | "SPONSOR" | "MARKET" | "STORM" | "PHASE_CHANGE" | "TOKEN_TRADE" | "BATTLE_END";
   agentId?: string;
   agentName?: string;
   agentClass?: AgentClass;
