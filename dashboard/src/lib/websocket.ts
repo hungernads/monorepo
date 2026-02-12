@@ -108,6 +108,24 @@ export interface BattleEndEvent {
   };
 }
 
+/**
+ * Emitted when a battle reaches max epochs without a natural winner.
+ * The agent with the highest HP among survivors is declared the winner.
+ * Backend also sends battle_end for backward compatibility; this event
+ * carries additional winner metadata (class, hp, survivors).
+ */
+export interface TimeoutWinEvent {
+  type: 'timeout_win';
+  data: {
+    winnerId: string;
+    winnerName: string;
+    winnerClass: string;
+    winnerHp: number;
+    totalEpochs: number;
+    survivors: { id: string; name: string; class: string; hp: number }[];
+  };
+}
+
 export interface OddsUpdateEvent {
   type: 'odds_update';
   data: {
@@ -379,6 +397,7 @@ export type BattleEvent =
   | AgentDeathEvent
   | EpochEndEvent
   | BattleEndEvent
+  | TimeoutWinEvent
   | OddsUpdateEvent
   | TokenBuyEvent
   | TokenSellEvent

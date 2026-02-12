@@ -4,12 +4,14 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useAccount } from "wagmi";
 import {
   AgentCard,
+  AgentPortrait,
   HexBattleArena,
   ActionFeed,
   EpochTimer,
   MarketTicker,
   PhaseIndicator,
   PrizeClaim,
+  CLASS_CONFIG,
   MOCK_AGENTS,
   MOCK_FEED,
   MOCK_AGENT_POSITIONS,
@@ -126,7 +128,7 @@ function eventToFeedEntries(
         agentId: e.data.agentId,
         agentName,
         agentClass,
-        message: `${agentName} predicts ${e.data.prediction.asset} ${e.data.prediction.direction} -- stakes ${Math.round(e.data.prediction.stake * 100)}% HP. "${e.data.reasoning}"`,
+        message: `${agentName} predicts ${e.data.prediction.asset} ${e.data.prediction.direction} -- stakes ${e.data.prediction.stake}% HP. "${e.data.reasoning}"`,
       });
 
       // Attack entry
@@ -172,6 +174,7 @@ function eventToFeedEntries(
         e.data.hpChange >= 0
           ? `+${e.data.hpChange} HP`
           : `${e.data.hpChange} HP`;
+      const hpAfterStr = e.data.hpAfter != null ? `${Math.round(e.data.hpAfter)}` : "?";
       return [
         {
           id: `ws-${index}`,
@@ -181,20 +184,31 @@ function eventToFeedEntries(
           agentId: e.data.agentId,
           agentName,
           agentClass,
-          message: `${agentName} prediction ${result}! (${hpStr}, now ${e.data.hpAfter} HP)`,
+          message: `${agentName} prediction ${result}! (${hpStr}, now ${hpAfterStr} HP)`,
         },
       ];
     }
 
     case "combat_result": {
       const e = event as CombatResultEvent;
+      // Defensive: handle both new shape (defenderId) and legacy raw CombatResult (targetId)
+      const rawData = e.data as Record<string, unknown>;
+      const defenderId = e.data.defenderId ?? (rawData.targetId as string | undefined);
+      const damage = e.data.damage ?? Math.abs(((rawData.hpChangeTarget as number) || 0));
+      const blocked = e.data.blocked ?? (rawData.defended as boolean | undefined) ?? false;
+
+      if (!defenderId) {
+        // Skip combat events with no valid target
+        return [];
+      }
+
       const atkMeta = agentMeta.get(e.data.attackerId);
-      const defMeta = agentMeta.get(e.data.defenderId);
+      const defMeta = agentMeta.get(defenderId);
       const attackerName = atkMeta?.name ?? e.data.attackerId;
-      const defenderName = defMeta?.name ?? e.data.defenderId;
+      const defenderName = defMeta?.name ?? defenderId;
       const atkClass = atkMeta?.class;
 
-      if (e.data.blocked) {
+      if (blocked) {
         return [
           {
             id: `ws-${index}`,
@@ -218,7 +232,7 @@ function eventToFeedEntries(
           agentId: e.data.attackerId,
           agentName: attackerName,
           agentClass: atkClass,
-          message: `${attackerName} attacks ${defenderName} for ${e.data.damage} damage!`,
+          message: `${attackerName} attacks ${defenderName} for ${damage} damage!`,
         },
       ];
     }
@@ -722,14 +736,20 @@ export default function BattleView({ battleId }: BattleViewProps) {
       }
       if (event.type === "combat_result") {
         const e = event as CombatResultEvent;
+        const rawData = e.data as Record<string, unknown>;
+        const defId = e.data.defenderId ?? (rawData.targetId as string | undefined);
+        const wasBlocked = e.data.blocked ?? (rawData.defended as boolean | undefined) ?? false;
+
         latestCombat.set(e.data.attackerId, {
           attacking: true,
           attacked: false,
         });
-        latestCombat.set(e.data.defenderId, {
-          attacking: false,
-          attacked: !e.data.blocked,
-        });
+        if (defId) {
+          latestCombat.set(defId, {
+            attacking: false,
+            attacked: !wasBlocked,
+          });
+        }
       }
     }
 
@@ -748,7 +768,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
             action.attack.target;
           lastAction = `Attacked ${targetName} for ${action.attack.stake} stake`;
         } else {
-          lastAction = `Predicted ${action.prediction.asset} ${action.prediction.direction} (stake: ${Math.round(action.prediction.stake * 100)}%)`;
+          lastAction = `Predicted ${action.prediction.asset} ${action.prediction.direction} (stake: ${action.prediction.stake}%)`;
         }
       }
 
@@ -949,24 +969,43 @@ export default function BattleView({ battleId }: BattleViewProps) {
       </div>
 
       {/* Winner announcement */}
-      {winner && (
-        <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4">
-          <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
-            VICTORY
+      {winner && (() => {
+        const victoryAgent = agents.find((a) => a.id === winner.winnerId);
+        const victoryCfg = victoryAgent
+          ? CLASS_CONFIG[victoryAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
+          : CLASS_CONFIG.WARRIOR;
+        return (
+          <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4">
+            <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
+              VICTORY
+            </div>
+            <div className="mt-3 flex items-center justify-center gap-3">
+              <AgentPortrait
+                image={victoryCfg.image}
+                emoji={victoryCfg.emoji}
+                alt={winner.winnerName}
+                size="w-14 h-14 sm:w-16 sm:h-16"
+                className="text-4xl ring-2 ring-gold/40"
+              />
+              <div className="text-left">
+                <div className="text-sm font-bold text-white sm:text-base">
+                  {winner.winnerName}
+                </div>
+                <div className="text-[10px] text-gray-400 sm:text-xs">
+                  Last nad standing after {winner.totalEpochs} epoch{winner.totalEpochs !== 1 ? "s" : ""}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex justify-center">
+              <ShareButton
+                battleId={battleId}
+                winner={winner}
+                agents={agents}
+              />
+            </div>
           </div>
-          <div className="mt-1 text-xs text-white sm:text-sm">
-            <span className="font-bold">{winner.winnerName}</span> is the last
-            nad standing after {winner.totalEpochs} epochs!
-          </div>
-          <div className="mt-2 flex justify-center">
-            <ShareButton
-              battleId={battleId}
-              winner={winner}
-              agents={agents}
-            />
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Prize claim section (shown after battle completes) */}
       {winner && (

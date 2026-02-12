@@ -23,6 +23,7 @@ import {
   type EpochEndEvent,
   type EpochStartEvent,
   type BattleEndEvent,
+  type TimeoutWinEvent,
   type BattleStartingEvent,
   type GridStateEvent,
   type AgentMovedEvent,
@@ -192,6 +193,18 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
       case 'battle_end': {
         const e = event as BattleEndEvent;
         setWinner(e.data);
+        break;
+      }
+
+      case 'timeout_win': {
+        const e = event as TimeoutWinEvent;
+        // timeout_win carries richer data; set winner with the same shape
+        // as battle_end so PrizeClaim and BattleView render correctly.
+        setWinner((prev) => prev ?? {
+          winnerId: e.data.winnerId,
+          winnerName: e.data.winnerName,
+          totalEpochs: e.data.totalEpochs,
+        });
         break;
       }
 

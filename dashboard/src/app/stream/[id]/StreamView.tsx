@@ -2,7 +2,9 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
+  AgentPortrait,
   HexBattleArena,
+  CLASS_CONFIG,
   MOCK_AGENTS,
   MOCK_FEED,
 } from "@/components/battle";
@@ -112,7 +114,7 @@ function eventToFeedEntries(
         agentId: e.data.agentId,
         agentName,
         agentClass,
-        message: `${agentName} predicts ${e.data.prediction.asset} ${e.data.prediction.direction} -- stakes ${Math.round(e.data.prediction.stake * 100)}% HP.`,
+        message: `${agentName} predicts ${e.data.prediction.asset} ${e.data.prediction.direction} -- stakes ${e.data.prediction.stake}% HP.`,
       });
 
       if (e.data.attack) {
@@ -156,6 +158,7 @@ function eventToFeedEntries(
         e.data.hpChange >= 0
           ? `+${e.data.hpChange} HP`
           : `${e.data.hpChange} HP`;
+      const hpAfterStr = e.data.hpAfter != null ? `${Math.round(e.data.hpAfter)}` : "?";
       return [
         {
           id: `ws-${index}`,
@@ -165,20 +168,31 @@ function eventToFeedEntries(
           agentId: e.data.agentId,
           agentName,
           agentClass,
-          message: `${agentName} prediction ${result}! (${hpStr}, now ${e.data.hpAfter} HP)`,
+          message: `${agentName} prediction ${result}! (${hpStr}, now ${hpAfterStr} HP)`,
         },
       ];
     }
 
     case "combat_result": {
       const e = event as CombatResultEvent;
+      // Defensive: handle both new shape (defenderId) and legacy raw CombatResult (targetId)
+      const rawData = e.data as Record<string, unknown>;
+      const defenderId = e.data.defenderId ?? (rawData.targetId as string | undefined);
+      const damage = e.data.damage ?? Math.abs(((rawData.hpChangeTarget as number) || 0));
+      const blocked = e.data.blocked ?? (rawData.defended as boolean | undefined) ?? false;
+
+      if (!defenderId) {
+        // Skip combat events with no valid target
+        return [];
+      }
+
       const atkMeta = agentMeta.get(e.data.attackerId);
-      const defMeta = agentMeta.get(e.data.defenderId);
+      const defMeta = agentMeta.get(defenderId);
       const attackerName = atkMeta?.name ?? e.data.attackerId;
-      const defenderName = defMeta?.name ?? e.data.defenderId;
+      const defenderName = defMeta?.name ?? defenderId;
       const atkClass = atkMeta?.class;
 
-      if (e.data.blocked) {
+      if (blocked) {
         return [
           {
             id: `ws-${index}`,
@@ -202,7 +216,7 @@ function eventToFeedEntries(
           agentId: e.data.attackerId,
           agentName: attackerName,
           agentClass: atkClass,
-          message: `${attackerName} attacks ${defenderName} for ${e.data.damage} damage!`,
+          message: `${attackerName} attacks ${defenderName} for ${damage} damage!`,
         },
       ];
     }
@@ -479,14 +493,20 @@ export default function StreamView({
       }
       if (event.type === "combat_result") {
         const e = event as CombatResultEvent;
+        const rawData = e.data as Record<string, unknown>;
+        const defId = e.data.defenderId ?? (rawData.targetId as string | undefined);
+        const wasBlocked = e.data.blocked ?? (rawData.defended as boolean | undefined) ?? false;
+
         latestCombat.set(e.data.attackerId, {
           attacking: true,
           attacked: false,
         });
-        latestCombat.set(e.data.defenderId, {
-          attacking: false,
-          attacked: !e.data.blocked,
-        });
+        if (defId) {
+          latestCombat.set(defId, {
+            attacking: false,
+            attacked: !wasBlocked,
+          });
+        }
       }
     }
 
@@ -740,21 +760,36 @@ export default function StreamView({
       )}
 
       {/* Winner announcement overlay */}
-      {winner && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
-          <div className="pointer-events-auto rounded-xl border-2 border-gold/60 bg-colosseum-bg/90 px-12 py-8 text-center shadow-2xl shadow-gold/20 backdrop-blur-md">
-            <div className="font-cinzel text-4xl font-black tracking-[0.2em] text-gold animate-winner-glow">
-              VICTORY
-            </div>
-            <div className="mt-3 text-xl font-bold text-white">
-              {winner.winnerName}
-            </div>
-            <div className="mt-1 text-sm text-gray-400">
-              Last nad standing after {winner.totalEpochs} epochs
+      {winner && (() => {
+        const victoryAgent = agents.find((a) => a.id === winner.winnerId);
+        const victoryCfg = victoryAgent
+          ? CLASS_CONFIG[victoryAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
+          : CLASS_CONFIG.WARRIOR;
+        return (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
+            <div className="pointer-events-auto rounded-xl border-2 border-gold/60 bg-colosseum-bg/90 px-12 py-8 text-center shadow-2xl shadow-gold/20 backdrop-blur-md">
+              <div className="font-cinzel text-4xl font-black tracking-[0.2em] text-gold animate-winner-glow">
+                VICTORY
+              </div>
+              <div className="mt-4 flex items-center justify-center gap-4">
+                <AgentPortrait
+                  image={victoryCfg.image}
+                  emoji={victoryCfg.emoji}
+                  alt={winner.winnerName}
+                  size="w-20 h-20"
+                  className="text-5xl ring-2 ring-gold/40"
+                />
+              </div>
+              <div className="mt-3 text-xl font-bold text-white">
+                {winner.winnerName}
+              </div>
+              <div className="mt-1 text-sm text-gray-400">
+                Last nad standing after {winner.totalEpochs} epochs
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Highlight banner */}
       {showHighlights && activeHighlight && (
