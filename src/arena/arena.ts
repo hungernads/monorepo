@@ -124,6 +124,8 @@ export interface BattleRecord {
   winnerId: string | null;
   winnerName: string | null;
   winnerClass: AgentClass | null;
+  /** Human-readable reason for winner selection (e.g. "Last nad standing", "Mutual rekt — tiebreak by kills"). */
+  winnerReason?: string;
   roster: Array<{
     agentId: string;
     agentName: string;
@@ -222,6 +224,7 @@ export class ArenaManager {
   public phaseConfig: PhaseConfig | null;
 
   private eliminations: EliminationRecord[];
+  private winnerReason: string | null = null;
 
   constructor(battleId: string, config: Partial<BattleConfig> = {}) {
     this.battleId = battleId;
@@ -679,22 +682,66 @@ export class ArenaManager {
     return alive.length <= 1;
   }
 
-  /** Get the winner — last alive, or most kills if all REKT. Null if 2+ alive. */
+  /**
+   * Get the winner of the battle.
+   *
+   * - If exactly 1 agent is alive, they win (natural last-nad-standing).
+   * - If 0 agents are alive (mutual rekt), pick the best from the last epoch's
+   *   dead: highest eliminatedAtEpoch, then most kills, then random tiebreak.
+   * - If 2+ agents are alive, returns null (battle not over).
+   */
   getWinner(): BaseAgent | null {
     const alive = this.getActiveAgents();
-    if (alive.length === 1) return alive[0];
-    if (alive.length === 0) {
-      // All agents REKT — pick winner by most kills, random tiebreak
-      const allAgents = Array.from(this.agents.values());
-      const maxKills = Math.max(...allAgents.map(a => a.kills));
-      const candidates = allAgents.filter(a => a.kills === maxKills);
-      const winner = candidates[Math.floor(Math.random() * candidates.length)];
-      console.log(
-        `[ArenaManager] All agents REKT — winner by kills: ${winner.name} (${winner.kills} kills, ${candidates.length} tied)`
-      );
+    if (alive.length === 1) {
+      this.winnerReason = 'Last nad standing';
+      return alive[0];
+    }
+
+    if (alive.length === 0 && this.eliminations.length > 0) {
+      // All agents dead — pick from the last-eliminated cohort
+      const maxEpoch = Math.max(...this.eliminations.map(e => e.eliminatedAtEpoch));
+      const lastSurvivors = this.eliminations.filter(e => e.eliminatedAtEpoch === maxEpoch);
+
+      if (lastSurvivors.length === 1) {
+        const winner = this.agents.get(lastSurvivors[0].agentId) ?? null;
+        if (winner) {
+          this.winnerReason = `Mutual rekt — ${winner.name} was the last to fall (epoch ${maxEpoch})`;
+        }
+        return winner;
+      }
+
+      // Tiebreak by most kills
+      const withKills = lastSurvivors.map(e => {
+        const agent = this.agents.get(e.agentId);
+        return { record: e, agent, kills: agent?.kills ?? 0 };
+      });
+      const maxKills = Math.max(...withKills.map(w => w.kills));
+      const topKillers = withKills.filter(w => w.kills === maxKills);
+
+      if (topKillers.length === 1) {
+        const winner = topKillers[0].agent ?? null;
+        if (winner) {
+          this.winnerReason = `Mutual rekt — ${winner.name} died last (epoch ${maxEpoch}) with the most kills (${maxKills})`;
+        }
+        return winner;
+      }
+
+      // Random tiebreak among equal-kill agents
+      const randomIdx = Math.floor(Math.random() * topKillers.length);
+      const winner = topKillers[randomIdx].agent ?? null;
+      if (winner) {
+        const names = topKillers.map(w => w.agent?.name ?? 'unknown').join(', ');
+        this.winnerReason = `Mutual rekt — random tiebreak among last survivors: ${names} (epoch ${maxEpoch}, ${maxKills} kills each)`;
+      }
       return winner;
     }
+
     return null;
+  }
+
+  /** Get the reason the winner was chosen (set by getWinner). */
+  getWinnerReason(): string | null {
+    return this.winnerReason;
   }
 
   // -------------------------------------------------------------------------
@@ -736,6 +783,7 @@ export class ArenaManager {
       winnerId: winner?.id ?? null,
       winnerName: winner?.name ?? null,
       winnerClass: winner?.agentClass ?? null,
+      winnerReason: this.winnerReason ?? undefined,
       roster,
       eliminations: [...this.eliminations],
     };

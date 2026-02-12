@@ -42,7 +42,7 @@ import type { BaseAgent } from '../agents/base-agent';
 import { BettingPool, DEFAULT_BETTING_LOCK_AFTER_EPOCH } from '../betting/pool';
 import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
-import { updateBattle } from '../db/schema';
+import { updateBattle, insertBattleEvents } from '../db/schema';
 import { createChainClient, monadTestnet, type AgentResult as ChainAgentResult } from '../chain/client';
 import { createMoltbookPoster } from '../moltbook';
 import { RatingManager, extractBattlePerformances } from '../ranking';
@@ -146,7 +146,7 @@ export interface LobbyMeta {
 }
 
 /** Minimum agents to trigger countdown. */
-const COUNTDOWN_TRIGGER_THRESHOLD = 5;
+const COUNTDOWN_TRIGGER_THRESHOLD = 4;
 
 /** Countdown duration in ms (1 minute). */
 const COUNTDOWN_DURATION_MS = 60_000;
@@ -530,7 +530,25 @@ export class ArenaDO implements DurableObject {
     await this.state.storage.put('previousMarketData', result.marketData);
 
     // ── Broadcast rich events to spectators ──────────────────────
-    this.broadcastEpochResult(result, arena);
+    const epochEvents = this.broadcastEpochResult(result, arena);
+
+    // ── Persist battle events to D1 (best-effort) ───────────────
+    // Events are already broadcast via WebSocket above. Insertion into
+    // D1 is best-effort: failures are logged but must NOT block epoch
+    // processing or state persistence.
+    try {
+      await insertBattleEvents(
+        this.env.DB,
+        battleState.battleId,
+        result.epochNumber,
+        epochEvents,
+      );
+    } catch (err) {
+      console.error(
+        `[ArenaDO] Failed to persist battle events for epoch ${result.epochNumber}:`,
+        err,
+      );
+    }
 
     // ── Fire agent token trades (non-blocking) ──────────────────
     // Agents auto-buy $HNADS on prediction wins, auto-sell on combat damage.
@@ -844,7 +862,7 @@ export class ArenaDO implements DurableObject {
    * Also sends a grid_state snapshot after epoch_end so spectators
    * always have the latest tile/item/position state.
    */
-  broadcastEpochResult(epochResult: EpochResult, arena?: ArenaManager): void {
+  broadcastEpochResult(epochResult: EpochResult, arena?: ArenaManager): BattleEvent[] {
     const sockets = this.state.getWebSockets();
     const events = epochToEvents(epochResult);
 
@@ -859,6 +877,8 @@ export class ArenaDO implements DurableObject {
     }
 
     broadcastEvents(sockets, events);
+
+    return events;
   }
 
   /**

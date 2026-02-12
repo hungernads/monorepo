@@ -185,7 +185,7 @@ export interface EpochResult {
     allianceEpochsRemaining?: number;
   }[];
   battleComplete: boolean;
-  winner?: { id: string; name: string; class: string; kills?: number };
+  winner?: { id: string; name: string; class: string; kills?: number; reason?: string };
   /** Current battle phase for this epoch (null if no phase config). */
   currentPhase?: BattlePhase;
   /** Phase transition that occurred this epoch (null if no transition). */
@@ -619,16 +619,18 @@ export async function processEpoch(
 
   // ── Step 8: Check win condition ───────────────────────────────────────
   const battleComplete = arena.isComplete();
-  let winner: { id: string; name: string; class: string; kills?: number } | undefined;
+  let winner: { id: string; name: string; class: string; kills?: number; reason?: string } | undefined;
 
   if (battleComplete) {
     const winnerAgent = arena.getWinner();
+    const winnerReason = arena.getWinnerReason();
     if (winnerAgent) {
       winner = {
         id: winnerAgent.id,
         name: winnerAgent.name,
         class: winnerAgent.agentClass,
         kills: winnerAgent.kills,
+        reason: winnerReason ?? undefined,
       };
     }
   }
