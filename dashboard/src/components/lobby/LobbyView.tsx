@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   BattleWebSocket,
@@ -42,7 +42,13 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
   const [hasJoined, setHasJoined] = useState(false);
   const [battleStarting, setBattleStarting] = useState(false);
 
+  const [copied, setCopied] = useState<'id' | 'link' | null>(null);
   const wsRef = useRef<BattleWebSocket | null>(null);
+
+  const lobbyUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/lobby/${battleId}`;
+  }, [battleId]);
 
   // Check if user already joined (from localStorage)
   useEffect(() => {
@@ -115,6 +121,16 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
     [battleId],
   );
 
+  const copyToClipboard = useCallback(async (text: string, type: 'id' | 'link') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(type);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      // fallback
+    }
+  }, []);
+
   // ---- Derived State ----
   const slots = Array.from({ length: maxPlayers }, (_, i) => {
     const agent = agents.find((a) => a.position === i + 1) ?? null;
@@ -170,6 +186,32 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
           <span className="text-[10px] uppercase tracking-wider text-gray-600">
             {connected ? "Live" : "Connecting..."}
           </span>
+        </div>
+      </div>
+
+      {/* Share / Copy Battle ID */}
+      <div className="mb-6 mx-auto max-w-md">
+        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-3">
+          <div className="mb-2 text-center text-[10px] font-bold uppercase tracking-widest text-gray-500">
+            Share this arena
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 truncate rounded border border-colosseum-surface-light bg-colosseum-bg px-3 py-1.5 font-mono text-xs text-gray-300">
+              {battleId}
+            </div>
+            <button
+              onClick={() => copyToClipboard(battleId, 'id')}
+              className="shrink-0 rounded border border-gold/30 bg-gold/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gold transition-colors hover:bg-gold/20"
+            >
+              {copied === 'id' ? 'Copied!' : 'Copy ID'}
+            </button>
+            <button
+              onClick={() => copyToClipboard(lobbyUrl, 'link')}
+              className="shrink-0 rounded border border-gold/30 bg-gold/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gold transition-colors hover:bg-gold/20"
+            >
+              {copied === 'link' ? 'Copied!' : 'Copy Link'}
+            </button>
+          </div>
         </div>
       </div>
 
