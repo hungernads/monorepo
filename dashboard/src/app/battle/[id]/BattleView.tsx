@@ -1120,7 +1120,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           </div>
 
           {/* Battle chat */}
-          <div className={`card ${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
+          <div className={`card flex flex-col ${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
             <BattleChat
               battleId={battleId}
               isConnected={walletConnected}
