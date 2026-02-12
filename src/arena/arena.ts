@@ -52,6 +52,7 @@ import {
   type PhaseConfig,
   type PhaseEntry,
 } from './phases';
+import type { LobbyTier } from './tiers';
 
 // Re-export BattleStatus so consumers can import from arena.ts or arena/index.ts
 export type { BattleStatus } from './types/status';
@@ -223,6 +224,13 @@ export class ArenaManager {
    */
   public phaseConfig: PhaseConfig | null;
 
+  /**
+   * Lobby tier for this battle (FREE, BRONZE, SILVER, GOLD).
+   * Determines kill/survival bonus rewards and prize pool distribution.
+   * Defaults to 'FREE' (no bonuses).
+   */
+  public lobbyTier: LobbyTier;
+
   private eliminations: EliminationRecord[];
   private winnerReason: string | null = null;
 
@@ -241,6 +249,7 @@ export class ArenaManager {
     this.lobbyAgents = new Map();
     this.countdownEndsAt = null;
     this.phaseConfig = null;
+    this.lobbyTier = 'FREE';
   }
 
   // -------------------------------------------------------------------------

@@ -70,6 +70,7 @@ import {
   type MoveResult,
 } from './grid';
 import type { SponsorEffect } from '../betting/sponsorship';
+import { getKillBonus, getSurvivalBonus, SURVIVAL_BONUS_EPOCH } from './tiers';
 // ── Hex Grid & Item System ──
 import {
   moveAgent as hexMoveAgent,
@@ -140,6 +141,18 @@ const STORM_BASE_DAMAGE: Record<BattlePhase, number> = {
   FINAL_STAND: 200,
 };
 
+/** Tracks $HNADS bonus rewards awarded during an epoch (kill bonuses, survival bonuses). */
+export interface BonusReward {
+  agentId: string;
+  agentName: string;
+  /** Type of bonus: KILL_BONUS (awarded per kill in SILVER/GOLD tiers) or SURVIVAL_BONUS (awarded at epoch 50 in GOLD tier). */
+  type: 'KILL_BONUS' | 'SURVIVAL_BONUS';
+  /** $HNADS amount awarded. */
+  amount: number;
+  /** Human-readable description of why the bonus was awarded. */
+  reason: string;
+}
+
 export interface EpochResult {
   epochNumber: number;
   marketData: MarketData;
@@ -170,6 +183,8 @@ export interface EpochResult {
   /** Storm tile coordinates for the current phase (for grid_state broadcast). */
   stormTiles: { q: number; r: number }[];
   deaths: DeathEvent[];
+  /** $HNADS bonus rewards awarded this epoch (kill bonuses for SILVER/GOLD, survival bonuses for GOLD). */
+  bonusRewards: BonusReward[];
   /** Secretary agent validation reports per agent (corrections, fuzzy matches, etc). */
   secretaryReports: Map<string, SecretaryResult>;
   agentStates: {
@@ -579,6 +594,9 @@ export async function processEpoch(
   );
 
   // Eliminate dead agents on the arena and track kills
+  const bonusRewards: BonusReward[] = [];
+  const killBonusAmount = getKillBonus(arena.lobbyTier);
+
   for (const death of deaths) {
     const deadAgent = arena.getAgent(death.agentId);
 
@@ -608,13 +626,43 @@ export async function processEpoch(
       const killer = arena.getAgent(death.killerId);
       if (killer) {
         killer.kills += 1;
+
+        // Award $HNADS kill bonus from treasury (SILVER/GOLD tiers only)
+        if (killBonusAmount > 0) {
+          bonusRewards.push({
+            agentId: killer.id,
+            agentName: killer.name,
+            type: 'KILL_BONUS',
+            amount: killBonusAmount,
+            reason: `Kill bonus: ${killer.name} REKT ${deadAgent?.name ?? 'unknown'} (+${killBonusAmount} $HNADS from treasury)`,
+          });
+          console.log(
+            `[Bonus] KILL_BONUS: ${killer.name} earned ${killBonusAmount} $HNADS for killing ${deadAgent?.name ?? 'unknown'} (${arena.lobbyTier} tier)`,
+          );
+        }
       }
     }
   }
 
   // ── Step 7: Increment epochsSurvived for living agents ────────────────
+  const survivalBonusAmount = getSurvivalBonus(arena.lobbyTier);
   for (const agent of arena.getActiveAgents()) {
     agent.epochsSurvived += 1;
+
+    // Award $HNADS survival bonus at epoch threshold (GOLD tier only)
+    // Awarded exactly once when the agent's epochsSurvived count reaches SURVIVAL_BONUS_EPOCH
+    if (survivalBonusAmount > 0 && agent.epochsSurvived === SURVIVAL_BONUS_EPOCH) {
+      bonusRewards.push({
+        agentId: agent.id,
+        agentName: agent.name,
+        type: 'SURVIVAL_BONUS',
+        amount: survivalBonusAmount,
+        reason: `Survival bonus: ${agent.name} survived ${SURVIVAL_BONUS_EPOCH} epochs (+${survivalBonusAmount} $HNADS from treasury)`,
+      });
+      console.log(
+        `[Bonus] SURVIVAL_BONUS: ${agent.name} earned ${survivalBonusAmount} $HNADS for surviving ${SURVIVAL_BONUS_EPOCH} epochs (${arena.lobbyTier} tier)`,
+      );
+    }
   }
 
   // ── Step 8: Check win condition ───────────────────────────────────────
@@ -717,6 +765,7 @@ export async function processEpoch(
     stormDamageResults,
     stormTiles,
     deaths,
+    bonusRewards,
     secretaryReports,
     agentStates,
     battleComplete,
