@@ -1124,7 +1124,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           </div>
 
           {/* Battle chat */}
-          <div className={`card ${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
+          <div className={`card max-h-72 flex flex-col ${mobileSidebarTab !== "chat" ? "hidden md:block" : ""}`}>
             <BattleChat
               battleId={battleId}
               isConnected={walletConnected}
@@ -1146,10 +1146,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
       </div>
 
       {/* Battle Log -- full-width below arena for better readability */}
-      <div
-        className="card max-h-[300px] md:max-h-[380px] md:shrink-0"
-        style={{ display: "flex", flexDirection: "column" }}
-      >
+      <div className="card max-h-64 md:max-h-96 flex flex-col md:shrink-0">
         <ActionFeed entries={feed} />
       </div>
 
