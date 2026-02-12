@@ -154,7 +154,7 @@ export interface BattleConfig {
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
-  maxEpochs: 8, // Default for 5 agents (computed dynamically via computePhaseConfig at battle start)
+  maxEpochs: 16, // Default for 5 agents (computed dynamically via computePhaseConfig at battle start)
   epochIntervalMs: 5 * 60 * 1000, // 5 minutes
   initialStatus: 'PENDING',
   countdownDurationMs: 30_000, // 30 seconds
@@ -679,10 +679,21 @@ export class ArenaManager {
     return alive.length <= 1;
   }
 
-  /** Get the winner if exactly one agent remains alive. Null if 0 or 2+ alive. */
+  /** Get the winner — last alive, or most kills if all REKT. Null if 2+ alive. */
   getWinner(): BaseAgent | null {
     const alive = this.getActiveAgents();
     if (alive.length === 1) return alive[0];
+    if (alive.length === 0) {
+      // All agents REKT — pick winner by most kills, random tiebreak
+      const allAgents = Array.from(this.agents.values());
+      const maxKills = Math.max(...allAgents.map(a => a.kills));
+      const candidates = allAgents.filter(a => a.kills === maxKills);
+      const winner = candidates[Math.floor(Math.random() * candidates.length)];
+      console.log(
+        `[ArenaManager] All agents REKT — winner by kills: ${winner.name} (${winner.kills} kills, ${candidates.length} tied)`
+      );
+      return winner;
+    }
     return null;
   }
 

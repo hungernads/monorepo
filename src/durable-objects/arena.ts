@@ -88,7 +88,7 @@ export interface BattleConfig {
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
-  maxEpochs: 8, // Default for 5 agents (overridden by computePhaseConfig at battle start)
+  maxEpochs: 16, // Default for 5 agents (overridden by computePhaseConfig at battle start)
   bettingWindowEpochs: DEFAULT_BETTING_LOCK_AFTER_EPOCH,
   assets: ['ETH', 'BTC', 'SOL', 'MON'],
   feeAmount: '0',
@@ -156,7 +156,7 @@ const COUNTDOWN_DURATION_MS = 60_000;
 const DEFAULT_EPOCH_INTERVAL_MS = 300_000;
 
 // Safety cap: absolute maximum epochs before a battle is force-completed.
-// In practice, battles use computePhaseConfig(agentCount).totalEpochs (8–14),
+// In practice, battles use computePhaseConfig(agentCount).totalEpochs (16–28),
 // but this cap guards against runaway battles if phaseConfig is missing.
 const MAX_EPOCHS_SAFETY_CAP = 50;
 
@@ -600,7 +600,20 @@ export class ArenaDO implements DurableObject {
         .filter((a) => a.isAlive)
         .sort((a, b) => b.hp - a.hp);
 
-      const timeoutWinner = aliveAgents[0] ?? null;
+      let timeoutWinner = aliveAgents[0] ?? null;
+
+      // Defensive: if somehow all agents are dead at timeout, pick by kills
+      if (!timeoutWinner) {
+        const allAgents = Object.values(battleState.agents);
+        const maxKills = Math.max(...allAgents.map((a) => a.kills));
+        const killCandidates = allAgents.filter((a) => a.kills === maxKills);
+        timeoutWinner =
+          killCandidates[Math.floor(Math.random() * killCandidates.length)];
+        console.log(
+          `[ArenaDO] Timeout with 0 alive — fallback winner by kills: ${timeoutWinner.name} (${timeoutWinner.kills} kills, ${killCandidates.length} tied)`,
+        );
+      }
+
       const winnerId = timeoutWinner?.id ?? null;
 
       // Update battle state for persistence

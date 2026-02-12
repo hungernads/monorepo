@@ -8,10 +8,10 @@
  *   FINAL_STAND -> Only center tiles safe. Kill or die.
  *
  * Phase boundaries scale with player count:
- *   5 agents: 2+2+2+2 =  8 epochs
- *   6 agents: 2+3+3+2 = 10 epochs
- *   7 agents: 2+3+3+4 = 12 epochs
- *   8 agents: 3+3+4+4 = 14 epochs
+ *   5 agents: 4+4+4+4 = 16 epochs
+ *   6 agents: 4+6+6+4 = 20 epochs
+ *   7 agents: 4+6+6+8 = 24 epochs
+ *   8 agents: 6+6+8+8 = 28 epochs
  *
  * All functions are pure with no side effects.
  */
@@ -79,30 +79,30 @@ const COMBAT_ENABLED: Record<BattlePhase, boolean> = {
 /**
  * Compute the phase configuration for a battle based on player count.
  *
- * The base is 2 epochs per phase (8 total for 5 agents). Each additional
- * agent beyond 5 adds 2 extra epochs distributed across phases to create
+ * The base is 4 epochs per phase (16 total for 5 agents). Each additional
+ * agent beyond 5 adds extra epochs distributed across phases to create
  * longer hunt and blood phases for more combat opportunities.
  *
- * Corrected epoch distribution (task-specified):
- *   5 agents (extra=0): LOOT=2, HUNT=2, BLOOD=2, FINAL=2  ->  8 total
- *   6 agents (extra=1): LOOT=2, HUNT=3, BLOOD=3, FINAL=2  -> 10 total
- *   7 agents (extra=2): LOOT=2, HUNT=3, BLOOD=3, FINAL=4  -> 12 total
- *   8 agents (extra=3): LOOT=3, HUNT=3, BLOOD=4, FINAL=4  -> 14 total
+ * Doubled epoch distribution:
+ *   5 agents (extra=0): LOOT=4, HUNT=4, BLOOD=4, FINAL=4  -> 16 total
+ *   6 agents (extra=1): LOOT=4, HUNT=6, BLOOD=6, FINAL=4  -> 20 total
+ *   7 agents (extra=2): LOOT=4, HUNT=6, BLOOD=6, FINAL=8  -> 24 total
+ *   8 agents (extra=3): LOOT=6, HUNT=6, BLOOD=8, FINAL=8  -> 28 total
  *
  * @param playerCount Number of agents in the battle (5-8, clamped)
  */
 export function computePhaseConfig(playerCount: number): PhaseConfig {
   const clamped = Math.max(5, Math.min(8, playerCount));
   const extra = clamped - 5; // 0, 1, 2, or 3
-  const base = 2;
+  const base = 4;
 
-  // Distribute extra epochs across phases using the corrected breakdown.
+  // Distribute extra epochs across phases using doubled breakdown.
   // Pattern: extra epochs favor HUNT and BLOOD first, then FINAL, then LOOT.
   const epochsPerPhase: Record<BattlePhase, number> = {
-    LOOT:        base + (extra >= 3 ? 1 : 0),
-    HUNT:        base + (extra >= 1 ? 1 : 0),
-    BLOOD:       base + (extra >= 1 ? 1 : 0) + (extra >= 3 ? 1 : 0),
-    FINAL_STAND: base + (extra >= 2 ? 2 : 0),
+    LOOT:        base + (extra >= 3 ? 2 : 0),
+    HUNT:        base + (extra >= 1 ? 2 : 0),
+    BLOOD:       base + (extra >= 1 ? 2 : 0) + (extra >= 3 ? 2 : 0),
+    FINAL_STAND: base + (extra >= 2 ? 4 : 0),
   };
 
   const totalEpochs = Object.values(epochsPerPhase).reduce((sum, n) => sum + n, 0);
