@@ -637,7 +637,7 @@ app.post('/battle/:id/join', async (c) => {
       const expectedFeeWei = parseEther(battle.fee_amount ?? '0');
       let feePaid = false;
       for (let attempt = 0; attempt < 3; attempt++) {
-        feePaid = await chainClient.checkFeePaid(
+        feePaid = await chainClient.verifyFeeTransaction(
           txHash as `0x${string}`,
           expectedFeeWei,
           walletAddress as `0x${string}` | undefined,

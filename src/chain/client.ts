@@ -439,7 +439,7 @@ export class HungernadsChainClient {
    * @param expectedFeeWei  - Minimum expected value in wei
    * @param expectedSender  - Optional: wallet address that should have sent the tx
    */
-  async checkFeePaid(
+  async verifyFeeTransaction(
     txHash: Hash,
     expectedFeeWei: bigint,
     expectedSender?: Address,
@@ -450,33 +450,29 @@ export class HungernadsChainClient {
         this.publicClient.getTransaction({ hash: txHash }),
       ]);
 
-      // Transaction must have succeeded
       if (receipt.status !== 'success') {
-        console.warn(`[chain] checkFeePaid: tx ${txHash} status=${receipt.status}`);
+        console.warn(`[chain] verifyFeeTransaction: tx ${txHash} status=${receipt.status}`);
         return false;
       }
 
-      // Transaction value must cover the fee
       if (tx.value < expectedFeeWei) {
         console.warn(
-          `[chain] checkFeePaid: tx ${txHash} value ${tx.value} < expected ${expectedFeeWei}`,
+          `[chain] verifyFeeTransaction: tx ${txHash} value ${tx.value} < expected ${expectedFeeWei}`,
         );
         return false;
       }
 
-      // If a sender is specified, it must match
       if (expectedSender && tx.from.toLowerCase() !== expectedSender.toLowerCase()) {
         console.warn(
-          `[chain] checkFeePaid: tx ${txHash} from ${tx.from} !== expected ${expectedSender}`,
+          `[chain] verifyFeeTransaction: tx ${txHash} from ${tx.from} !== expected ${expectedSender}`,
         );
         return false;
       }
 
       return true;
     } catch (error: unknown) {
-      // Receipt not found = tx not yet mined; caller should retry
       const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[chain] checkFeePaid: ${txHash} not yet confirmed: ${msg}`);
+      console.warn(`[chain] verifyFeeTransaction: ${txHash} not yet confirmed: ${msg}`);
       return false;
     }
   }
