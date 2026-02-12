@@ -753,10 +753,12 @@ function BattleTopBar({
 
 function CollapsiblePanel({
   title,
+  badge,
   defaultOpen = true,
   children,
 }: {
   title: string;
+  badge?: React.ReactNode;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
@@ -775,7 +777,10 @@ function CollapsiblePanel({
         className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest transition-colors hover:text-gold sm:px-4 sm:text-xs"
         style={{ color: "#a89870" }}
       >
-        <span>{title}</span>
+        <span className="flex items-center gap-2">
+          {title}
+          {badge && <span className="text-[10px] font-normal text-gray-500">{badge}</span>}
+        </span>
         <span
           className="text-xs transition-transform duration-200"
           style={{
@@ -1362,7 +1367,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
           {/* Betting panel */}
           <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
-            <CollapsiblePanel title="Bet Slip" defaultOpen={false}>
+            <CollapsiblePanel title="Bets" defaultOpen={false}>
               <div className="p-3">
                 <BettingPanel agents={agents} battleId={battleId} winner={winner} />
               </div>

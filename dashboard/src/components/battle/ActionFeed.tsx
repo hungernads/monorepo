@@ -46,18 +46,6 @@ export default function ActionFeed({ entries }: ActionFeedProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-          Battle Log
-        </h2>
-        <div className="flex items-center gap-1">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blood" />
-          <span className="text-[10px] uppercase tracking-wider text-gray-600">
-            Live
-          </span>
-        </div>
-      </div>
-
       <div
         ref={scrollRef}
         className="max-h-64 space-y-1 overflow-y-auto pr-1 scrollbar-thin"

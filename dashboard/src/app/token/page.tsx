@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   Flame,
   Droplets,
@@ -164,7 +165,13 @@ function TokenHero({
 
       {/* Token badge */}
       <div className="relative mb-4 flex h-20 w-20 items-center justify-center rounded-full border-2 border-gold/40 bg-colosseum-surface shadow-[0_0_30px_rgba(245,158,11,0.2)]">
-        <span className="font-cinzel text-2xl font-black text-gold">$H</span>
+        <Image
+          src="/logo.png"
+          alt="$HNADS"
+          width={48}
+          height={48}
+          className="drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]"
+        />
       </div>
 
       <h1 className="font-cinzel relative mb-1 text-3xl font-black uppercase tracking-widest text-gold drop-shadow-[0_0_30px_rgba(245,158,11,0.5)] sm:text-4xl">

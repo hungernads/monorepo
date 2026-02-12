@@ -21,7 +21,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import {
   Swords,
   Coins,
-  Users,
+  BookOpen,
   TrendingUp,
   Bell,
   LogOut,
@@ -59,10 +59,10 @@ const navTabs: NavTab[] = [
     matchPrefixes: ['/bets'],
   },
   {
-    label: 'AGENTS',
-    href: '/agents',
-    icon: Users,
-    matchPrefixes: ['/agents', '/agent', '/leaderboard'],
+    label: 'GUIDE',
+    href: '/guide',
+    icon: BookOpen,
+    matchPrefixes: ['/guide'],
   },
   {
     label: 'TOKEN',

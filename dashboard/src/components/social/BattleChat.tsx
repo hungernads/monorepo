@@ -115,17 +115,6 @@ export default function BattleChat({
 
   return (
     <div className="flex max-h-[420px] flex-col">
-      {/* Header */}
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-          Spectator Chat{" "}
-          <span className="text-[10px] font-normal text-gray-600">(Local)</span>
-        </h2>
-        <span className="text-[10px] uppercase tracking-wider text-gray-600">
-          {messages.length} msgs
-        </span>
-      </div>
-
       {/* Messages */}
       <div
         ref={scrollRef}

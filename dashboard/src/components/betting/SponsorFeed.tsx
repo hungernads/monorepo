@@ -263,19 +263,6 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
 
   return (
     <div>
-      {/* Header with burn counter */}
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-          Sponsor Feed
-        </h2>
-        {totalBurned > 0 && (
-          <span className="text-[10px] text-gray-600">
-            <span className="text-gold font-bold">{totalBurned}</span> $HNADS
-            burned
-          </span>
-        )}
-      </div>
-
       {entries.length === 0 ? (
         <p className="text-xs text-gray-600">
           No sponsorships yet. Be the first to send a parachute drop!

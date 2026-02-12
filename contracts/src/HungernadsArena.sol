@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title HungernadsArena
 /// @notice On-chain battle registry, result recorder, and entry fee escrow for the HUNGERNADS colosseum.
@@ -78,8 +79,29 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice battleId => total fees collected for that battle.
     mapping(bytes32 => uint256) public feesCollected;
 
+    /// @notice $HNADS token contract address.
+    IERC20 public hnadsToken;
+
+    /// @notice Dead address for burning $HNADS (0xdEaD).
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
+    /// @notice Treasury address for receiving $HNADS treasury share.
+    address public treasury;
+
+    /// @notice battleId => player => whether they paid the $HNADS fee.
+    mapping(bytes32 => mapping(address => bool)) public hnadsFeePaid;
+
+    /// @notice battleId => total $HNADS fees collected.
+    mapping(bytes32 => uint256) public hnadsFeesCollected;
+
+    /// @notice battleId => total $HNADS burned (50% of collected).
+    mapping(bytes32 => uint256) public hnadsBurned;
+
+    /// @notice battleId => total $HNADS sent to treasury (50% of collected).
+    mapping(bytes32 => uint256) public hnadsTreasury;
+
     /// @dev Storage gap for future upgrades.
-    uint256[50] private __gap;
+    uint256[44] private __gap;
 
     // -----------------------------------------------------------------------
     // Events
@@ -93,6 +115,11 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event BattleCompleted(bytes32 indexed battleId, uint256 indexed winnerId);
     event EntryFeePaid(bytes32 indexed battleId, address indexed player, uint256 amount);
     event FeesWithdrawn(bytes32 indexed battleId, address indexed to, uint256 amount);
+    event HnadsFeeDeposited(bytes32 indexed battleId, address indexed player, uint256 amount);
+    event HnadsBurned(bytes32 indexed battleId, uint256 amount);
+    event HnadsTreasuryTransferred(bytes32 indexed battleId, uint256 amount);
+    event HnadsTokenUpdated(address indexed previousToken, address indexed newToken);
+    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
 
     // -----------------------------------------------------------------------
     // Errors
@@ -110,6 +137,9 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     error NoFeesToWithdraw();
     error BattleNotCompleted();
     error NoFeeRequired();
+    error HnadsTransferFailed();
+    error InsufficientHnadsBalance();
+    error HnadsTokenNotSet();
 
     // -----------------------------------------------------------------------
     // Modifiers
@@ -156,6 +186,24 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         address previous = oracle;
         oracle = _oracle;
         emit OracleUpdated(previous, _oracle);
+    }
+
+    /// @notice Set the $HNADS token contract address. Only callable by owner.
+    /// @param _hnadsToken Address of the $HNADS ERC20 token.
+    function setHnadsToken(address _hnadsToken) external onlyOwner {
+        if (_hnadsToken == address(0)) revert ZeroAddress();
+        address previous = address(hnadsToken);
+        hnadsToken = IERC20(_hnadsToken);
+        emit HnadsTokenUpdated(previous, _hnadsToken);
+    }
+
+    /// @notice Set the treasury address for $HNADS treasury share. Only callable by owner.
+    /// @param _treasury Treasury address.
+    function setTreasury(address _treasury) external onlyOwner {
+        if (_treasury == address(0)) revert ZeroAddress();
+        address previous = treasury;
+        treasury = _treasury;
+        emit TreasuryUpdated(previous, _treasury);
     }
 
     // -----------------------------------------------------------------------
@@ -284,6 +332,105 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         if (!success) revert ZeroAddress(); // reuse error for transfer fail
 
         emit FeesWithdrawn(_battleId, owner(), amount);
+    }
+
+    // -----------------------------------------------------------------------
+    // $HNADS Entry Fee System
+    // -----------------------------------------------------------------------
+
+    /// @notice Deposit $HNADS entry fee for a battle.
+    ///         Players must approve this contract to spend $HNADS first.
+    ///         Transfers $HNADS from player to this contract.
+    /// @param _battleId The battle to deposit $HNADS fee for.
+    /// @param _amount Amount of $HNADS to deposit (must match tier requirement).
+    function depositHnadsFee(bytes32 _battleId, uint256 _amount) external {
+        Battle storage b = battles[_battleId];
+        if (b.state == BattleState.None) revert BattleNotFound(_battleId);
+        if (address(hnadsToken) == address(0)) revert HnadsTokenNotSet();
+        if (_amount == 0) revert IncorrectFeeAmount();
+        if (hnadsFeePaid[_battleId][msg.sender]) revert AlreadyPaid();
+
+        // Transfer $HNADS from player to this contract
+        bool success = hnadsToken.transferFrom(msg.sender, address(this), _amount);
+        if (!success) revert HnadsTransferFailed();
+
+        hnadsFeePaid[_battleId][msg.sender] = true;
+        hnadsFeesCollected[_battleId] += _amount;
+
+        emit HnadsFeeDeposited(_battleId, msg.sender, _amount);
+    }
+
+    /// @notice Burn 50% of collected $HNADS fees for a battle.
+    ///         Only callable by oracle after battle completes.
+    /// @param _battleId The battle to burn $HNADS for.
+    function burnHnads(bytes32 _battleId) external onlyOracle {
+        Battle storage b = battles[_battleId];
+        if (b.state != BattleState.Completed) revert BattleNotCompleted();
+
+        uint256 totalCollected = hnadsFeesCollected[_battleId];
+        if (totalCollected == 0) return; // No fees to burn
+
+        uint256 burnAmount = totalCollected / 2;
+        if (burnAmount == 0) return;
+
+        // Transfer to burn address (0xdEaD)
+        bool success = hnadsToken.transfer(BURN_ADDRESS, burnAmount);
+        if (!success) revert HnadsTransferFailed();
+
+        hnadsBurned[_battleId] += burnAmount;
+
+        emit HnadsBurned(_battleId, burnAmount);
+    }
+
+    /// @notice Transfer 50% of collected $HNADS fees to treasury.
+    ///         Only callable by oracle after battle completes.
+    /// @param _battleId The battle to transfer treasury share for.
+    function transferHnadsToTreasury(bytes32 _battleId) external onlyOracle {
+        Battle storage b = battles[_battleId];
+        if (b.state != BattleState.Completed) revert BattleNotCompleted();
+        if (treasury == address(0)) revert ZeroAddress();
+
+        uint256 totalCollected = hnadsFeesCollected[_battleId];
+        if (totalCollected == 0) return; // No fees to transfer
+
+        uint256 treasuryAmount = totalCollected / 2;
+        if (treasuryAmount == 0) return;
+
+        // Transfer to treasury
+        bool success = hnadsToken.transfer(treasury, treasuryAmount);
+        if (!success) revert HnadsTransferFailed();
+
+        hnadsTreasury[_battleId] += treasuryAmount;
+
+        emit HnadsTreasuryTransferred(_battleId, treasuryAmount);
+    }
+
+    /// @notice Award $HNADS kill bonus to an agent/player.
+    ///         Only callable by oracle. Transfers from treasury.
+    /// @param _recipient Address to receive the bonus.
+    /// @param _amount Bonus amount.
+    function awardKillBonus(address _recipient, uint256 _amount) external onlyOracle {
+        if (address(hnadsToken) == address(0)) revert HnadsTokenNotSet();
+        if (_recipient == address(0)) revert ZeroAddress();
+        if (_amount == 0) return;
+
+        // Transfer from treasury (contract must hold the funds)
+        bool success = hnadsToken.transfer(_recipient, _amount);
+        if (!success) revert HnadsTransferFailed();
+    }
+
+    /// @notice Award $HNADS survival bonus to an agent/player.
+    ///         Only callable by oracle. Transfers from treasury.
+    /// @param _recipient Address to receive the bonus.
+    /// @param _amount Bonus amount.
+    function awardSurvivalBonus(address _recipient, uint256 _amount) external onlyOracle {
+        if (address(hnadsToken) == address(0)) revert HnadsTokenNotSet();
+        if (_recipient == address(0)) revert ZeroAddress();
+        if (_amount == 0) return;
+
+        // Transfer from treasury (contract must hold the funds)
+        bool success = hnadsToken.transfer(_recipient, _amount);
+        if (!success) revert HnadsTransferFailed();
     }
 
     // -----------------------------------------------------------------------
