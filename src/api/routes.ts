@@ -33,6 +33,7 @@ import {
   getTopStreakers,
   getStreakPool,
   getOpenLobbies,
+  getBattleEvents,
   type BattleRow,
   type FaucetClaimRow,
 } from '../db/schema';
@@ -101,6 +102,7 @@ app.get('/', (c) => {
       battleStart: 'POST /battle/start (legacy)',
       battleState: 'GET /battle/:id',
       battleEpochs: 'GET /battle/:id/epochs',
+      battleEvents: 'GET /battle/:id/events',
       battles: 'GET /battles',
       agents: 'GET /agents',
       agentProfile: 'GET /agent/:id',
@@ -788,6 +790,50 @@ app.get('/battle/:id/epochs', async (c) => {
     console.error('Failed to get epochs:', error);
     return c.json(
       { error: 'Failed to get epochs', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * GET /battle/:id/events
+ *
+ * Fetch persisted battle events for replay / catch-up.
+ * Optional query params:
+ *   - fromEpoch: number — only return events from this epoch onward
+ * Returns: { events: Array<{ epoch, eventType, eventJson, createdAt }> }
+ */
+app.get('/battle/:id/events', async (c) => {
+  try {
+    const battleId = c.req.param('id');
+
+    // Verify battle exists
+    const battle = await getBattle(c.env.DB, battleId);
+    if (!battle) {
+      return c.json({ error: 'Battle not found' }, 404);
+    }
+
+    const fromEpochParam = c.req.query('fromEpoch');
+    const fromEpoch = fromEpochParam !== undefined ? parseInt(fromEpochParam, 10) : undefined;
+
+    if (fromEpoch !== undefined && isNaN(fromEpoch)) {
+      return c.json({ error: 'Invalid fromEpoch parameter — must be a number' }, 400);
+    }
+
+    const rows = await getBattleEvents(c.env.DB, battleId, fromEpoch);
+
+    const events = rows.map((row) => ({
+      epoch: row.epoch,
+      eventType: row.event_type,
+      eventJson: row.event_json,
+      createdAt: row.created_at,
+    }));
+
+    return c.json({ events });
+  } catch (error) {
+    console.error('Failed to get battle events:', error);
+    return c.json(
+      { error: 'Failed to get battle events', detail: String(error) },
       500,
     );
   }

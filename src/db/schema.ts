@@ -174,6 +174,15 @@ export interface SeasonAgentLeaderboardRow {
   win_rate: number;
 }
 
+export interface BattleEventRow {
+  id: number;
+  battle_id: string;
+  epoch: number;
+  event_type: string;
+  event_json: string;
+  created_at: string;
+}
+
 // ─── Agent Queries ───────────────────────────────────────────────
 
 export async function insertAgent(
@@ -1849,4 +1858,58 @@ export async function getSeasonBettingStats(
     totalPayout: row?.total_payout ?? 0,
     uniqueBettors: row?.unique_bettors ?? 0,
   };
+}
+
+// ─── Battle Event Queries ──────────────────────────────────────
+
+/**
+ * Batch-insert battle events for a given epoch.
+ * Each event is stored as a JSON string with its type for efficient replay.
+ * Uses D1 batch API for atomicity and performance.
+ */
+export async function insertBattleEvents(
+  db: D1Database,
+  battleId: string,
+  epoch: number,
+  events: Array<{ type: string; data: unknown }>,
+): Promise<void> {
+  if (events.length === 0) return;
+
+  const stmts = events.map((event) =>
+    db
+      .prepare(
+        'INSERT INTO battle_events (battle_id, epoch, event_type, event_json) VALUES (?, ?, ?, ?)',
+      )
+      .bind(battleId, epoch, event.type, JSON.stringify(event.data)),
+  );
+
+  await db.batch(stmts);
+}
+
+/**
+ * Fetch persisted battle events, optionally starting from a specific epoch.
+ * Returns events ordered by epoch ASC, id ASC for deterministic replay.
+ */
+export async function getBattleEvents(
+  db: D1Database,
+  battleId: string,
+  fromEpoch?: number,
+): Promise<BattleEventRow[]> {
+  if (fromEpoch !== undefined) {
+    const result = await db
+      .prepare(
+        'SELECT * FROM battle_events WHERE battle_id = ? AND epoch >= ? ORDER BY epoch ASC, id ASC',
+      )
+      .bind(battleId, fromEpoch)
+      .all<BattleEventRow>();
+    return result.results;
+  }
+
+  const result = await db
+    .prepare(
+      'SELECT * FROM battle_events WHERE battle_id = ? ORDER BY epoch ASC, id ASC',
+    )
+    .bind(battleId)
+    .all<BattleEventRow>();
+  return result.results;
 }
