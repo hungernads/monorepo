@@ -257,6 +257,114 @@ export class HungernadsChainClient {
     }, `recordResult(${battleId})`);
   }
 
+  // ─── Arena HNADS Write Functions ────────────────────────────────
+
+  /**
+   * Burn 50% of collected $HNADS fees for a completed battle.
+   * Calls HungernadsArena.burnHnads(bytes32).
+   * Oracle-only. No-ops on-chain if no HNADS fees were collected.
+   */
+  async burnHnads(battleId: string): Promise<Hash> {
+    const battleBytes = battleIdToBytes32(battleId);
+
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'burnHnads',
+        args: [battleBytes],
+      });
+
+      console.log(`[chain] burnHnads tx: ${hash}`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `burnHnads(${battleId})`);
+  }
+
+  /**
+   * Transfer 50% of collected $HNADS fees to treasury for a completed battle.
+   * Calls HungernadsArena.transferHnadsToTreasury(bytes32).
+   * Oracle-only. No-ops on-chain if no HNADS fees were collected.
+   */
+  async transferHnadsToTreasury(battleId: string): Promise<Hash> {
+    const battleBytes = battleIdToBytes32(battleId);
+
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'transferHnadsToTreasury',
+        args: [battleBytes],
+      });
+
+      console.log(`[chain] transferHnadsToTreasury tx: ${hash}`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `transferHnadsToTreasury(${battleId})`);
+  }
+
+  /**
+   * Withdraw collected MON entry fees for a completed battle.
+   * Calls HungernadsArena.withdrawFees(bytes32).
+   * Owner-only. Sends all collected MON to the contract owner.
+   */
+  async withdrawFees(battleId: string): Promise<Hash> {
+    const battleBytes = battleIdToBytes32(battleId);
+
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'withdrawFees',
+        args: [battleBytes],
+      });
+
+      console.log(`[chain] withdrawFees tx: ${hash}`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `withdrawFees(${battleId})`);
+  }
+
+  /**
+   * Award $HNADS kill bonus to a player/agent wallet.
+   * Calls HungernadsArena.awardKillBonus(address, uint256).
+   * Oracle-only. Transfers HNADS from contract balance to recipient.
+   */
+  async awardKillBonus(recipient: Address, amount: bigint): Promise<Hash> {
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'awardKillBonus',
+        args: [recipient, amount],
+      });
+
+      console.log(`[chain] awardKillBonus tx: ${hash} (${recipient}, ${amount})`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `awardKillBonus(${recipient})`);
+  }
+
+  /**
+   * Award $HNADS survival bonus to a player/agent wallet.
+   * Calls HungernadsArena.awardSurvivalBonus(address, uint256).
+   * Oracle-only. Transfers HNADS from contract balance to recipient.
+   */
+  async awardSurvivalBonus(recipient: Address, amount: bigint): Promise<Hash> {
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'awardSurvivalBonus',
+        args: [recipient, amount],
+      });
+
+      console.log(`[chain] awardSurvivalBonus tx: ${hash} (${recipient}, ${amount})`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `awardSurvivalBonus(${recipient})`);
+  }
+
   // ─── Betting Write Functions ────────────────────────────────────
 
   /**
@@ -426,7 +534,7 @@ export class HungernadsChainClient {
   // ─── Fee Verification ──────────────────────────────────────────
 
   /**
-   * Verify that a fee payment transaction was successful on-chain.
+   * Verify that a MON fee payment transaction was successful on-chain.
    * Fetches the transaction receipt and the transaction itself to confirm:
    *   1. The transaction has been mined and succeeded (status === 'success')
    *   2. The transaction value >= expectedFeeWei
@@ -473,6 +581,62 @@ export class HungernadsChainClient {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[chain] verifyFeeTransaction: ${txHash} not yet confirmed: ${msg}`);
+      return false;
+    }
+  }
+
+  /**
+   * Verify that a $HNADS fee payment was successfully deposited on-chain.
+   *
+   * Unlike MON fee verification (which checks native value), HNADS fees are
+   * deposited via `depositHnadsFee()` on the Arena contract (ERC20 transferFrom).
+   * This method verifies:
+   *   1. The transaction receipt exists and status === 'success'
+   *   2. The on-chain `hnadsFeePaid(battleId, player)` mapping is set to true
+   *
+   * The mapping check is the source of truth since it's only set after a
+   * successful transferFrom inside depositHnadsFee().
+   *
+   * @param txHash         - The depositHnadsFee transaction hash
+   * @param battleId       - Human-readable battle ID (hashed to bytes32)
+   * @param walletAddress  - The player's wallet address
+   */
+  async verifyHnadsFeeTransaction(
+    txHash: Hash,
+    battleId: string,
+    walletAddress: Address,
+  ): Promise<boolean> {
+    try {
+      // 1. Verify the transaction was mined and succeeded
+      const receipt = await this.publicClient.getTransactionReceipt({ hash: txHash });
+
+      if (receipt.status !== 'success') {
+        console.warn(
+          `[chain] verifyHnadsFeeTransaction: tx ${txHash} status=${receipt.status}`,
+        );
+        return false;
+      }
+
+      // 2. Check the on-chain mapping to confirm the fee was recorded
+      const battleBytes = battleIdToBytes32(battleId);
+      const isPaid = (await this.publicClient.readContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'hnadsFeePaid',
+        args: [battleBytes, walletAddress],
+      })) as boolean;
+
+      if (!isPaid) {
+        console.warn(
+          `[chain] verifyHnadsFeeTransaction: hnadsFeePaid mapping not set for battle ${battleId}, player ${walletAddress}`,
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[chain] verifyHnadsFeeTransaction: ${txHash} not yet confirmed: ${msg}`);
       return false;
     }
   }

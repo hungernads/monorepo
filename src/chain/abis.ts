@@ -286,6 +286,119 @@ export const hungernadsArenaAbi = [
     inputs: [{ name: 'battleId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+
+  // --- $HNADS Fee Functions ---
+  {
+    type: 'event',
+    name: 'HnadsFeeDeposited',
+    inputs: [
+      { name: 'battleId', type: 'bytes32', indexed: true },
+      { name: 'player', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'HnadsBurned',
+    inputs: [
+      { name: 'battleId', type: 'bytes32', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'HnadsTreasuryTransferred',
+    inputs: [
+      { name: 'battleId', type: 'bytes32', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'hnadsFeePaid',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'battleId', type: 'bytes32' },
+      { name: 'player', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'hnadsFeesCollected',
+    stateMutability: 'view',
+    inputs: [{ name: 'battleId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'error',
+    name: 'HnadsTransferFailed',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'HnadsTokenNotSet',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'InsufficientHnadsBalance',
+    inputs: [],
+  },
+
+  // --- $HNADS Write Functions (oracle-only) ---
+  {
+    type: 'function',
+    name: 'burnHnads',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: '_battleId', type: 'bytes32' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'transferHnadsToTreasury',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: '_battleId', type: 'bytes32' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'awardKillBonus',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_recipient', type: 'address' },
+      { name: '_amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'awardSurvivalBonus',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_recipient', type: 'address' },
+      { name: '_amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+
+  // --- $HNADS Admin Events ---
+  {
+    type: 'event',
+    name: 'HnadsTokenUpdated',
+    inputs: [
+      { name: 'previousToken', type: 'address', indexed: true },
+      { name: 'newToken', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'TreasuryUpdated',
+    inputs: [
+      { name: 'previousTreasury', type: 'address', indexed: true },
+      { name: 'newTreasury', type: 'address', indexed: true },
+    ],
+  },
 ] as const;
 
 // ─── HungernadsBetting ABI ───────────────────────────────────────────
