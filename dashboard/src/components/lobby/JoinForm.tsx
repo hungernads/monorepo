@@ -7,7 +7,7 @@ import { parseEther } from "viem";
 import type { AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
-import { ARENA_ADDRESS, monadTestnet } from "@/lib/wallet";
+import { ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadTestnet } from "@/lib/wallet";
 import { battleIdToBytes32 } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +18,8 @@ interface JoinFormProps {
   battleId: string;
   onJoined: (agentId: string) => void;
   disabled?: boolean; // true when lobby is full or user already joined
-  feeAmount?: string; // entry fee in MON (e.g. "0.1"), '0' or undefined = free
+  feeAmount?: string; // MON entry fee (e.g. "10"), '0' or undefined = free
+  hnadsFeeAmount?: string; // $HNADS entry fee (e.g. "100"), '0' or undefined = none
 }
 
 /** Short class descriptions shown under each class button */
@@ -42,6 +43,69 @@ const NAME_REGEX = /^[a-zA-Z0-9_]{1,12}$/;
 const MAX_NAME_LENGTH = 12;
 
 // ---------------------------------------------------------------------------
+// ABIs (minimal, only functions used by this component)
+// ---------------------------------------------------------------------------
+
+/** Arena contract ABI: payEntryFee + depositHnadsFee */
+const arenaFeeAbi = [
+  {
+    type: 'function' as const,
+    name: 'payEntryFee' as const,
+    stateMutability: 'payable' as const,
+    inputs: [{ name: '_battleId', type: 'bytes32' as const }],
+    outputs: [],
+  },
+  {
+    type: 'function' as const,
+    name: 'depositHnadsFee' as const,
+    stateMutability: 'nonpayable' as const,
+    inputs: [
+      { name: '_battleId', type: 'bytes32' as const },
+      { name: '_amount', type: 'uint256' as const },
+    ],
+    outputs: [],
+  },
+] as const;
+
+/** ERC20 approve ABI */
+const erc20ApproveAbi = [
+  {
+    type: 'function' as const,
+    name: 'approve' as const,
+    stateMutability: 'nonpayable' as const,
+    inputs: [
+      { name: 'spender', type: 'address' as const },
+      { name: 'amount', type: 'uint256' as const },
+    ],
+    outputs: [{ name: '', type: 'bool' as const }],
+  },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function CheckIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function formatTxError(txError: Error | null): string {
+  if (!txError) return "";
+  const msg = txError.message;
+  if (msg.includes("User rejected") || msg.includes("user rejected")) {
+    return "Transaction rejected";
+  }
+  if (msg.includes("insufficient") || msg.includes("exceeds balance")) {
+    return "Insufficient balance";
+  }
+  return "Transaction failed. Try again.";
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -50,6 +114,7 @@ export default function JoinForm({
   onJoined,
   disabled = false,
   feeAmount = '0',
+  hnadsFeeAmount = '0',
 }: JoinFormProps) {
   const [selectedClass, setSelectedClass] = useState<AgentClass | null>(null);
   const [agentName, setAgentName] = useState("");
@@ -58,48 +123,81 @@ export default function JoinForm({
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
 
-  const hasFee = parseFloat(feeAmount) > 0;
+  const hasMonFee = parseFloat(feeAmount) > 0;
+  const hasHnadsFee = parseFloat(hnadsFeeAmount) > 0;
+  const hasAnyFee = hasMonFee || hasHnadsFee;
 
-  // ---- Wallet + on-chain fee payment via Arena contract ----
+  // ---- Wallet ----
   const { address: walletAddress, isConnected, chain } = useAccount();
   const wrongChain = isConnected && chain?.id !== monadTestnet.id;
 
-  // Arena ABI for payEntryFee
-  const arenaFeeAbi = [
-    {
-      type: 'function' as const,
-      name: 'payEntryFee' as const,
-      stateMutability: 'payable' as const,
-      inputs: [{ name: '_battleId', type: 'bytes32' as const }],
-      outputs: [],
-    },
-  ] as const;
-
+  // ---- Step 1: MON fee payment (payEntryFee) ----
   const {
-    writeContract,
-    data: paymentHash,
-    isPending: isSendingTx,
-    error: txError,
-    reset: resetTx,
+    writeContract: writeMonTx,
+    data: monPaymentHash,
+    isPending: isMonSending,
+    error: monTxError,
+    reset: resetMonTx,
   } = useWriteContract();
   const {
-    isFetching: isConfirmingTx,
-    isSuccess: txConfirmed,
+    isFetching: isMonConfirming,
+    isSuccess: monTxConfirmed,
   } = useWaitForTransactionReceipt({
-    hash: paymentHash,
+    hash: monPaymentHash,
     chainId: monadTestnet.id,
   });
 
-  // Fee is "paid" once we have the tx hash — backend validates the actual receipt.
-  // We don't block on useWaitForTransactionReceipt because Monad RPC can be slow.
-  const feePaid = !hasFee || !!paymentHash;
+  // ---- Step 2: $HNADS approve ----
+  const {
+    writeContract: writeApproveTx,
+    data: approveHash,
+    isPending: isApproveSending,
+    error: approveTxError,
+    reset: resetApproveTx,
+  } = useWriteContract();
+  const {
+    isSuccess: approveConfirmed,
+    isFetching: isApproveConfirming,
+  } = useWaitForTransactionReceipt({
+    hash: approveHash,
+    chainId: monadTestnet.id,
+  });
+
+  // ---- Step 3: $HNADS deposit (depositHnadsFee) ----
+  const {
+    writeContract: writeDepositTx,
+    data: hnadsDepositHash,
+    isPending: isDepositSending,
+    error: depositTxError,
+    reset: resetDepositTx,
+  } = useWriteContract();
+  const {
+    isFetching: isDepositConfirming,
+    isSuccess: depositConfirmed,
+  } = useWaitForTransactionReceipt({
+    hash: hnadsDepositHash,
+    chainId: monadTestnet.id,
+  });
+
+  // ---- Derived fee state ----
+  const monFeePaid = !hasMonFee || !!monPaymentHash;
+  // Approve must confirm on-chain before deposit can proceed
+  const hnadsApproved = !hasHnadsFee || approveConfirmed;
+  // Deposit is "paid" once tx hash exists (backend verifies on-chain mapping)
+  const hnadsDepositDone = !hasHnadsFee || !!hnadsDepositHash;
+  const allFeesPaid = monFeePaid && hnadsDepositDone;
 
   // ---- Derived state ----
   const nameIsValid = agentName.length > 0 && NAME_REGEX.test(agentName);
   const nameHasInvalidChars =
     agentName.length > 0 && !NAME_REGEX.test(agentName);
   const canSubmit =
-    !disabled && !isPending && selectedClass !== null && nameIsValid && feePaid;
+    !disabled && !isPending && selectedClass !== null && nameIsValid && allFeesPaid;
+
+  // Step indicator: 1=MON, 2=Approve, 3=Deposit, 4=Done
+  const currentStep = !monFeePaid ? 1 : !hnadsApproved ? 2 : !hnadsDepositDone ? 3 : 4;
+  // Total number of payment steps (for display)
+  const totalSteps = (hasMonFee ? 1 : 0) + (hasHnadsFee ? 2 : 0);
 
   // ---- Handlers ----
   const handleNameChange = useCallback(
@@ -137,11 +235,14 @@ export default function JoinForm({
       if (imageUrl.trim()) {
         body.imageUrl = imageUrl.trim();
       }
-      if (hasFee && walletAddress) {
+      if (hasAnyFee && walletAddress) {
         body.walletAddress = walletAddress;
       }
-      if (hasFee && paymentHash) {
-        body.txHash = paymentHash;
+      if (hasMonFee && monPaymentHash) {
+        body.txHash = monPaymentHash;
+      }
+      if (hasHnadsFee && hnadsDepositHash) {
+        body.hnadsTxHash = hnadsDepositHash;
       }
 
       const res = await fetch(`${API_BASE}/battle/${battleId}/join`, {
@@ -155,9 +256,8 @@ export default function JoinForm({
         const serverError =
           (payload as Record<string, string>).error ?? `HTTP ${res.status}`;
 
-        // Map known error codes to user-friendly messages
         if (res.status === 402) {
-          throw new Error("Payment required: send the entry fee and provide your txHash");
+          throw new Error("Payment required: complete all fee payments first");
         }
         if (res.status === 409) {
           const lower = serverError.toLowerCase();
@@ -294,7 +394,6 @@ export default function JoinForm({
           {imageUrl.trim() && (
             <div className="flex-shrink-0">
               {imagePreviewFailed ? (
-                // Fallback to class portrait or placeholder
                 selectedClass ? (
                   <AgentPortrait
                     image={CLASS_CONFIG[selectedClass].image}
@@ -321,18 +420,28 @@ export default function JoinForm({
         </div>
       </div>
 
-      {/* ---- Entry Fee Section (only when fee > 0) ---- */}
-      {hasFee && (
-        <div className="space-y-3 rounded-lg border border-gold/30 bg-gold/5 p-4">
+      {/* ---- Entry Fee Section (dual-token flow) ---- */}
+      {hasAnyFee && (
+        <div className="space-y-4 rounded-lg border border-gold/30 bg-gold/5 p-4">
+          {/* Fee summary */}
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Entry Fee
+              Entry Fees
             </span>
-            <span className="text-sm font-bold text-gold">
-              {feeAmount} MON
-            </span>
+            <div className="flex items-center gap-2">
+              {hasMonFee && (
+                <span className="text-sm font-bold text-gold">{feeAmount} MON</span>
+              )}
+              {hasMonFee && hasHnadsFee && (
+                <span className="text-xs text-gray-500">+</span>
+              )}
+              {hasHnadsFee && (
+                <span className="text-sm font-bold text-gold">{hnadsFeeAmount} $HNADS</span>
+              )}
+            </div>
           </div>
 
+          {/* Wallet connection / chain gate */}
           {!isConnected ? (
             <ConnectButton.Custom>
               {({ openConnectModal }) => (
@@ -357,51 +466,234 @@ export default function JoinForm({
                 </button>
               )}
             </ConnectButton.Custom>
-          ) : paymentHash ? (
-            <div className="flex items-center gap-2 text-[11px] text-green-400">
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              <span>
-                {txConfirmed ? "Confirmed" : "Sent"} — TX: {paymentHash.slice(0, 10)}...{paymentHash.slice(-6)}
-              </span>
-            </div>
           ) : (
-            <>
-              <button
-                type="button"
-                disabled={disabled || isSendingTx || isConfirmingTx}
-                onClick={() => {
-                  setError("");
-                  resetTx();
-                  writeContract({
-                    address: ARENA_ADDRESS,
-                    abi: arenaFeeAbi,
-                    functionName: 'payEntryFee',
-                    args: [battleIdToBytes32(battleId)],
-                    value: parseEther(feeAmount),
-                  });
-                }}
-                className={`w-full rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
-                  isSendingTx || isConfirmingTx
-                    ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
-                    : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
-                } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
-              >
-                {isSendingTx
-                  ? "Confirm in Wallet..."
-                  : isConfirmingTx
-                    ? "Confirming TX..."
-                    : `Pay ${feeAmount} MON`}
-              </button>
-              {txError && (
-                <p className="text-[11px] text-blood-light">
-                  {txError.message.includes("User rejected")
-                    ? "Transaction rejected"
-                    : "Payment failed. Try again."}
-                </p>
+            <div className="space-y-3">
+              {/* Step progress indicator (only if multi-step) */}
+              {totalSteps > 1 && (
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  {hasMonFee && (
+                    <>
+                      <span className={currentStep >= 2 ? 'text-green-400' : currentStep === 1 ? 'text-gold' : 'text-gray-600'}>
+                        1. Pay MON
+                      </span>
+                      <span className="text-gray-700">&rarr;</span>
+                    </>
+                  )}
+                  {hasHnadsFee && (
+                    <>
+                      <span className={currentStep >= 3 ? 'text-green-400' : currentStep === 2 ? 'text-gold' : 'text-gray-600'}>
+                        {hasMonFee ? '2' : '1'}. Approve
+                      </span>
+                      <span className="text-gray-700">&rarr;</span>
+                      <span className={currentStep >= 4 ? 'text-green-400' : currentStep === 3 ? 'text-gold' : 'text-gray-600'}>
+                        {hasMonFee ? '3' : '2'}. Deposit
+                      </span>
+                    </>
+                  )}
+                </div>
               )}
-            </>
+
+              {/* ---- Step 1: MON Fee Payment ---- */}
+              {hasMonFee && (
+                <div className={`rounded-lg border p-3 ${
+                  monFeePaid
+                    ? 'border-green-500/30 bg-green-500/5'
+                    : 'border-gold/20 bg-colosseum-surface'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                      {totalSteps > 1 ? `Step ${hasMonFee ? '1' : ''}: ` : ''}MON Entry Fee
+                    </span>
+                    <span className="text-xs font-bold text-gold">{feeAmount} MON</span>
+                  </div>
+
+                  {monPaymentHash ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>
+                        {monTxConfirmed ? "Confirmed" : "Sent"} — TX: {monPaymentHash.slice(0, 10)}...{monPaymentHash.slice(-6)}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={disabled || isMonSending || isMonConfirming}
+                        onClick={() => {
+                          setError("");
+                          resetMonTx();
+                          writeMonTx({
+                            address: ARENA_ADDRESS,
+                            abi: arenaFeeAbi,
+                            functionName: 'payEntryFee',
+                            args: [battleIdToBytes32(battleId)],
+                            value: parseEther(feeAmount),
+                          });
+                        }}
+                        className={`mt-2 w-full rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                          isMonSending || isMonConfirming
+                            ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
+                            : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
+                        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
+                        {isMonSending
+                          ? "Confirm in Wallet..."
+                          : isMonConfirming
+                            ? "Confirming TX..."
+                            : `Pay ${feeAmount} MON`}
+                      </button>
+                      {monTxError && (
+                        <p className="mt-1 text-[11px] text-blood-light">
+                          {formatTxError(monTxError)}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ---- Step 2: $HNADS Approve ---- */}
+              {hasHnadsFee && (
+                <div className={`rounded-lg border p-3 transition-all ${
+                  hnadsApproved
+                    ? 'border-green-500/30 bg-green-500/5'
+                    : !monFeePaid
+                      ? 'border-colosseum-surface-light bg-colosseum-surface opacity-40'
+                      : 'border-gold/20 bg-colosseum-surface'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                      Step {hasMonFee ? '2' : '1'}: Approve $HNADS
+                    </span>
+                    <span className="text-xs font-bold text-gold">{hnadsFeeAmount} $HNADS</span>
+                  </div>
+
+                  {approveHash ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>
+                        {approveConfirmed ? "Approved" : "Approving..."} — TX: {approveHash.slice(0, 10)}...{approveHash.slice(-6)}
+                      </span>
+                    </div>
+                  ) : monFeePaid ? (
+                    <>
+                      <p className="mt-1 text-[10px] text-gray-500">
+                        Allow the Arena contract to transfer your $HNADS tokens
+                      </p>
+                      <button
+                        type="button"
+                        disabled={disabled || isApproveSending || isApproveConfirming}
+                        onClick={() => {
+                          setError("");
+                          resetApproveTx();
+                          writeApproveTx({
+                            address: HNADS_TOKEN_ADDRESS,
+                            abi: erc20ApproveAbi,
+                            functionName: 'approve',
+                            args: [ARENA_ADDRESS, parseEther(hnadsFeeAmount)],
+                          });
+                        }}
+                        className={`mt-2 w-full rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                          isApproveSending || isApproveConfirming
+                            ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
+                            : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
+                        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
+                        {isApproveSending
+                          ? "Confirm in Wallet..."
+                          : isApproveConfirming
+                            ? "Confirming Approval..."
+                            : `Approve ${hnadsFeeAmount} $HNADS`}
+                      </button>
+                      {approveTxError && (
+                        <p className="mt-1 text-[11px] text-blood-light">
+                          {formatTxError(approveTxError)}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-gray-600">
+                      Complete MON payment first
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ---- Step 3: $HNADS Deposit ---- */}
+              {hasHnadsFee && (
+                <div className={`rounded-lg border p-3 transition-all ${
+                  hnadsDepositDone
+                    ? 'border-green-500/30 bg-green-500/5'
+                    : !hnadsApproved
+                      ? 'border-colosseum-surface-light bg-colosseum-surface opacity-40'
+                      : 'border-gold/20 bg-colosseum-surface'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                      Step {hasMonFee ? '3' : '2'}: Deposit $HNADS
+                    </span>
+                    <span className="text-xs font-bold text-gold">{hnadsFeeAmount} $HNADS</span>
+                  </div>
+
+                  {hnadsDepositHash ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>
+                        {depositConfirmed ? "Deposited" : "Depositing..."} — TX: {hnadsDepositHash.slice(0, 10)}...{hnadsDepositHash.slice(-6)}
+                      </span>
+                    </div>
+                  ) : hnadsApproved ? (
+                    <>
+                      <p className="mt-1 text-[10px] text-gray-500">
+                        Deposit $HNADS into the Arena (50% burned, 50% treasury)
+                      </p>
+                      <button
+                        type="button"
+                        disabled={disabled || isDepositSending || isDepositConfirming}
+                        onClick={() => {
+                          setError("");
+                          resetDepositTx();
+                          writeDepositTx({
+                            address: ARENA_ADDRESS,
+                            abi: arenaFeeAbi,
+                            functionName: 'depositHnadsFee',
+                            args: [battleIdToBytes32(battleId), parseEther(hnadsFeeAmount)],
+                          });
+                        }}
+                        className={`mt-2 w-full rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                          isDepositSending || isDepositConfirming
+                            ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
+                            : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
+                        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
+                        {isDepositSending
+                          ? "Confirm in Wallet..."
+                          : isDepositConfirming
+                            ? "Confirming Deposit..."
+                            : `Deposit ${hnadsFeeAmount} $HNADS`}
+                      </button>
+                      {depositTxError && (
+                        <p className="mt-1 text-[11px] text-blood-light">
+                          {formatTxError(depositTxError)}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-gray-600">
+                      Complete $HNADS approval first
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* All fees paid */}
+              {allFeesPaid && (
+                <div className="flex items-center gap-2 text-[11px] text-green-400">
+                  <CheckIcon />
+                  <span className="font-bold">All fees paid — ready to enter!</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -446,8 +738,8 @@ export default function JoinForm({
             </svg>
             Entering Arena...
           </span>
-        ) : hasFee && !paymentHash ? (
-          "Pay Fee First"
+        ) : hasAnyFee && !allFeesPaid ? (
+          "Complete Payments First"
         ) : (
           "Enter the Arena"
         )}

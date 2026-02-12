@@ -325,6 +325,10 @@ export interface LobbyUpdateEvent {
     maxPlayers: number;
     countdownEndsAt?: string;
     feeAmount?: string;
+    /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
+    tier?: string;
+    /** $HNADS entry fee for this tier. */
+    hnadsFee?: string;
   };
 }
 

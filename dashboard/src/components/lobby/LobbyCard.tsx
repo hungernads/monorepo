@@ -8,7 +8,39 @@ export interface LobbyData {
   countdownEndsAt?: string;
   createdAt: string;
   feeAmount?: string;
+  /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
+  tier?: string;
+  /** $HNADS entry fee for this tier. */
+  hnadsFee?: string;
+  /** Max epochs allowed for this tier. */
+  maxEpochs?: number;
 }
+
+// ─── Tier Display Config ──────────────────────────────────────────────
+
+type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+
+const TIER_COLORS: Record<LobbyTier, string> = {
+  FREE: '#6b7280',
+  BRONZE: '#cd7f32',
+  SILVER: '#c0c0c0',
+  GOLD: '#f59e0b',
+};
+
+const TIER_LABELS: Record<LobbyTier, string> = {
+  FREE: 'Free',
+  BRONZE: 'Bronze',
+  SILVER: 'Silver',
+  GOLD: 'Gold',
+};
+
+/** Winner share per tier (mirrors backend tiers.ts). */
+const TIER_WINNER_SHARE: Record<LobbyTier, number> = {
+  FREE: 0,
+  BRONZE: 0.8,
+  SILVER: 0.8,
+  GOLD: 0.85,
+};
 
 function formatCountdown(endsAt: string): string {
   const diff = new Date(endsAt).getTime() - Date.now();
@@ -19,18 +51,47 @@ function formatCountdown(endsAt: string): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+/** Estimate the winner's MON payout for this lobby. */
+function estimatePrizePool(
+  tier: LobbyTier,
+  monFee: string,
+  maxPlayers: number,
+): string {
+  const fee = parseFloat(monFee);
+  if (!fee || fee === 0) return '0';
+  const totalPool = fee * maxPlayers;
+  const winnerPayout = totalPool * (TIER_WINNER_SHARE[tier] ?? 0.8);
+  // Format: remove trailing zeros
+  return winnerPayout % 1 === 0
+    ? winnerPayout.toFixed(0)
+    : winnerPayout.toFixed(1);
+}
+
 export default function LobbyCard({ lobby }: { lobby: LobbyData }) {
-  const { battleId, status, playerCount, maxPlayers, countdownEndsAt, feeAmount } = lobby;
+  const { battleId, status, playerCount, maxPlayers, countdownEndsAt, feeAmount, tier: rawTier, hnadsFee } = lobby;
   const isFull = playerCount >= maxPlayers;
   const fillPercent = Math.min(100, (playerCount / maxPlayers) * 100);
+  const tier = (rawTier as LobbyTier) ?? 'FREE';
+  const tierColor = TIER_COLORS[tier] ?? TIER_COLORS.FREE;
+  const tierLabel = TIER_LABELS[tier] ?? 'Free';
+  const hasFee = feeAmount && feeAmount !== '0';
+  const hasHnadsFee = hnadsFee && hnadsFee !== '0';
+  const prizeEstimate = hasFee ? estimatePrizePool(tier, feeAmount!, maxPlayers) : '0';
 
   return (
     <div className="card group relative border-gold/20 transition-colors hover:border-gold/50">
       {/* Header */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
+          {/* Tier Badge */}
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
+            style={{ backgroundColor: `${tierColor}20`, color: tierColor }}
+          >
+            {tierLabel}
+          </span>
           <span className="text-sm font-bold text-gray-200">
-            ARENA #{battleId.slice(0, 8)}
+            #{battleId.slice(0, 8)}
           </span>
           {status === 'COUNTDOWN' ? (
             <span className="rounded bg-blood/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-blood">
@@ -42,12 +103,28 @@ export default function LobbyCard({ lobby }: { lobby: LobbyData }) {
             </span>
           )}
         </div>
-        {feeAmount && feeAmount !== '0' && (
-          <span className="text-xs text-gold">
-            Fee: {feeAmount} MON
-          </span>
-        )}
       </div>
+
+      {/* Dual Fees */}
+      {(hasFee || hasHnadsFee) && (
+        <div className="mb-2 flex items-center gap-3 text-[11px]">
+          {hasFee && (
+            <span className="text-gray-400">
+              <span className="font-bold text-gray-200">{feeAmount}</span> MON
+            </span>
+          )}
+          {hasHnadsFee && (
+            <span className="text-gray-400">
+              <span className="font-bold text-gray-200">{hnadsFee}</span> $HNADS
+            </span>
+          )}
+          {prizeEstimate !== '0' && (
+            <span className="ml-auto text-[10px]" style={{ color: tierColor }}>
+              ~{prizeEstimate} MON prize
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Player count bar */}
       <div className="mb-2">
@@ -63,8 +140,8 @@ export default function LobbyCard({ lobby }: { lobby: LobbyData }) {
         </div>
         <div className="relative h-2 w-full overflow-hidden rounded-full bg-colosseum-surface-light">
           <div
-            className="h-full rounded-full bg-gold transition-all duration-500"
-            style={{ width: `${fillPercent}%` }}
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${fillPercent}%`, backgroundColor: tierColor }}
           />
         </div>
       </div>

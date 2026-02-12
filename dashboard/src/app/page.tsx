@@ -105,6 +105,71 @@ interface AgentInfo {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
 // ---------------------------------------------------------------------------
+// Lobby tier display config (mirrors src/arena/tiers.ts for frontend display)
+// ---------------------------------------------------------------------------
+
+type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+
+interface LobbyTierDisplay {
+  tier: LobbyTier;
+  label: string;
+  monFee: string;
+  hnadsFee: string;
+  maxEpochs: number;
+  winnerShare: number;
+  killBonus?: string;
+  survivalBonus?: string;
+  description: string;
+  color: string;
+}
+
+const LOBBY_TIERS: LobbyTierDisplay[] = [
+  {
+    tier: 'FREE',
+    label: 'Free Arena',
+    monFee: '0',
+    hnadsFee: '0',
+    maxEpochs: 20,
+    winnerShare: 0,
+    description: 'Practice battles with no stakes',
+    color: '#6b7280',
+  },
+  {
+    tier: 'BRONZE',
+    label: 'Bronze Arena',
+    monFee: '10',
+    hnadsFee: '100',
+    maxEpochs: 50,
+    winnerShare: 0.8,
+    description: 'Stake MON + $HNADS for real prizes',
+    color: '#cd7f32',
+  },
+  {
+    tier: 'SILVER',
+    label: 'Silver Arena',
+    monFee: '50',
+    hnadsFee: '500',
+    maxEpochs: 75,
+    winnerShare: 0.8,
+    killBonus: '25',
+    description: 'Higher stakes with kill bonuses',
+    color: '#c0c0c0',
+  },
+  {
+    tier: 'GOLD',
+    label: 'Gold Arena',
+    monFee: '100',
+    hnadsFee: '1000',
+    maxEpochs: 100,
+    winnerShare: 0.85,
+    killBonus: '50',
+    survivalBonus: '100',
+    description: 'Maximum stakes, maximum glory',
+    color: '#f59e0b',
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Loading skeleton components
 // ---------------------------------------------------------------------------
 
@@ -617,23 +682,16 @@ export default function HomePage() {
   // ── Create a new lobby ──────────────────────────────────────────
   const [creatingLobby, setCreatingLobby] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createFeeInput, setCreateFeeInput] = useState('');
+  const [selectedTier, setSelectedTier] = useState<'FREE' | 'BRONZE' | 'SILVER' | 'GOLD'>('FREE');
 
   const handleCreateLobby = useCallback(async () => {
     try {
       setCreatingLobby(true);
 
-      // Build body with optional fee
-      const body: Record<string, unknown> = {};
-      const parsedFee = parseFloat(createFeeInput);
-      if (!isNaN(parsedFee) && parsedFee > 0) {
-        body.feeAmount = createFeeInput.trim();
-      }
-
       const res = await fetch(`${API_BASE}/battle/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ tier: selectedTier }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { battleId: string };
@@ -642,7 +700,7 @@ export default function HomePage() {
       console.error('Failed to create lobby:', err);
       setCreatingLobby(false);
     }
-  }, [createFeeInput]);
+  }, [selectedTier]);
 
   // ── Kick off fetches on mount ─────────────────────────────────
   useEffect(() => {
@@ -679,30 +737,87 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Create Lobby Form (with optional fee) */}
+        {/* Tier Selection Cards */}
         {showCreateForm && (
           <div className="mb-4 rounded-lg border border-gold/20 bg-colosseum-surface p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex-1">
-                <label
-                  htmlFor="create-fee"
-                  className="mb-1 block text-xs font-bold uppercase tracking-wider text-gray-400"
-                >
-                  Entry Fee{' '}
-                  <span className="font-normal normal-case text-gray-600">
-                    (optional, in MON)
-                  </span>
-                </label>
-                <input
-                  id="create-fee"
-                  type="text"
-                  inputMode="decimal"
-                  value={createFeeInput}
-                  onChange={(e) => setCreateFeeInput(e.target.value)}
-                  placeholder="0 (free)"
-                  className="w-full rounded-lg border-2 border-colosseum-surface-light bg-colosseum-bg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none transition-colors focus:border-gold/60"
-                />
-              </div>
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">
+              Choose Arena Tier
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {LOBBY_TIERS.map((t) => {
+                const isSelected = selectedTier === t.tier;
+                return (
+                  <button
+                    key={t.tier}
+                    type="button"
+                    onClick={() => setSelectedTier(t.tier)}
+                    className={`relative rounded-lg border-2 p-3 text-left transition-all ${
+                      isSelected
+                        ? 'scale-[1.02] border-current shadow-lg'
+                        : 'border-colosseum-surface-light hover:border-gray-600'
+                    }`}
+                    style={{
+                      color: isSelected ? t.color : undefined,
+                      backgroundColor: isSelected ? `${t.color}10` : undefined,
+                      boxShadow: isSelected ? `0 0 20px ${t.color}25` : undefined,
+                    }}
+                  >
+                    {/* Selected indicator */}
+                    {isSelected && (
+                      <span
+                        className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-colosseum-bg"
+                        style={{ backgroundColor: t.color }}
+                      >
+                        &#10003;
+                      </span>
+                    )}
+
+                    {/* Tier name */}
+                    <div
+                      className="font-cinzel text-sm font-bold"
+                      style={{ color: t.color }}
+                    >
+                      {t.label}
+                    </div>
+
+                    {/* Fees */}
+                    <div className="mt-2 space-y-0.5">
+                      <div className="text-xs text-gray-400">
+                        <span className="font-bold text-gray-200">{t.monFee}</span>{' '}
+                        MON
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        <span className="font-bold text-gray-200">{t.hnadsFee}</span>{' '}
+                        $HNADS
+                      </div>
+                    </div>
+
+                    {/* Features */}
+                    <div className="mt-2 space-y-0.5 text-[10px] text-gray-500">
+                      <div>{t.maxEpochs} max epochs</div>
+                      {t.winnerShare > 0 && (
+                        <div>Winner: {Math.round(t.winnerShare * 100)}% of pool</div>
+                      )}
+                      {t.killBonus && <div>{t.killBonus} $HNADS/kill</div>}
+                      {t.survivalBonus && <div>{t.survivalBonus} survival bonus</div>}
+                    </div>
+
+                    {/* Description */}
+                    <p className="mt-2 text-[10px] leading-snug text-gray-600">
+                      {t.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Create button */}
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-[11px] text-gray-500">
+                {selectedTier === 'FREE'
+                  ? 'No entry fee required.'
+                  : `Each gladiator pays ${LOBBY_TIERS.find((t) => t.tier === selectedTier)?.monFee ?? '?'} MON + ${LOBBY_TIERS.find((t) => t.tier === selectedTier)?.hnadsFee ?? '?'} $HNADS to enter.`}
+              </p>
               <button
                 onClick={handleCreateLobby}
                 disabled={creatingLobby}
@@ -711,11 +826,6 @@ export default function HomePage() {
                 {creatingLobby ? 'Creating...' : 'Create Arena'}
               </button>
             </div>
-            {createFeeInput && parseFloat(createFeeInput) > 0 && (
-              <p className="mt-2 text-[11px] text-gray-500">
-                Each gladiator must pay {createFeeInput} MON to enter this arena.
-              </p>
-            )}
           </div>
         )}
 

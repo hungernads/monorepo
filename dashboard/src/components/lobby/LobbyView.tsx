@@ -6,19 +6,58 @@ import {
   BattleWebSocket,
   type BattleEvent,
   type LobbyUpdateEvent,
-  type BattleStartingEvent,
 } from "@/lib/websocket";
 import LobbyAgentSlot, { type LobbyAgentData } from "./LobbyAgentSlot";
 import LobbyCountdown from "./LobbyCountdown";
 import JoinForm from "./JoinForm";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types & Tier Display Config
 // ---------------------------------------------------------------------------
 
 interface LobbyViewProps {
   battleId: string;
 }
+
+type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+
+const TIER_COLORS: Record<LobbyTier, string> = {
+  FREE: '#6b7280',
+  BRONZE: '#cd7f32',
+  SILVER: '#c0c0c0',
+  GOLD: '#f59e0b',
+};
+
+const TIER_LABELS: Record<LobbyTier, string> = {
+  FREE: 'Free Arena',
+  BRONZE: 'Bronze Arena',
+  SILVER: 'Silver Arena',
+  GOLD: 'Gold Arena',
+};
+
+/** Winner share per tier (mirrors backend tiers.ts). */
+const TIER_WINNER_SHARE: Record<LobbyTier, number> = {
+  FREE: 0,
+  BRONZE: 0.8,
+  SILVER: 0.8,
+  GOLD: 0.85,
+};
+
+/** Kill bonus per tier in $HNADS. */
+const TIER_KILL_BONUS: Record<LobbyTier, string | undefined> = {
+  FREE: undefined,
+  BRONZE: undefined,
+  SILVER: '25',
+  GOLD: '50',
+};
+
+/** Survival bonus per tier in $HNADS. */
+const TIER_SURVIVAL_BONUS: Record<LobbyTier, string | undefined> = {
+  FREE: undefined,
+  BRONZE: undefined,
+  SILVER: undefined,
+  GOLD: '100',
+};
 
 // Session key for tracking if user has joined this lobby
 function getJoinedKey(battleId: string): string {
@@ -39,6 +78,8 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
   const [status, setStatus] = useState<"LOBBY" | "COUNTDOWN">("LOBBY");
   const [countdownEndsAt, setCountdownEndsAt] = useState<string | null>(null);
   const [feeAmount, setFeeAmount] = useState<string>('0');
+  const [hnadsFeeAmount, setHnadsFeeAmount] = useState<string>('0');
+  const [tier, setTier] = useState<string>('FREE');
   const [hasJoined, setHasJoined] = useState(false);
   const [battleStarting, setBattleStarting] = useState(false);
 
@@ -60,6 +101,26 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
     }
   }, [battleId]);
 
+  // ---- Redirect if battle already active/completed + extract tier data ----
+  useEffect(() => {
+    if (!battleId) return;
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://hungernads.amr-robb.workers.dev';
+    fetch(`${API_BASE}/battle/${battleId}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!data) return;
+        if (data.status === 'ACTIVE' || data.status === 'COMPLETED') {
+          router.replace(`/battle/${battleId}`);
+          return;
+        }
+        // Extract tier info from battle state (before WS connects)
+        if (data.tier) setTier(data.tier);
+        if (data.feeAmount) setFeeAmount(data.feeAmount);
+        if (data.hnadsFee) setHnadsFeeAmount(data.hnadsFee);
+      })
+      .catch(() => { /* ignore — WS will handle it */ });
+  }, [battleId, router]);
+
   // ---- WS Event Handler ----
   const handleEvent = useCallback(
     (event: BattleEvent) => {
@@ -71,21 +132,29 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
         setStatus(e.data.status);
         setCountdownEndsAt(e.data.countdownEndsAt ?? null);
         if (e.data.feeAmount) setFeeAmount(e.data.feeAmount);
+        if (e.data.hnadsFee) setHnadsFeeAmount(e.data.hnadsFee);
+        if (e.data.tier) setTier(e.data.tier);
         return;
       }
 
       // battle_starting -> redirect to live battle
       if (event.type === "battle_starting") {
-        const e = event as BattleStartingEvent;
         setBattleStarting(true);
         // Short delay for dramatic effect before redirect
+        // Use battleId from props (guaranteed valid) — e.data.battleId may be missing
         setTimeout(() => {
-          router.push(`/battle/${e.data.battleId}`);
+          router.push(`/battle/${battleId}`);
         }, 1500);
+        // Fallback: if router.push fails silently, force navigate after 4s
+        setTimeout(() => {
+          if (typeof window !== 'undefined' && window.location.pathname.includes('/lobby/')) {
+            window.location.href = `/battle/${battleId}`;
+          }
+        }, 4000);
         return;
       }
     },
-    [router],
+    [router, battleId],
   );
 
   // ---- WebSocket Connection ----
@@ -156,23 +225,86 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
     );
   }
 
+  // ---- Derived: tier display ----
+  const currentTier = (tier as LobbyTier) ?? 'FREE';
+  const tierColor = TIER_COLORS[currentTier] ?? TIER_COLORS.FREE;
+  const tierLabel = TIER_LABELS[currentTier] ?? 'Free Arena';
+  const hasFee = feeAmount !== '0' && parseFloat(feeAmount) > 0;
+  const hasHnadsFee = hnadsFeeAmount !== '0' && parseFloat(hnadsFeeAmount) > 0;
+  const winnerShare = TIER_WINNER_SHARE[currentTier] ?? 0;
+  const prizePool = hasFee
+    ? (parseFloat(feeAmount) * maxPlayers * winnerShare)
+    : 0;
+  const prizePoolStr = prizePool % 1 === 0
+    ? prizePool.toFixed(0)
+    : prizePool.toFixed(1);
+  const killBonus = TIER_KILL_BONUS[currentTier];
+  const survivalBonus = TIER_SURVIVAL_BONUS[currentTier];
+
   // ---- Render: Main Lobby ----
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       {/* Header */}
       <div className="mb-8 text-center">
-        <h1 className="mb-2 font-cinzel text-2xl font-black uppercase tracking-widest text-gold sm:text-3xl">
-          The Arena Awaits
+        <h1 className="mb-2 font-cinzel text-2xl font-black uppercase tracking-widest sm:text-3xl" style={{ color: tierColor }}>
+          {tierLabel}
         </h1>
         <p className="text-sm text-gray-500">
           Arena #{battleId.slice(0, 8)} &mdash;{" "}
           {agents.length}/{maxPlayers} gladiators
         </p>
-        {feeAmount !== '0' && (
-          <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-1">
-            <span className="text-xs font-bold text-gold">
-              Entry Fee: {feeAmount} MON
+
+        {/* Tier Badge + Fees */}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {/* Tier Badge */}
+          <span
+            className="rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider"
+            style={{ backgroundColor: `${tierColor}20`, color: tierColor, border: `1px solid ${tierColor}40` }}
+          >
+            {currentTier}
+          </span>
+
+          {/* Dual Fees */}
+          {hasFee && (
+            <span className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface px-2.5 py-1 text-[11px] text-gray-300">
+              <span className="font-bold text-gray-100">{feeAmount}</span> MON
             </span>
+          )}
+          {hasHnadsFee && (
+            <span className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface px-2.5 py-1 text-[11px] text-gray-300">
+              <span className="font-bold text-gray-100">{hnadsFeeAmount}</span> $HNADS
+            </span>
+          )}
+        </div>
+
+        {/* Prize Pool Estimate */}
+        {prizePool > 0 && (
+          <div className="mt-3 inline-flex items-center gap-2 rounded-lg border px-4 py-2"
+            style={{ borderColor: `${tierColor}30`, backgroundColor: `${tierColor}08` }}
+          >
+            <span className="text-[11px] uppercase tracking-wider text-gray-400">Prize Pool</span>
+            <span className="text-sm font-bold" style={{ color: tierColor }}>
+              ~{prizePoolStr} MON
+            </span>
+            <span className="text-[10px] text-gray-500">
+              ({Math.round(winnerShare * 100)}% to winner)
+            </span>
+          </div>
+        )}
+
+        {/* Bonus Rewards */}
+        {(killBonus || survivalBonus) && (
+          <div className="mt-2 flex items-center justify-center gap-3 text-[10px] text-gray-500">
+            {killBonus && (
+              <span>
+                +{killBonus} $HNADS/kill
+              </span>
+            )}
+            {survivalBonus && (
+              <span>
+                +{survivalBonus} $HNADS survival bonus
+              </span>
+            )}
           </div>
         )}
 
@@ -271,6 +403,7 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
             onJoined={handleJoined}
             disabled={false}
             feeAmount={feeAmount}
+            hnadsFeeAmount={hnadsFeeAmount}
           />
         </div>
       ) : hasJoined ? (
