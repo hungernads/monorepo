@@ -28,7 +28,8 @@ import { createNadFunClient, NadFunClient, type CurveStream } from '../chain/nad
 import { type Address, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { ArenaManager, computePhaseConfig, type PhaseConfig } from '../arena/arena';
-import { processEpoch as runEpoch, type EpochResult } from '../arena/epoch';
+import { processEpoch as runEpoch, type EpochResult, type BonusReward } from '../arena/epoch';
+import type { LobbyTier } from '../arena/tiers';
 import type { BattlePhase } from '../arena/types/status';
 import { PriceFeed } from '../arena/price-feed';
 import { createGrid, placeAgent, getStormTileCoords, getOuterRingTiles } from '../arena/hex-grid';
@@ -44,6 +45,7 @@ import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
 import { updateBattle, insertBattleEvents } from '../db/schema';
 import { createChainClient, monadTestnet, type AgentResult as ChainAgentResult } from '../chain/client';
+import { distributePrizes, type PayoutAgent, type PrizeDistribution } from '../arena/payouts';
 import { createMoltbookPoster } from '../moltbook';
 import { RatingManager, extractBattlePerformances } from '../ranking';
 import { AgentMemory } from '../learning/memory';
@@ -85,6 +87,8 @@ export interface BattleConfig {
   assets: string[];
   /** Entry fee in MON (e.g. '0.01'). Defaults to '0' (free). */
   feeAmount: string;
+  /** Lobby tier (determines prize pool distribution). Defaults to 'FREE'. */
+  tier?: import('../arena/tiers').LobbyTier;
 }
 
 export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
@@ -92,6 +96,7 @@ export const DEFAULT_BATTLE_CONFIG: BattleConfig = {
   bettingWindowEpochs: DEFAULT_BETTING_LOCK_AFTER_EPOCH,
   assets: ['ETH', 'BTC', 'SOL', 'MON'],
   feeAmount: '0',
+  tier: 'FREE',
 };
 
 export interface BattleState {
@@ -112,6 +117,8 @@ export interface BattleState {
   currentPhase?: BattlePhase;
   /** Phase configuration computed from player count (set when battle starts). */
   phaseConfig?: PhaseConfig;
+  /** Lobby tier (FREE, BRONZE, SILVER, GOLD). Determines bonus rewards. */
+  lobbyTier?: LobbyTier;
 }
 
 /**
@@ -142,6 +149,10 @@ export interface LobbyAgent {
 export interface LobbyMeta {
   maxPlayers: number;
   feeAmount: string;
+  /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
+  tier: string;
+  /** $HNADS entry fee amount for this tier. */
+  hnadsFee: string;
   lobbyAgents: LobbyAgent[];
 }
 
@@ -225,6 +236,7 @@ function reconstructArena(battleState: BattleState, llmKeys?: LLMKeys): ArenaMan
   arena.status = 'ACTIVE';
   arena.epochCount = battleState.epoch;
   arena.startedAt = battleState.startedAt ? new Date(battleState.startedAt) : new Date();
+  arena.lobbyTier = battleState.lobbyTier ?? 'FREE';
 
   // Create and register agents, then place them on the hex grid
   for (const agentData of Object.values(battleState.agents)) {
@@ -390,6 +402,7 @@ export class ArenaDO implements DurableObject {
       countdownEndsAt: null,
       currentPhase: phaseConfig.phases[0]?.name,
       phaseConfig,
+      lobbyTier: 'FREE', // Classic/quick-start flow defaults to FREE tier
     };
 
     // Build UUID → numeric agent ID mapping for on-chain calls.
@@ -780,6 +793,58 @@ export class ArenaDO implements DurableObject {
         }
       }
 
+      // ── Distribute tier prizes (burn HNADS, treasury, kill/survival bonuses) ──
+      // Non-blocking: prize distribution failures are logged but never crash.
+      // Skipped for FREE tier (no fees collected).
+      const tier = battleState.config?.tier ?? 'FREE';
+      let prizeDistribution: PrizeDistribution | null = null;
+      if (tier !== 'FREE') {
+        try {
+          const payoutAgents: PayoutAgent[] = Object.values(battleState.agents).map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            class: agent.class,
+            kills: agent.kills,
+            epochsSurvived: agent.epochsSurvived,
+            isAlive: agent.isAlive,
+            isWinner: agent.id === winnerId,
+            walletAddress: agent.walletAddress,
+          }));
+
+          prizeDistribution = await distributePrizes(
+            battleState.battleId,
+            tier,
+            payoutAgents,
+            winnerId,
+            chainClient,
+          );
+
+          console.log(
+            `[ArenaDO] Prize distribution complete for ${battleState.battleId}: ` +
+            `${prizeDistribution.transactions.filter((t) => t.success).length}/${prizeDistribution.transactions.length} txs succeeded`,
+          );
+
+          // Broadcast prize distribution to spectators
+          const sockets = this.state.getWebSockets();
+          broadcastEvent(sockets, {
+            type: 'prize_distribution',
+            data: {
+              battleId: battleState.battleId,
+              tier,
+              winnerId,
+              winnerName: prizeDistribution.winnerName,
+              pool: prizeDistribution.pool,
+              killBonuses: prizeDistribution.killBonuses,
+              survivalBonuses: prizeDistribution.survivalBonuses,
+              transactionCount: prizeDistribution.transactions.length,
+              successCount: prizeDistribution.transactions.filter((t) => t.success).length,
+            },
+          });
+        } catch (err) {
+          console.error(`[ArenaDO] Prize distribution failed for ${battleState.battleId}:`, err);
+        }
+      }
+
       // ── Update D1 battle row ────────────────────────────────────
       try {
         await updateBattle(this.env.DB, battleState.battleId, {
@@ -788,6 +853,11 @@ export class ArenaDO implements DurableObject {
           winner_id: winnerId,
           epoch_count: battleState.epoch,
           betting_phase: 'SETTLED',
+          // Persist HNADS burn/treasury amounts from distribution
+          ...(prizeDistribution ? {
+            hnads_burned: prizeDistribution.pool.hnadsBurned,
+            hnads_treasury: prizeDistribution.pool.hnadsTreasury,
+          } : {}),
         });
       } catch (err) {
         console.error(`[ArenaDO] Failed to update D1 battle row:`, err);
@@ -1172,6 +1242,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
     battleConfig?: Partial<BattleConfig>,
     maxPlayers?: number,
     feeAmount?: string,
+    tier?: string,
+    hnadsFee?: string,
   ): Promise<BattleState> {
     // Merge caller config with defaults
     const config: BattleConfig = { ...DEFAULT_BATTLE_CONFIG, ...battleConfig };
@@ -1187,6 +1259,7 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
       bettingPhase: 'OPEN',
       config,
       countdownEndsAt: null,
+      lobbyTier: (tier as LobbyTier) ?? 'FREE',
     };
 
     // Persist state
@@ -1196,6 +1269,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
     await this.state.storage.put('lobbyMeta', {
       maxPlayers: maxPlayers ?? 8,
       feeAmount: feeAmount ?? '0',
+      tier: tier ?? 'FREE',
+      hnadsFee: hnadsFee ?? '0',
       lobbyAgents: [],  // Will be populated as agents join via /join
     });
 
@@ -1551,6 +1626,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
                 playerCount: lobbyMeta.lobbyAgents.length,
                 maxPlayers: lobbyMeta.maxPlayers,
                 feeAmount: lobbyMeta.feeAmount,
+                tier: lobbyMeta.tier ?? 'FREE',
+                hnadsFee: lobbyMeta.hnadsFee ?? '0',
               },
             };
             server.send(JSON.stringify(lobbyEvent));
@@ -1671,6 +1748,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
         config?: Partial<BattleConfig>;
         maxPlayers?: number;
         feeAmount?: string;
+        tier?: string;
+        hnadsFee?: string;
       };
 
       if (!body.battleId) {
@@ -1682,6 +1761,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
         body.config,
         body.maxPlayers,
         body.feeAmount,
+        body.tier,
+        body.hnadsFee,
       );
       return Response.json({ ok: true, battle: battleState });
     }
@@ -1800,6 +1881,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
           maxPlayers: lobbyMeta.maxPlayers,
           countdownEndsAt: battleState.countdownEndsAt ?? undefined,
           feeAmount: lobbyMeta.feeAmount,
+          tier: lobbyMeta.tier ?? 'FREE',
+          hnadsFee: lobbyMeta.hnadsFee ?? '0',
         },
       });
 
@@ -1828,6 +1911,8 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
             ...battleState,
             maxPlayers: lobbyMeta.maxPlayers,
             feeAmount: lobbyMeta.feeAmount,
+            tier: lobbyMeta.tier ?? 'FREE',
+            hnadsFee: lobbyMeta.hnadsFee ?? '0',
             lobbyAgents: lobbyMeta.lobbyAgents,
             countdownEndsAt: battleState.countdownEndsAt ?? undefined,
           });

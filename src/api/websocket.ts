@@ -403,6 +403,10 @@ export interface LobbyUpdateEvent {
     maxPlayers: number;
     countdownEndsAt?: string;
     feeAmount?: string;
+    /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
+    tier?: string;
+    /** $HNADS entry fee for this tier. */
+    hnadsFee?: string;
   };
 }
 
@@ -468,6 +472,42 @@ export interface StormDamageEvent {
   };
 }
 
+export interface BonusRewardEvent {
+  type: 'bonus_reward';
+  data: {
+    agentId: string;
+    agentName: string;
+    /** Type of bonus: KILL_BONUS or SURVIVAL_BONUS. */
+    bonusType: 'KILL_BONUS' | 'SURVIVAL_BONUS';
+    /** $HNADS amount awarded from treasury. */
+    amount: number;
+    /** Human-readable description. */
+    reason: string;
+  };
+}
+
+export interface PrizeDistributionEvent {
+  type: 'prize_distribution';
+  data: {
+    battleId: string;
+    tier: string;
+    winnerId: string | null;
+    winnerName: string | null;
+    pool: {
+      totalMon: string;
+      winnerPayout: string;
+      treasuryMon: string;
+      totalHnads: string;
+      hnadsBurned: string;
+      hnadsTreasury: string;
+    };
+    killBonuses: { agentId: string; agentName: string; kills: number; bonusHnads: string }[];
+    survivalBonuses: { agentId: string; agentName: string; bonusHnads: string }[];
+    transactionCount: number;
+    successCount: number;
+  };
+}
+
 /** Discriminated union of all events streamed to spectators. */
 export type BattleEvent =
   | EpochStartEvent
@@ -496,7 +536,9 @@ export type BattleEvent =
   | BattleStartingEvent
   | PhaseChangeEvent
   | StormDamageEvent
-  | AgentTokenTradeEvent;
+  | AgentTokenTradeEvent
+  | BonusRewardEvent
+  | PrizeDistributionEvent;
 
 // ─── Broadcast Helper ─────────────────────────────────────────────────────────
 
@@ -875,6 +917,22 @@ export function epochToEvents(result: EpochResult): BattleEvent[] {
       type: 'agent_death',
       data: death,
     });
+  }
+
+  // ── 5.5. Bonus rewards (kill bonuses, survival bonuses) ──────────
+  if (result.bonusRewards) {
+    for (const bonus of result.bonusRewards) {
+      events.push({
+        type: 'bonus_reward',
+        data: {
+          agentId: bonus.agentId,
+          agentName: bonus.agentName,
+          bonusType: bonus.type,
+          amount: bonus.amount,
+          reason: bonus.reason,
+        },
+      });
+    }
   }
 
   // ── 6. Epoch end ──────────────────────────────────────────────────

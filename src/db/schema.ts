@@ -41,6 +41,16 @@ export interface BattleRow {
   countdown_ends_at: string | null;
   /** ISO timestamp when the battle was cancelled (null if not cancelled). */
   cancelled_at: string | null;
+  /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
+  tier: 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+  /** $HNADS entry fee amount (in addition to MON fee). */
+  hnads_fee_amount: string;
+  /** Cumulative $HNADS burned from entry fees (50% of total collected). */
+  hnads_burned: string;
+  /** Cumulative $HNADS sent to treasury (50% of total collected). */
+  hnads_treasury: string;
+  /** Maximum epochs allowed for this tier. */
+  max_epochs: number;
 }
 
 export interface EpochRow {
@@ -237,7 +247,7 @@ export async function insertBattle(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO battles (id, status, started_at, ended_at, winner_id, epoch_count, betting_phase, season_id, max_players, fee_amount, countdown_ends_at, cancelled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO battles (id, status, started_at, ended_at, winner_id, epoch_count, betting_phase, season_id, max_players, fee_amount, countdown_ends_at, cancelled_at, tier, hnads_fee_amount, hnads_burned, hnads_treasury, max_epochs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       battle.id,
@@ -252,6 +262,11 @@ export async function insertBattle(
       battle.fee_amount ?? '0',
       battle.countdown_ends_at ?? null,
       battle.cancelled_at ?? null,
+      battle.tier ?? 'FREE',
+      battle.hnads_fee_amount ?? '0',
+      battle.hnads_burned ?? '0',
+      battle.hnads_treasury ?? '0',
+      battle.max_epochs ?? 50,
     )
     .run();
 }
@@ -328,6 +343,26 @@ export async function updateBattle(
   if (fields.cancelled_at !== undefined) {
     setClauses.push('cancelled_at = ?');
     values.push(fields.cancelled_at);
+  }
+  if (fields.tier !== undefined) {
+    setClauses.push('tier = ?');
+    values.push(fields.tier);
+  }
+  if (fields.hnads_fee_amount !== undefined) {
+    setClauses.push('hnads_fee_amount = ?');
+    values.push(fields.hnads_fee_amount);
+  }
+  if (fields.hnads_burned !== undefined) {
+    setClauses.push('hnads_burned = ?');
+    values.push(fields.hnads_burned);
+  }
+  if (fields.hnads_treasury !== undefined) {
+    setClauses.push('hnads_treasury = ?');
+    values.push(fields.hnads_treasury);
+  }
+  if (fields.max_epochs !== undefined) {
+    setClauses.push('max_epochs = ?');
+    values.push(fields.max_epochs);
   }
 
   if (setClauses.length === 0) return;

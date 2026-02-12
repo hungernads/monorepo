@@ -43,6 +43,7 @@ import type { AgentClass } from '../agents';
 import { MIN_AGENTS, MAX_AGENTS } from '../arena/arena';
 import { computePhaseConfig } from '../arena/phases';
 import { DEFAULT_BATTLE_CONFIG, type BattleConfig } from '../durable-objects/arena';
+import { type LobbyTier, getTierConfig, isValidTier } from '../arena/tiers';
 import {
   SponsorshipManager,
   BettingPool,
@@ -167,62 +168,38 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
 /**
  * POST /battle/create
  *
- * Create a new battle in LOBBY status. No agents are spawned yet — they
- * join individually via POST /battle/:id/join.
+ * Create a new battle in LOBBY status with a predefined tier.
+ * No agents are spawned yet — they join individually via POST /battle/:id/join.
  *
- * Body (all fields optional — sensible defaults applied):
- *   - maxPlayers:          number        — max agents allowed in the lobby (default 8, range 2–20)
- *   - feeAmount:           string        — entry fee in MON (default '0')
- *   - maxEpochs:           number        — max epochs before timeout (default: computed from player count 8–14, range 5–500)
+ * Body (all fields optional):
+ *   - tier:                string        — tier name (FREE, BRONZE, SILVER, GOLD) (default: FREE)
  *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
- * Response: { ok, battleId, status: 'LOBBY', config, maxPlayers, feeAmount }
+ * NOTE: maxPlayers, feeAmount, hnadsFee, and maxEpochs are now determined by tier (not customizable).
+ *
+ * Response: { ok, battleId, status: 'LOBBY', tier, config, maxPlayers, feeAmount, hnadsFee }
  */
 app.post('/battle/create', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
 
-    // ── Parse & validate maxPlayers ─────────────────────────────────
-    let maxPlayers = 8;
-    if (body.maxPlayers !== undefined) {
-      if (typeof body.maxPlayers !== 'number' || !Number.isInteger(body.maxPlayers)) {
-        return c.json({ error: 'maxPlayers must be an integer' }, 400);
-      }
-      if (body.maxPlayers < MIN_AGENTS || body.maxPlayers > MAX_AGENTS) {
-        return c.json(
-          { error: `maxPlayers must be between ${MIN_AGENTS} and ${MAX_AGENTS}` },
-          400,
-        );
-      }
-      maxPlayers = body.maxPlayers;
+    // ── Parse & validate tier ───────────────────────────────────────
+    const tier: LobbyTier = body.tier ?? 'FREE';
+    if (!isValidTier(tier)) {
+      return c.json(
+        { error: `Invalid tier. Valid tiers: FREE, BRONZE, SILVER, GOLD` },
+        400,
+      );
     }
 
-    // ── Parse & validate feeAmount ──────────────────────────────────
-    let feeAmount = '0';
-    if (body.feeAmount !== undefined) {
-      if (typeof body.feeAmount !== 'string') {
-        return c.json({ error: 'feeAmount must be a string (e.g. "0.1")' }, 400);
-      }
-      // Basic sanity: must parse as a non-negative number
-      const parsed = parseFloat(body.feeAmount);
-      if (isNaN(parsed) || parsed < 0) {
-        return c.json({ error: 'feeAmount must be a non-negative number string' }, 400);
-      }
-      feeAmount = body.feeAmount;
-    }
+    const tierConfig = getTierConfig(tier);
 
-    // ── Parse & validate maxEpochs ─────────────────────────────────
-    let maxEpochs = DEFAULT_BATTLE_CONFIG.maxEpochs;
-    if (body.maxEpochs !== undefined) {
-      if (typeof body.maxEpochs !== 'number' || !Number.isInteger(body.maxEpochs)) {
-        return c.json({ error: 'maxEpochs must be an integer' }, 400);
-      }
-      if (body.maxEpochs < 5 || body.maxEpochs > 500) {
-        return c.json({ error: 'maxEpochs must be between 5 and 500' }, 400);
-      }
-      maxEpochs = body.maxEpochs;
-    }
+    // Use tier config for all battle settings
+    const maxPlayers = tierConfig.maxPlayers;
+    const feeAmount = tierConfig.monFee;
+    const hnadsFee = tierConfig.hnadsFee;
+    const maxEpochs = tierConfig.maxEpochs;
 
     // ── Parse & validate bettingWindowEpochs ───────────────────────
     let bettingWindowEpochs = DEFAULT_BATTLE_CONFIG.bettingWindowEpochs;
@@ -266,6 +243,7 @@ app.post('/battle/create', async (c) => {
       bettingWindowEpochs,
       assets,
       feeAmount,
+      tier,
     };
 
     // ── Generate battle ID ─────────────────────────────────────────
@@ -292,6 +270,11 @@ app.post('/battle/create', async (c) => {
       season_id: seasonId,
       max_players: maxPlayers,
       fee_amount: feeAmount,
+      tier,
+      hnads_fee_amount: hnadsFee,
+      hnads_burned: '0',
+      hnads_treasury: '0',
+      max_epochs: maxEpochs,
     });
 
     // ── Initialize ArenaDO in lobby mode ───────────────────────────
@@ -307,6 +290,8 @@ app.post('/battle/create', async (c) => {
           config: battleConfig,
           maxPlayers,
           feeAmount,
+          tier,
+          hnadsFee,
         }),
       }),
     );
@@ -320,10 +305,14 @@ app.post('/battle/create', async (c) => {
       ok: true,
       battleId,
       status: 'LOBBY' as const,
+      tier,
       seasonId,
       config: battleConfig,
       maxPlayers,
       feeAmount,
+      hnadsFee,
+      maxEpochs,
+      tierLabel: tierConfig.label,
       arena: arenaResult,
     });
   } catch (error) {
@@ -499,6 +488,9 @@ app.get('/battle/lobbies', async (c) => {
       countdownEndsAt: row.countdown_ends_at ?? undefined,
       createdAt: row.started_at ?? new Date().toISOString(),
       feeAmount: row.fee_amount !== '0' ? row.fee_amount : undefined,
+      tier: row.tier ?? 'FREE',
+      hnadsFee: row.hnads_fee_amount !== '0' ? row.hnads_fee_amount : undefined,
+      maxEpochs: row.max_epochs,
     }));
 
     return c.json({ lobbies });
@@ -518,16 +510,19 @@ app.get('/battle/lobbies', async (c) => {
  * Validates input, forwards to ArenaDO for game-state validation,
  * then inserts the agent record into D1.
  *
- * If the battle has a non-zero feeAmount, the client must send the fee
- * to the HungernadsArena contract and provide the txHash. Returns 402
- * if feeAmount > 0 and no txHash is provided.
+ * Dual-token fee system:
+ *   - FREE tier: no fees required
+ *   - BRONZE/SILVER/GOLD tiers: require BOTH MON (native) and $HNADS (ERC20) fees
+ *     - MON fee: player calls payEntryFee() on Arena contract, provides txHash
+ *     - $HNADS fee: player calls depositHnadsFee() on Arena contract, provides hnadsTxHash
  *
  * Body:
  *   - agentClass:     string  (required) WARRIOR | TRADER | SURVIVOR | PARASITE | GAMBLER
  *   - agentName:      string  (required) max 12 chars, alphanumeric + underscore
  *   - imageUrl?:      string  (optional) https URL for custom portrait
  *   - walletAddress?: string  (optional) 0x + 40 hex chars, for fee tracking
- *   - txHash?:        string  (optional) 0x + 64 hex chars, fee payment tx hash
+ *   - txHash?:        string  (optional) 0x + 64 hex chars, MON fee payment tx hash
+ *   - hnadsTxHash?:   string  (optional) 0x + 64 hex chars, $HNADS fee deposit tx hash
  *
  * Response: { agentId, position, battleStatus }
  */
@@ -590,12 +585,23 @@ app.post('/battle/:id/join', async (c) => {
       }
     }
 
-    // ── Validate optional txHash ─────────────────────────────────
+    // ── Validate optional txHash (MON fee) ───────────────────────
     const txHash: string | undefined = body.txHash;
     if (txHash !== undefined) {
       if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
         return c.json(
           { error: 'txHash must be a valid transaction hash (0x + 64 hex chars)' },
+          400,
+        );
+      }
+    }
+
+    // ── Validate optional hnadsTxHash ($HNADS fee) ───────────────
+    const hnadsTxHash: string | undefined = body.hnadsTxHash;
+    if (hnadsTxHash !== undefined) {
+      if (typeof hnadsTxHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hnadsTxHash)) {
+        return c.json(
+          { error: 'hnadsTxHash must be a valid transaction hash (0x + 64 hex chars)' },
           400,
         );
       }
@@ -615,39 +621,92 @@ app.post('/battle/:id/join', async (c) => {
       );
     }
 
-    // ── Fee gate: require txHash if feeAmount > 0 ────────────────
-    const feeAmount = parseFloat(battle.fee_amount ?? '0');
-    if (feeAmount > 0 && !txHash) {
+    // ── Resolve tier config for fee requirements ─────────────────
+    const tierConfig = getTierConfig(battle.tier ?? 'FREE');
+    const monFee = parseFloat(tierConfig.monFee);
+    const hnadsFee = parseFloat(tierConfig.hnadsFee);
+
+    // ── Fee gate: require txHash if MON fee > 0 ─────────────────
+    if (monFee > 0 && !txHash) {
       return c.json(
         {
-          error: 'Payment required: this battle has an entry fee',
-          feeAmount: battle.fee_amount,
-          hint: 'Send the fee to the HungernadsArena contract and provide the txHash',
+          error: 'MON payment required: this battle has a MON entry fee',
+          feeAmount: tierConfig.monFee,
+          hnadsFeeAmount: tierConfig.hnadsFee,
+          tier: battle.tier,
+          hint: 'Send the MON fee via payEntryFee() on HungernadsArena and provide the txHash',
         },
         402,
       );
     }
 
-    // ── On-chain fee verification ──────────────────────────────
-    // If there's a fee and a txHash, verify the payment on-chain.
+    // ── Fee gate: require hnadsTxHash if $HNADS fee > 0 ─────────
+    if (hnadsFee > 0 && !hnadsTxHash) {
+      return c.json(
+        {
+          error: '$HNADS payment required: this battle has a $HNADS entry fee',
+          feeAmount: tierConfig.monFee,
+          hnadsFeeAmount: tierConfig.hnadsFee,
+          tier: battle.tier,
+          hint: 'Approve + call depositHnadsFee() on HungernadsArena and provide the hnadsTxHash',
+        },
+        402,
+      );
+    }
+
+    // ── Fee gate: walletAddress required for paid tiers ──────────
+    if ((monFee > 0 || hnadsFee > 0) && !walletAddress) {
+      return c.json(
+        {
+          error: 'walletAddress is required for paid tiers',
+          tier: battle.tier,
+        },
+        400,
+      );
+    }
+
+    // ── On-chain fee verification ───────────────────────────────
+    // Verify both MON and $HNADS payments on-chain.
     // Poll up to 3 times with 1s intervals to account for Monad ~1s block time.
     // Gracefully skip if chainClient is unavailable (local dev / missing env vars).
     const chainClient = createChainClient(c.env);
-    if (chainClient && feeAmount > 0 && txHash) {
-      const expectedFeeWei = parseEther(battle.fee_amount ?? '0');
-      let feePaid = false;
+
+    // Verify MON fee
+    if (chainClient && monFee > 0 && txHash) {
+      const expectedFeeWei = parseEther(tierConfig.monFee);
+      let monFeePaid = false;
       for (let attempt = 0; attempt < 3; attempt++) {
-        feePaid = await chainClient.verifyFeeTransaction(
+        monFeePaid = await chainClient.verifyFeeTransaction(
           txHash as `0x${string}`,
           expectedFeeWei,
           walletAddress as `0x${string}` | undefined,
         );
-        if (feePaid) break;
+        if (monFeePaid) break;
         if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
       }
-      if (!feePaid) {
+      if (!monFeePaid) {
         return c.json(
-          { error: 'Fee transaction not yet confirmed on-chain. Please wait and retry.' },
+          { error: 'MON fee transaction not yet confirmed on-chain. Please wait and retry.' },
+          402,
+        );
+      }
+    }
+
+    // Verify $HNADS fee
+    if (chainClient && hnadsFee > 0 && hnadsTxHash && walletAddress) {
+      let hnadsFeePaid = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        hnadsFeePaid = await chainClient.verifyHnadsFeeTransaction(
+          hnadsTxHash as `0x${string}`,
+          battleId,
+          walletAddress as `0x${string}`,
+        );
+        if (hnadsFeePaid) break;
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+      }
+      if (!hnadsFeePaid) {
+        return c.json(
+          { error: '$HNADS fee transaction not yet confirmed on-chain. Please wait and retry.' },
           402,
         );
       }
@@ -691,6 +750,22 @@ app.post('/battle/:id/join', async (c) => {
       battle_id: battleId,
       tx_hash: txHash ?? null,
     });
+
+    // ── Update $HNADS burn/treasury tracking in D1 ──────────────
+    // Increment cumulative hnads_burned and hnads_treasury for this battle.
+    // 50% burned, 50% treasury (per tier config hnadsBurnRate).
+    if (hnadsFee > 0) {
+      const burnAmount = hnadsFee * tierConfig.hnadsBurnRate;
+      const treasuryAmount = hnadsFee - burnAmount;
+
+      const currentBurned = parseFloat(battle.hnads_burned ?? '0');
+      const currentTreasury = parseFloat(battle.hnads_treasury ?? '0');
+
+      await updateBattle(c.env.DB, battleId, {
+        hnads_burned: (currentBurned + burnAmount).toFixed(6),
+        hnads_treasury: (currentTreasury + treasuryAmount).toFixed(6),
+      });
+    }
 
     // ── If countdown triggered, update D1 battle status ─────────
     if (joinResult.countdownTriggered) {
