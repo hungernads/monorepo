@@ -892,12 +892,12 @@ export default function BattleView({ battleId }: BattleViewProps) {
   ];
 
   return (
-    <div className="space-y-4 overflow-x-hidden sm:space-y-6">
+    <div className="space-y-4 overflow-x-hidden sm:space-y-6 md:h-screen md:overflow-hidden md:flex md:flex-col">
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
       {/* Battle header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 md:shrink-0">
         <div className="flex items-center gap-2 sm:gap-3">
           <h1 className="font-cinzel text-lg font-black tracking-wider text-gold sm:text-2xl">
             BATTLE #{battleId}
@@ -950,7 +950,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
       {/* Winner announcement */}
       {winner && (
-        <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4">
+        <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4 md:shrink-0">
           <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
             VICTORY
           </div>
@@ -970,24 +970,28 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
       {/* Prize claim section (shown after battle completes) */}
       {winner && (
-        <PrizeClaim
-          battleId={battleId}
-          winner={winner}
-          agents={agents}
-        />
+        <div className="md:shrink-0">
+          <PrizeClaim
+            battleId={battleId}
+            winner={winner}
+            agents={agents}
+          />
+        </div>
       )}
 
       {/* Battle phase indicator (LOOT / HUNT / BLOOD / FINAL STAND) */}
-      <PhaseIndicator
-        currentPhase={phaseState?.phase ?? null}
-        epochsRemaining={phaseState?.epochsRemaining ?? 0}
-        phaseTotalEpochs={phaseState?.phaseTotalEpochs ?? 0}
-        isComplete={!!winner}
-        currentEpoch={currentEpoch}
-      />
+      <div className="md:shrink-0">
+        <PhaseIndicator
+          currentPhase={phaseState?.phase ?? null}
+          epochsRemaining={phaseState?.epochsRemaining ?? 0}
+          phaseTotalEpochs={phaseState?.phaseTotalEpochs ?? 0}
+          isComplete={!!winner}
+          currentEpoch={currentEpoch}
+        />
+      </div>
 
       {/* Cinematic top bar: epoch timer + pool + sponsor button */}
-      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3 md:shrink-0">
         <div className="card md:col-span-2">
           <EpochTimer
             currentEpoch={currentEpoch}
@@ -1019,7 +1023,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
       {/* Favorite agents bar */}
       {agents.length > 0 && (
-        <div className="card">
+        <div className="card md:shrink-0">
           <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
             Favorite Gladiators
           </div>
@@ -1063,9 +1067,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
       )}
 
       {/* Main layout: arena + sidebar */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3 md:flex-1 md:min-h-0">
         {/* Arena (full width on mobile, 2/3 on md+) */}
-        <div className="card md:col-span-2">
+        <div className="card md:col-span-2 md:min-h-0">
           <HexBattleArena
             agents={agents}
             currentEpoch={currentEpoch}
@@ -1093,7 +1097,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
         )}
 
         {/* Sidebar: desktop shows all panels stacked, mobile uses tabs */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 md:overflow-y-auto">
           {/* Mobile tab bar for sidebar panels */}
           <div className="flex overflow-x-auto border-b border-colosseum-surface-light md:hidden">
             {sidebarTabs.map((tab) => (
@@ -1143,17 +1147,19 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
       {/* Battle Log -- full-width below arena for better readability */}
       <div
-        className="card max-h-[300px] md:max-h-[380px]"
+        className="card max-h-[300px] md:max-h-[380px] md:shrink-0"
         style={{ display: "flex", flexDirection: "column" }}
       >
         <ActionFeed entries={feed} />
       </div>
 
       {/* Prediction explainer */}
-      <PredictionExplainer />
+      <div className="md:shrink-0">
+        <PredictionExplainer />
+      </div>
 
       {/* Bottom dramatic footer */}
-      <div className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-700">
+      <div className="text-center text-[10px] uppercase tracking-[0.3em] text-gray-700 md:shrink-0">
         May the nads be ever in your favor
       </div>
 
