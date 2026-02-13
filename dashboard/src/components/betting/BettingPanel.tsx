@@ -93,6 +93,7 @@ export default function BettingPanel({
   );
 
   const aliveAgents = useMemo(() => agents.filter((a) => a.alive), [agents]);
+  const deadAgents = useMemo(() => agents.filter((a) => !a.alive), [agents]);
 
   // ── Derive odds + track history ──
   const agentOdds = useMemo(() => {
@@ -289,6 +290,42 @@ export default function BettingPanel({
                 </button>
               );
             })}
+
+            {/* Eliminated agents */}
+            {deadAgents.length > 0 && (
+              <div className="mt-3 border-t border-colosseum-surface-light pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+                  Eliminated ({deadAgents.length})
+                </p>
+                <div className="space-y-1">
+                  {deadAgents.map((agent) => {
+                    const cfg = CLASS_CONFIG[agent.class];
+                    return (
+                      <div
+                        key={agent.id}
+                        className="flex w-full items-center justify-between rounded border border-colosseum-surface-light/50 bg-colosseum-bg/30 px-3 py-2 text-xs opacity-50"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <AgentPortrait
+                            image={cfg.image}
+                            emoji={cfg.emoji}
+                            alt={agent.name}
+                            size="w-6 h-6"
+                            className="text-base flex-shrink-0 grayscale"
+                          />
+                          <span className="font-bold text-gray-500 truncate line-through">
+                            {agent.name}
+                          </span>
+                        </div>
+                        <span className="rounded bg-blood/20 px-2 py-0.5 text-[10px] font-bold uppercase text-blood">
+                          REKT
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
