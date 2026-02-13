@@ -96,8 +96,103 @@ export class AgentProfileBuilder {
 // ─── Leaderboard ────────────────────────────────────────────────
 
 /**
+ * Wallet leaderboard entry (per-wallet aggregation of all agents).
+ */
+export interface WalletLeaderboardEntry {
+  wallet_address: string;
+  total_battles: number;
+  wins: number;
+  kills: number;
+  top_class: string;
+  win_rate: number;
+  prize_won_mon: string;
+  prize_won_hnads: string;
+}
+
+export interface WalletLeaderboardOptions {
+  limit?: number;
+  sortBy?: 'wins' | 'kills' | 'win_rate' | 'prizes' | 'battles';
+  classFilter?: string;
+  search?: string;
+}
+
+/**
+ * Get leaderboard of top wallets (aggregated across all agents).
+ * Each wallet's stats are the sum of all their agents' battle records.
+ * Supports filtering by class and searching by wallet address prefix.
+ */
+export async function getWalletLeaderboard(
+  db: D1Database,
+  options: WalletLeaderboardOptions = {},
+): Promise<WalletLeaderboardEntry[]> {
+  const { limit = 20, sortBy = 'wins', classFilter, search } = options;
+
+  // Map sortBy to SQL column
+  const orderColumn = {
+    wins: 'wins',
+    kills: 'kills',
+    win_rate: 'win_rate',
+    prizes: 'prize_won_mon',
+    battles: 'total_battles',
+  }[sortBy] ?? 'wins';
+
+  // Build WHERE clauses
+  const whereClauses: string[] = ['a.wallet_address IS NOT NULL'];
+  const bindings: (string | number)[] = [];
+
+  if (classFilter) {
+    whereClauses.push('br.agent_class = ?');
+    bindings.push(classFilter);
+  }
+
+  if (search) {
+    whereClauses.push('a.wallet_address LIKE ?');
+    bindings.push(`${search}%`);
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  const sql = `
+    SELECT
+      a.wallet_address,
+      COUNT(*) as total_battles,
+      SUM(CASE WHEN br.result = 'win' THEN 1 ELSE 0 END) as wins,
+      SUM(br.kills) as kills,
+      CAST(SUM(CASE WHEN br.result = 'win' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) as win_rate,
+      SUM(CAST(br.prize_won_mon AS REAL)) as prize_won_mon,
+      SUM(CAST(br.prize_won_hnads AS REAL)) as prize_won_hnads,
+      (
+        SELECT br2.agent_class
+        FROM battle_records br2
+        JOIN agents a2 ON br2.agent_id = a2.id
+        WHERE a2.wallet_address = a.wallet_address
+        GROUP BY br2.agent_class
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+      ) as top_class
+    FROM battle_records br
+    JOIN agents a ON br.agent_id = a.id
+    ${whereClause}
+    GROUP BY a.wallet_address
+    HAVING COUNT(*) >= 1
+    ORDER BY ${orderColumn} DESC
+    LIMIT ?
+  `;
+
+  bindings.push(Math.min(limit, 100));
+
+  const result = await db
+    .prepare(sql)
+    .bind(...bindings)
+    .all<WalletLeaderboardEntry>();
+
+  return result.results;
+}
+
+/**
  * Get leaderboard of top agents by win rate.
  * Requires at least 1 battle to appear on the board.
+ * @deprecated Use getWalletLeaderboard() for per-wallet aggregation.
  */
 export async function getAgentLeaderboard(
   db: D1Database,

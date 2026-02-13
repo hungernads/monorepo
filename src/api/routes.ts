@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from '../index';
 import { SKILL_MD } from './skill';
-import { AgentProfileBuilder, getAgentLeaderboard } from '../learning/profiles';
+import { AgentProfileBuilder, getAgentLeaderboard, getWalletLeaderboard } from '../learning/profiles';
 import { AgentMemory } from '../learning/memory';
 import {
   getBattle,
@@ -2269,11 +2269,20 @@ app.get('/token/stats', async (c) => {
 app.get('/leaderboard/agents', async (c) => {
   try {
     const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100);
+    const sortBy = c.req.query('sort') as 'wins' | 'kills' | 'win_rate' | 'prizes' | 'battles' | undefined;
+    const classFilter = c.req.query('class');
+    const search = c.req.query('q');
 
-    const profiles = await getAgentLeaderboard(c.env.DB, limit);
+    const leaderboard = await getWalletLeaderboard(c.env.DB, {
+      limit,
+      sortBy,
+      classFilter: classFilter || undefined,
+      search: search || undefined,
+    });
+
     return c.json({
-      leaderboard: profiles,
-      count: profiles.length,
+      leaderboard,
+      count: leaderboard.length,
     });
   } catch (error) {
     console.error('Failed to get agent leaderboard:', error);

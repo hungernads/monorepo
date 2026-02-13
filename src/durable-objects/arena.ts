@@ -845,6 +845,68 @@ export class ArenaDO implements DurableObject {
         }
       }
 
+      // ── Record prize amounts in battle_records ──
+      // Update each agent's battle record with the MON and HNADS prizes they won.
+      // Winner MON prize: from prizeDistribution.pool.winnerPayout.
+      // Kill/survival HNADS bonuses: sum from prizeDistribution bonuses arrays.
+      // Best-effort: non-blocking, failures are logged but never crash.
+      if (prizeDistribution && tier !== 'FREE') {
+        try {
+          // Winner MON prize
+          if (prizeDistribution.winnerId && parseFloat(prizeDistribution.pool.winnerPayout) > 0) {
+            await this.env.DB.prepare(
+              'UPDATE battle_records SET prize_won_mon = ? WHERE agent_id = ? AND battle_id = ?',
+            )
+              .bind(
+                prizeDistribution.pool.winnerPayout,
+                prizeDistribution.winnerId,
+                battleState.battleId,
+              )
+              .run();
+          }
+
+          // Kill bonuses (HNADS) — additive updates
+          for (const bonus of prizeDistribution.killBonuses) {
+            if (parseFloat(bonus.bonusHnads) > 0) {
+              await this.env.DB.prepare(
+                'UPDATE battle_records SET prize_won_hnads = CAST((CAST(prize_won_hnads AS REAL) + ?) AS TEXT) WHERE agent_id = ? AND battle_id = ?',
+              )
+                .bind(
+                  parseFloat(bonus.bonusHnads),
+                  bonus.agentId,
+                  battleState.battleId,
+                )
+                .run();
+            }
+          }
+
+          // Survival bonuses (HNADS) — additive updates
+          for (const bonus of prizeDistribution.survivalBonuses) {
+            if (parseFloat(bonus.bonusHnads) > 0) {
+              await this.env.DB.prepare(
+                'UPDATE battle_records SET prize_won_hnads = CAST((CAST(prize_won_hnads AS REAL) + ?) AS TEXT) WHERE agent_id = ? AND battle_id = ?',
+              )
+                .bind(
+                  parseFloat(bonus.bonusHnads),
+                  bonus.agentId,
+                  battleState.battleId,
+                )
+                .run();
+            }
+          }
+
+          console.log(
+            `[ArenaDO] Prize amounts recorded in battle_records for battle ${battleState.battleId}`,
+          );
+        } catch (err) {
+          console.error(
+            `[ArenaDO] Failed to record prize amounts in battle_records for ${battleState.battleId}:`,
+            err,
+          );
+          // Non-fatal: prize broadcast already happened, this is just persistence
+        }
+      }
+
       // ── Update D1 battle row ────────────────────────────────────
       try {
         await updateBattle(this.env.DB, battleState.battleId, {
