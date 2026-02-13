@@ -6,7 +6,7 @@ import type { AgentClass } from '@/types';
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable';
 import SeasonSelector from '@/components/leaderboard/SeasonSelector';
 import type { SeasonSummary } from '@/components/leaderboard/SeasonSelector';
-import type { AgentLeaderboardEntry } from '@/components/leaderboard/AgentRow';
+import type { AgentLeaderboardEntry, WalletLeaderboardEntry } from '@/components/leaderboard/AgentRow';
 import type { BettorLeaderboardEntry } from '@/components/leaderboard/BettorRow';
 import Link from 'next/link';
 
@@ -15,7 +15,7 @@ import Link from 'next/link';
 // ---------------------------------------------------------------------------
 
 interface AgentLeaderboardResponse {
-  leaderboard: AgentLeaderboardEntry[];
+  leaderboard: (AgentLeaderboardEntry | WalletLeaderboardEntry)[];
   count: number;
 }
 
@@ -159,6 +159,9 @@ export default function LeaderboardPage() {
     ? seasonAgentError || seasonBettorError
     : agentError || bettorError;
 
+  // Wallet mode: all-time view shows wallet data, season view shows agent data
+  const isWalletMode = !isSeasonMode;
+
   return (
     <div>
       {/* Header */}
@@ -245,6 +248,7 @@ export default function LeaderboardPage() {
           bettors={bettors}
           agentsLoading={isAgentLoading}
           bettorsLoading={isBettorLoading}
+          isWalletMode={isWalletMode}
         />
       </div>
     </div>

@@ -10,6 +10,7 @@ export type AgentSortField =
   | 'winRate'
   | 'kills'
   | 'totalBattles'
+  | 'prizes'
   | 'streak'
   | 'avgSurvival';
 
@@ -28,6 +29,7 @@ interface LeaderboardFiltersProps {
   onClassFilterChange: (value: AgentClass | 'ALL') => void;
   sortField: AgentSortField | BettorSortField;
   onSortFieldChange: (value: AgentSortField | BettorSortField) => void;
+  isWalletMode?: boolean; // Flag to indicate if showing wallet-aggregated data
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,7 @@ const CLASS_ACTIVE: Record<AgentClass | 'ALL', string> = {
 const AGENT_SORT_OPTIONS: { value: AgentSortField; label: string }[] = [
   { value: 'winRate', label: 'Win Rate' },
   { value: 'kills', label: 'Kills' },
+  { value: 'prizes', label: 'Prizes' },
   { value: 'totalBattles', label: 'Battles' },
   { value: 'streak', label: 'Streak' },
   { value: 'avgSurvival', label: 'Survival' },
@@ -91,9 +94,17 @@ export default function LeaderboardFilters({
   onClassFilterChange,
   sortField,
   onSortFieldChange,
+  isWalletMode = false,
 }: LeaderboardFiltersProps) {
   const sortOptions =
     tab === 'agents' ? AGENT_SORT_OPTIONS : BETTOR_SORT_OPTIONS;
+
+  // Dynamic search placeholder based on mode
+  const searchPlaceholder = tab === 'bettors'
+    ? 'Search by address...'
+    : isWalletMode
+      ? 'Search by address...'
+      : 'Search by agent name or class...';
 
   return (
     <div className="space-y-3">
@@ -116,11 +127,7 @@ export default function LeaderboardFilters({
           </svg>
           <input
             type="text"
-            placeholder={
-              tab === 'agents'
-                ? 'Search by agent name or class...'
-                : 'Search by address...'
-            }
+            placeholder={searchPlaceholder}
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full rounded-lg border border-colosseum-surface-light bg-colosseum-bg py-2 pl-10 pr-4 text-sm text-gray-200 placeholder-gray-600 outline-none transition-colors focus:border-gold/40 focus:ring-1 focus:ring-gold/20"

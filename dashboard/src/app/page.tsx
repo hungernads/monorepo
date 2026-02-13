@@ -51,20 +51,20 @@ interface LiveBattleState {
   totalPool?: number;
 }
 
-/** Shape returned by GET /leaderboard/agents */
-interface AgentLeaderboardEntry {
-  agentId: string;
-  agentClass: AgentClass;
-  totalBattles: number;
+/** Shape returned by GET /leaderboard/agents (wallet-aggregated) */
+interface WalletLeaderboardEntry {
+  wallet_address: string;
+  total_battles: number;
   wins: number;
   kills: number;
-  winRate: number;
-  streak: number;
-  avgSurvival: number;
+  top_class: AgentClass;
+  win_rate: number;
+  prize_won_mon: string;
+  prize_won_hnads: string;
 }
 
 interface AgentLeaderboardResponse {
-  leaderboard: AgentLeaderboardEntry[];
+  leaderboard: WalletLeaderboardEntry[];
   count: number;
 }
 
@@ -657,10 +657,13 @@ export default function HomePage() {
   const topAgents: RankedAgent[] = (agentLbData?.leaderboard ?? []).map(
     (entry, i) => ({
       rank: i + 1,
-      name: `${entry.agentClass}-${entry.agentId.slice(0, 6)}`,
-      class: entry.agentClass,
-      winRate: Math.round(entry.winRate * 100),
-      totalBattles: entry.totalBattles,
+      walletAddress: entry.wallet_address,
+      topClass: entry.top_class,
+      totalKills: entry.kills,
+      winRate: Math.round(entry.win_rate * 100),
+      totalBattles: entry.total_battles,
+      totalPrizesMon: entry.prize_won_mon,
+      totalPrizesHnads: entry.prize_won_hnads,
     }),
   );
 

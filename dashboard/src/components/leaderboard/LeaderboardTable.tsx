@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import type { AgentClass } from '@/types';
 import AgentRow from './AgentRow';
-import type { AgentLeaderboardEntry } from './AgentRow';
+import type { AgentLeaderboardEntry, WalletLeaderboardEntry } from './AgentRow';
 import BettorRow from './BettorRow';
 import type { BettorLeaderboardEntry } from './BettorRow';
 import LeaderboardFilters from './LeaderboardFilters';
@@ -14,10 +14,11 @@ import type { AgentSortField, BettorSortField } from './LeaderboardFilters';
 // ---------------------------------------------------------------------------
 
 interface LeaderboardTableProps {
-  agents: AgentLeaderboardEntry[];
+  agents: (AgentLeaderboardEntry | WalletLeaderboardEntry)[];
   bettors: BettorLeaderboardEntry[];
   agentsLoading: boolean;
   bettorsLoading: boolean;
+  isWalletMode?: boolean; // True if showing wallet-aggregated data
 }
 
 type Tab = 'agents' | 'bettors';
@@ -29,21 +30,43 @@ const PAGE_SIZE = 20;
 // ---------------------------------------------------------------------------
 
 function sortAgents(
-  entries: AgentLeaderboardEntry[],
+  entries: (AgentLeaderboardEntry | WalletLeaderboardEntry)[],
   field: AgentSortField,
-): AgentLeaderboardEntry[] {
+): (AgentLeaderboardEntry | WalletLeaderboardEntry)[] {
   return [...entries].sort((a, b) => {
+    // Handle both wallet and agent entries
+    const isWalletA = 'wallet_address' in a;
+    const isWalletB = 'wallet_address' in b;
+
     switch (field) {
       case 'winRate':
-        return b.winRate - a.winRate;
+        const winRateA = isWalletA ? a.win_rate : a.winRate;
+        const winRateB = isWalletB ? b.win_rate : b.winRate;
+        return winRateB - winRateA;
       case 'kills':
         return b.kills - a.kills;
       case 'totalBattles':
-        return b.totalBattles - a.totalBattles;
+        const battlesA = isWalletA ? a.total_battles : a.totalBattles;
+        const battlesB = isWalletB ? b.total_battles : b.totalBattles;
+        return battlesB - battlesA;
+      case 'prizes':
+        // Prizes only exist for wallet entries
+        if (isWalletA && isWalletB) {
+          return parseInt(b.prize_won_mon) - parseInt(a.prize_won_mon);
+        }
+        return 0;
       case 'streak':
-        return b.streak - a.streak;
+        // Streak only exists for agent entries
+        if (!isWalletA && !isWalletB) {
+          return b.streak - a.streak;
+        }
+        return 0;
       case 'avgSurvival':
-        return b.avgSurvival - a.avgSurvival;
+        // Avg survival only exists for agent entries
+        if (!isWalletA && !isWalletB) {
+          return b.avgSurvival - a.avgSurvival;
+        }
+        return 0;
       default:
         return 0;
     }
@@ -176,6 +199,7 @@ export default function LeaderboardTable({
   bettors,
   agentsLoading,
   bettorsLoading,
+  isWalletMode = false,
 }: LeaderboardTableProps) {
   const [tab, setTab] = useState<Tab>('agents');
   const [search, setSearch] = useState('');
@@ -214,18 +238,28 @@ export default function LeaderboardTable({
 
     // Class filter
     if (classFilter !== 'ALL') {
-      result = result.filter((a) => a.agentClass === classFilter);
+      result = result.filter((a) => {
+        const agentClass = 'wallet_address' in a ? a.top_class : a.agentClass;
+        return agentClass === classFilter;
+      });
     }
 
     // Search
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter(
-        (a) =>
-          a.agentId.toLowerCase().includes(q) ||
-          a.agentClass.toLowerCase().includes(q) ||
-          `${a.agentClass}-${a.agentId.slice(0, 6)}`.toLowerCase().includes(q),
-      );
+      result = result.filter((a) => {
+        if ('wallet_address' in a) {
+          // Wallet entry: search by address
+          return a.wallet_address.toLowerCase().includes(q);
+        } else {
+          // Agent entry: search by agent ID or class
+          return (
+            a.agentId.toLowerCase().includes(q) ||
+            a.agentClass.toLowerCase().includes(q) ||
+            `${a.agentClass}-${a.agentId.slice(0, 6)}`.toLowerCase().includes(q)
+          );
+        }
+      });
     }
 
     // Sort
@@ -314,6 +348,7 @@ export default function LeaderboardTable({
         onClassFilterChange={handleClassChange}
         sortField={tab === 'agents' ? agentSort : bettorSort}
         onSortFieldChange={handleSortChange}
+        isWalletMode={isWalletMode}
       />
 
       {/* Table content */}
@@ -334,7 +369,7 @@ export default function LeaderboardTable({
         ) : tab === 'agents' ? (
           paginatedAgents.map((entry, i) => (
             <AgentRow
-              key={entry.agentId}
+              key={'wallet_address' in entry ? entry.wallet_address : entry.agentId}
               entry={entry}
               rank={(safePage - 1) * PAGE_SIZE + i + 1}
             />
