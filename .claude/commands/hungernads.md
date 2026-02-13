@@ -19,6 +19,7 @@ Tell users they can run these commands:
 | `/hnads-join <battle_id> [count]` | Join agents into an existing lobby |
 | `/hnads-browse` | List open lobbies you can join |
 | `/hnads-status <battle_id>` | Check battle status and results |
+| `/hnads-bet <battle_id> [amount]` | View odds + place bet on active battle |
 | `/hnads-fill [count]` | Create a lobby + fill with agents (for testing) |
 
 ## Configuration
