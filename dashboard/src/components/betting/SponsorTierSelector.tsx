@@ -5,6 +5,7 @@ import { useAccount, useWaitForTransactionReceipt } from "wagmi";
 import type { AgentState, AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import { useBurnHnads, monadChain } from "@/lib/contracts";
+import { EXPLORER_TX_URL } from "@/lib/wallet";
 
 // ---------------------------------------------------------------------------
 // Tier definitions (mirrors backend TIER_CONFIGS from src/betting/sponsorship.ts)
@@ -442,7 +443,7 @@ export default function SponsorTierSelector({
             <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
               <div className="mb-1">Tokens burned successfully!</div>
               <a
-                href={`https://testnet.monadexplorer.com/tx/${burnTxHash}`}
+                href={`${EXPLORER_TX_URL}${burnTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[10px] underline hover:text-green-300"

@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { CLASS_CONFIG, type BattleAgent } from "./mock-data";
 import AgentPortrait from "./AgentPortrait";
+import { EXPLORER_ADDRESS_URL } from "@/lib/wallet";
 
 interface AgentCardProps {
   agent: BattleAgent;
@@ -202,7 +203,7 @@ export default function AgentCard({ agent, highlighted }: AgentCardProps) {
       {agent.walletAddress && (
         <div className="mb-2">
           <a
-            href={`https://testnet.monadexplorer.com/address/${agent.walletAddress}`}
+            href={`${EXPLORER_ADDRESS_URL}${agent.walletAddress}`}
             target="_blank"
             rel="noopener noreferrer"
             className={`text-[10px] font-mono transition-colors ${

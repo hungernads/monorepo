@@ -22,7 +22,7 @@ import {
   useClaimed,
   useClaimPrize,
 } from "@/lib/contracts";
-import { BETTING_ADDRESS } from "@/lib/wallet";
+import { BETTING_ADDRESS, EXPLORER_TX_URL, EXPLORER_ADDRESS_URL } from "@/lib/wallet";
 import { CLASS_CONFIG } from "./mock-data";
 import AgentPortrait from "./AgentPortrait";
 import type { BattleAgent } from "./mock-data";
@@ -164,7 +164,7 @@ export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps
 
   // Explorer link for claim tx
   const explorerTxUrl = hash
-    ? `https://testnet.monadexplorer.com/tx/${hash}`
+    ? `${EXPLORER_TX_URL}${hash}`
     : null;
 
   return (
@@ -278,7 +278,7 @@ export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps
               <div className="mt-2 text-[9px] text-gray-700">
                 Contract:{" "}
                 <a
-                  href={`https://testnet.monadexplorer.com/address/${BETTING_ADDRESS}`}
+                  href={`${EXPLORER_ADDRESS_URL}${BETTING_ADDRESS}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-mono text-gray-600 underline decoration-gray-700 hover:text-gray-400"

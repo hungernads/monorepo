@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import useTokenPrice from '@/hooks/useTokenPrice';
 import { useFetch } from '@/hooks/useFetch';
-import { HNADS_TOKEN_ADDRESS } from '@/lib/wallet';
+import { HNADS_TOKEN_ADDRESS, EXPLORER_ADDRESS_URL } from '@/lib/wallet';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 // ---------------------------------------------------------------------------
@@ -776,7 +776,7 @@ export default function TokenPage() {
           <div className="flex items-center justify-between">
             <span className="text-gray-600">Token Address</span>
             <a
-              href={`https://testnet.monadexplorer.com/address/${HNADS_TOKEN_ADDRESS}`}
+              href={`${EXPLORER_ADDRESS_URL}${HNADS_TOKEN_ADDRESS}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 font-mono text-gray-400 transition-colors hover:text-gold"
