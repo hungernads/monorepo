@@ -22,6 +22,7 @@ import type {
   BattleEndEvent,
   PhaseChangeEvent,
   StormDamageEvent,
+  SponsorBoostEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 import StreamHighlightBanner from "@/components/stream/HighlightBanner";
@@ -349,6 +350,38 @@ function eventToFeedEntries(
           epoch: latestEpoch,
           type: "BATTLE_END",
           message: "BATTLE OVER",
+        },
+      ];
+    }
+
+    case "sponsor_boost": {
+      const e = event as SponsorBoostEvent;
+      const meta = agentMeta.get(e.data.agentId);
+      const agentName = meta?.name ?? e.data.agentId;
+      const agentClass = meta?.class;
+      const tierLabels: Record<string, string> = {
+        BREAD_RATION: "Bread Ration",
+        MEDICINE_KIT: "Medicine Kit",
+        ARMOR_PLATING: "Armor Plating",
+        WEAPON_CACHE: "Weapon Cache",
+        CORNUCOPIA: "Cornucopia",
+      };
+      const tierLabel = tierLabels[e.data.tier] ?? e.data.tier;
+      const effects: string[] = [];
+      if (e.data.actualBoost > 0) effects.push(`+${Math.round(e.data.actualBoost)} HP`);
+      if (e.data.freeDefend) effects.push("free defend");
+      if (e.data.attackBoost > 0) effects.push(`+${Math.round(e.data.attackBoost * 100)}% attack`);
+      const effectStr = effects.length > 0 ? ` (${effects.join(", ")})` : "";
+      return [
+        {
+          id: `ws-${index}`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "SPONSOR",
+          agentId: e.data.agentId,
+          agentName,
+          agentClass,
+          message: `${agentName} received ${tierLabel} from the crowd!${effectStr}`,
         },
       ];
     }
