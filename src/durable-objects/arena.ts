@@ -795,6 +795,26 @@ export class ArenaDO implements DurableObject {
             `${prizeDistribution.transactions.filter((t) => t.success).length}/${prizeDistribution.transactions.length} txs succeeded`,
           );
 
+          // Persist prize transactions to D1
+          try {
+            await savePrizeTransactions(
+              this.env.DB,
+              battleState.battleId,
+              prizeDistribution.transactions.map((tx) => ({
+                type: tx.type,
+                recipient: tx.recipient,
+                amount: tx.amount,
+                txHash: tx.txHash,
+                success: tx.success,
+                error: tx.error,
+                agentId: tx.agentId,
+              })),
+            );
+            console.log(`[ArenaDO] Saved ${prizeDistribution.transactions.length} prize transactions to D1`);
+          } catch (err) {
+            console.error(`[ArenaDO] Failed to persist prize transactions for ${battleState.battleId}:`, err);
+          }
+
           // Broadcast prize distribution to spectators
           const sockets = this.state.getWebSockets();
           broadcastEvent(sockets, {
@@ -1888,7 +1908,7 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
         }
       }
 
-      return Response.json(battleState);
+      return Response.json({ ...battleState, tier: battleState.lobbyTier ?? 'IRON' });
     }
 
     // Status (backward compat)

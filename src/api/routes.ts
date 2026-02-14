@@ -34,6 +34,7 @@ import {
   getStreakPool,
   getOpenLobbies,
   getBattleEvents,
+  getPrizeTransactions,
   type BattleRow,
   type FaucetClaimRow,
 } from '../db/schema';
@@ -100,10 +101,12 @@ app.get('/', (c) => {
       battleLobbies: 'GET /battle/lobbies',
       battleCreate: 'POST /battle/create',
       battleJoin: 'POST /battle/:id/join',
+      battleCancel: 'DELETE /battle/:id (cancel empty lobby)',
       battleStart: 'POST /battle/start (legacy)',
       battleState: 'GET /battle/:id',
       battleEpochs: 'GET /battle/:id/epochs',
       battleEvents: 'GET /battle/:id/events',
+      battlePrizes: 'GET /battle/:id/prizes',
       battles: 'GET /battles',
       agents: 'GET /agents',
       agentProfile: 'GET /agent/:id',
@@ -185,7 +188,7 @@ app.post('/battle/create', async (c) => {
     const body = await c.req.json().catch(() => ({}));
 
     // ── Parse & validate tier ───────────────────────────────────────
-    const tier: LobbyTier = body.tier ?? 'FREE';
+    const tier: LobbyTier = body.tier ?? 'IRON';
     if (!isValidTier(tier)) {
       return c.json(
         { error: `Invalid tier. Valid tiers: ${getAllTiers().join(', ')}` },
@@ -785,6 +788,62 @@ app.post('/battle/:id/join', async (c) => {
 });
 
 /**
+ * DELETE /battle/:id
+ *
+ * Cancel an empty lobby battle.
+ * Only works for battles in LOBBY status with 0 agents joined.
+ * Sets the battle status to CANCELLED.
+ *
+ * Response: { ok, battleId, status: 'CANCELLED' }
+ */
+app.delete('/battle/:id', async (c) => {
+  try {
+    const battleId = c.req.param('id');
+
+    // ── Validate battle exists in D1 ────────────────────────────
+    const battle = await getBattle(c.env.DB, battleId);
+    if (!battle) {
+      return c.json({ error: 'Battle not found' }, 404);
+    }
+
+    // ── Only allow cancellation of LOBBY battles ───────────────
+    if (battle.status !== 'LOBBY') {
+      return c.json(
+        { error: `Cannot cancel battle with status '${battle.status}'. Only LOBBY battles can be cancelled.` },
+        409,
+      );
+    }
+
+    // ── Check that lobby is empty ───────────────────────────────
+    const agents = await getAgentsByBattle(c.env.DB, battleId);
+    if (agents.length > 0) {
+      return c.json(
+        { error: `Cannot cancel lobby with ${agents.length} agent(s) joined. Only empty lobbies can be cancelled.` },
+        409,
+      );
+    }
+
+    // ── Update battle status to CANCELLED ───────────────────────
+    await updateBattle(c.env.DB, battleId, {
+      status: 'CANCELLED',
+      cancelled_at: new Date().toISOString(),
+    });
+
+    return c.json({
+      ok: true,
+      battleId,
+      status: 'CANCELLED',
+    });
+  } catch (error) {
+    console.error('Failed to cancel battle:', error);
+    return c.json(
+      { error: 'Failed to cancel battle', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
  * GET /battle/:id
  *
  * Get battle state from ArenaDO (agents, epoch, status, recent events).
@@ -911,25 +970,84 @@ app.get('/battle/:id/events', async (c) => {
 });
 
 /**
+ * GET /battle/:id/prizes
+ *
+ * Fetch persisted prize distribution transactions for a completed battle.
+ * Returns all on-chain operations: burns, treasury transfers, MON withdrawal,
+ * kill bonuses, and survival bonuses.
+ * Returns: { transactions: Array<{ type, recipient, amount, txHash, success, error?, agentId? }> }
+ */
+app.get('/battle/:id/prizes', async (c) => {
+  try {
+    const battleId = c.req.param('id');
+
+    // Verify battle exists
+    const battle = await getBattle(c.env.DB, battleId);
+    if (!battle) {
+      return c.json({ error: 'Battle not found' }, 404);
+    }
+
+    const rows = await getPrizeTransactions(c.env.DB, battleId);
+
+    const transactions = rows.map((row) => ({
+      type: row.type,
+      recipient: row.recipient,
+      amount: row.amount,
+      txHash: row.tx_hash,
+      success: row.success === 1,
+      error: row.error ?? undefined,
+      agentId: row.agent_id ?? undefined,
+      createdAt: row.created_at,
+    }));
+
+    return c.json({ transactions });
+  } catch (error) {
+    console.error('Failed to get prize transactions:', error);
+    return c.json(
+      { error: 'Failed to get prize transactions', detail: String(error) },
+      500,
+    );
+  }
+});
+
+/**
  * GET /battles
  *
  * List recent/active battles from D1.
- * Query params: ?status=ACTIVE|COMPLETED|PENDING&limit=20
+ * Query params: ?status=ACTIVE|COMPLETED|PENDING&limit=20&offset=0
  */
 app.get('/battles', async (c) => {
   try {
     const status = c.req.query('status');
     const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10), 0);
 
     let query: string;
     const bindings: unknown[] = [];
 
     if (status) {
-      query = 'SELECT * FROM battles WHERE status = ? ORDER BY started_at DESC LIMIT ?';
-      bindings.push(status, limit);
+      query = `
+        SELECT
+          b.*,
+          br.kills as winner_kills
+        FROM battles b
+        LEFT JOIN battle_records br ON b.winner_id = br.agent_id AND br.battle_id = b.id AND br.result = 'win'
+        WHERE b.status = ?
+        ORDER BY b.started_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      bindings.push(status, limit, offset);
     } else {
-      query = 'SELECT * FROM battles ORDER BY started_at DESC LIMIT ?';
-      bindings.push(limit);
+      query = `
+        SELECT
+          b.*,
+          br.kills as winner_kills
+        FROM battles b
+        LEFT JOIN battle_records br ON b.winner_id = br.agent_id AND br.battle_id = b.id AND br.result = 'win'
+        ORDER BY b.started_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      bindings.push(limit, offset);
     }
 
     const result = await c.env.DB.prepare(query).bind(...bindings).all<BattleRow>();
