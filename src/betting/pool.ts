@@ -26,13 +26,13 @@ import { SeasonManager } from './seasons';
 /**
  * Betting lifecycle phases for a battle.
  *
- * - OPEN:    Bets are accepted (battle start through first N epochs).
- * - LOCKED:  No new bets accepted; battle still in progress.
+ * - OPEN:    Bets are accepted for any ACTIVE battle (no epoch limit).
  * - SETTLED: Battle complete, payouts distributed.
  */
-export type BettingPhase = 'OPEN' | 'LOCKED' | 'SETTLED';
+export type BettingPhase = 'OPEN' | 'SETTLED';
 
 /**
+ * @deprecated Betting no longer locks after N epochs. Bets accepted for entire battle.
  * Number of epochs after which betting locks.
  * After this many epochs have been processed, no new bets are accepted.
  * Can be overridden via BETTING_LOCK_AFTER_EPOCH env var.

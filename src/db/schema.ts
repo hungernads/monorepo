@@ -29,7 +29,7 @@ export interface BattleRow {
   ended_at: string | null;
   winner_id: string | null;
   epoch_count: number;
-  /** Betting lifecycle phase: OPEN, LOCKED, or SETTLED. */
+  /** Betting lifecycle phase: OPEN or SETTLED (LOCKED phase removed). */
   betting_phase: string;
   /** Season this battle belongs to (nullable for pre-season battles). */
   season_id: string | null;

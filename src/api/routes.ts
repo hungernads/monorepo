@@ -173,7 +173,7 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
  *
  * Body (all fields optional):
  *   - tier:                string        — tier name (FREE, IRON, BRONZE, SILVER, GOLD) (default: FREE)
- *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
+ *   - bettingWindowEpochs: number        — DEPRECATED: ignored (betting open for entire battle)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
  * NOTE: maxPlayers, feeAmount, hnadsFee, and maxEpochs are now determined by tier (not customizable).
@@ -201,23 +201,10 @@ app.post('/battle/create', async (c) => {
     const hnadsFee = tierConfig.hnadsFee;
     const maxEpochs = tierConfig.maxEpochs;
 
-    // ── Parse & validate bettingWindowEpochs ───────────────────────
-    let bettingWindowEpochs = DEFAULT_BATTLE_CONFIG.bettingWindowEpochs;
-    if (body.bettingWindowEpochs !== undefined) {
-      if (typeof body.bettingWindowEpochs !== 'number' || !Number.isInteger(body.bettingWindowEpochs)) {
-        return c.json({ error: 'bettingWindowEpochs must be an integer' }, 400);
-      }
-      if (body.bettingWindowEpochs < 0 || body.bettingWindowEpochs > 50) {
-        return c.json({ error: 'bettingWindowEpochs must be between 0 and 50' }, 400);
-      }
-      if (body.bettingWindowEpochs > maxEpochs) {
-        return c.json(
-          { error: `bettingWindowEpochs (${body.bettingWindowEpochs}) cannot exceed maxEpochs (${maxEpochs})` },
-          400,
-        );
-      }
-      bettingWindowEpochs = body.bettingWindowEpochs;
-    }
+    // ── bettingWindowEpochs deprecated ─────────────────────────────
+    // Betting no longer locks after N epochs - always open for entire battle.
+    // Config field kept for backward compatibility but ignored.
+    const bettingWindowEpochs = DEFAULT_BATTLE_CONFIG.bettingWindowEpochs;
 
     // ── Parse & validate assets ────────────────────────────────────
     let assets = [...DEFAULT_BATTLE_CONFIG.assets];
@@ -1144,17 +1131,8 @@ app.post('/bet', async (c) => {
       );
     }
 
-    // Enforce betting phase gate: only accept bets when phase is OPEN.
-    const bettingPhase = battle.betting_phase ?? 'OPEN';
-    if (bettingPhase !== 'OPEN') {
-      return c.json(
-        {
-          error: `Betting is ${bettingPhase.toLowerCase()} for this battle`,
-          bettingPhase,
-        },
-        400,
-      );
-    }
+    // Betting phase check removed - bets accepted for entire battle duration.
+    // Phase only transitions to SETTLED when battle completes.
 
     // Enforce tier-based betting rules: check if betting is enabled for this tier.
     const tier = (battle.tier ?? 'FREE') as LobbyTier;
@@ -1257,11 +1235,40 @@ app.get('/battle/:id/odds', async (c) => {
     const inputs = buildOddsInputs(agents, perAgent, winRates);
     const odds = calculateOdds(inputs);
 
+    // Calculate total shares per agent from unsettled bets.
+    const bets = await pool.getBets(battleId);
+    const totalSharesByAgent: Record<string, number> = {};
+    for (const bet of bets) {
+      if (!bet.settled) {
+        // For now, treat amount as shares (1:1 ratio).
+        // In a dynamic pricing system, this would be bet.shares or (bet.amount / bet.price).
+        const shares = bet.amount;
+        totalSharesByAgent[bet.agent_id] = (totalSharesByAgent[bet.agent_id] ?? 0) + shares;
+      }
+    }
+
+    // Enrich odds with price (alias of probability) and totalShares.
+    const enrichedOdds: Record<string, {
+      probability: number;
+      decimal: number;
+      price: number;
+      totalShares: number;
+    }> = {};
+
+    for (const [agentId, oddsData] of Object.entries(odds)) {
+      enrichedOdds[agentId] = {
+        probability: oddsData.probability,
+        decimal: oddsData.decimal,
+        price: oddsData.probability, // Alias for frontend clarity
+        totalShares: totalSharesByAgent[agentId] ?? 0,
+      };
+    }
+
     return c.json({
       battleId,
       totalPool: total,
       perAgent,
-      odds,
+      odds: enrichedOdds,
     });
   } catch (error) {
     console.error('Failed to calculate odds:', error);
@@ -1278,7 +1285,7 @@ app.get('/battle/:id/odds', async (c) => {
  * Get the current betting phase for a battle.
  * Returns the phase from the ArenaDO (live state) with D1 fallback.
  *
- * Response: { battleId, bettingPhase: "OPEN"|"LOCKED"|"SETTLED", epoch, status }
+ * Response: { battleId, bettingPhase: "OPEN"|"SETTLED", epoch, status }
  */
 app.get('/battle/:id/phase', async (c) => {
   try {
