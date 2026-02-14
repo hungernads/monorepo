@@ -2,15 +2,25 @@
 
 import type { BattleAgent } from "@/components/battle/mock-data";
 
+const EXPLORER_TX_URL = "https://testnet.monadexplorer.com/tx/";
+
 interface ShareButtonProps {
   battleId: string;
-  winner?: { winnerName: string; totalEpochs: number } | null;
+  winner?: {
+    winnerName: string;
+    totalEpochs: number;
+    settlementTxs?: {
+      recordResult?: string;
+      settleBets?: string;
+    };
+  } | null;
   agents: BattleAgent[];
 }
 
 /**
  * Generates a tweet-ready URL and opens X/Twitter share intent.
- * Auto-generates a battle summary with winner info and agent stats.
+ * Auto-generates a battle summary with winner info, agent stats,
+ * and on-chain proof link when available.
  */
 export default function ShareButton({
   battleId,
@@ -23,6 +33,9 @@ export default function ShareButton({
       a.kills > (best?.kills ?? 0) ? a : best,
     );
 
+    // Pick the most relevant on-chain tx for proof (recordResult > settleBets)
+    const proofTx = winner?.settlementTxs?.recordResult ?? winner?.settlementTxs?.settleBets;
+
     let text: string;
 
     if (winner) {
@@ -33,6 +46,9 @@ export default function ShareButton({
         `${winner.winnerName} is the LAST NAD STANDING after ${winner.totalEpochs} epochs!`,
         topKiller.kills > 0
           ? `Top killer: ${topKiller.name} (${topKiller.kills} kills)`
+          : "",
+        proofTx
+          ? `On-chain proof: ${EXPLORER_TX_URL}${proofTx}`
           : "",
         "",
         "May the nads be ever in your favor.",
