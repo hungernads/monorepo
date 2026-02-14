@@ -159,7 +159,15 @@ async function fetchPersistedEvents(
     if (!json.events || !Array.isArray(json.events)) return [];
 
     const events: BattleEvent[] = [];
+    let seenBattleEnd = false;
     for (const row of json.events) {
+      // Deduplicate: only keep the first battle_end event
+      if (row.eventType === 'battle_end') {
+        if (seenBattleEnd) continue;
+        seenBattleEnd = true;
+      }
+      // Skip legacy agent_token_trade events
+      if (row.eventType === 'agent_token_trade') continue;
       try {
         const data = JSON.parse(row.eventJson);
         events.push({ type: row.eventType, data } as BattleEvent);
