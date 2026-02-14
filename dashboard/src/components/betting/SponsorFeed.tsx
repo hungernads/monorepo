@@ -102,69 +102,6 @@ interface SponsorEntry {
   isNew?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Mock data (dev fallback)
-// ---------------------------------------------------------------------------
-
-const mockNow = new Date("2026-02-08T12:00:00Z").getTime();
-
-const MOCK_SPONSORS: SponsorEntry[] = [
-  {
-    id: "s-1",
-    sponsor: "0xdead...beef",
-    agentId: "agent-5",
-    agentName: "MADLAD",
-    agentClass: "GAMBLER",
-    tier: "WEAPON_CACHE",
-    amount: 75,
-    hpBoost: 25,
-    freeDefend: false,
-    attackBoost: 0.25,
-    message: "Let the chaos reign!",
-    timestamp: mockNow - 230_000,
-  },
-  {
-    id: "s-2",
-    sponsor: "0x1234...abcd",
-    agentId: "agent-1",
-    agentName: "BLOODFANG",
-    agentClass: "WARRIOR",
-    tier: "CORNUCOPIA",
-    amount: 150,
-    hpBoost: 150,
-    freeDefend: true,
-    attackBoost: 0.25,
-    message: "Destroy them all.",
-    timestamp: mockNow - 480_000,
-  },
-  {
-    id: "s-3",
-    sponsor: "0xfade...7777",
-    agentId: "agent-3",
-    agentName: "IRONSHELL",
-    agentClass: "SURVIVOR",
-    tier: "ARMOR_PLATING",
-    amount: 50,
-    hpBoost: 50,
-    freeDefend: true,
-    attackBoost: 0,
-    timestamp: mockNow - 720_000,
-  },
-  {
-    id: "s-4",
-    sponsor: "0xc0de...0000",
-    agentId: "agent-2",
-    agentName: "ALPHABOT",
-    agentClass: "TRADER",
-    tier: "BREAD_RATION",
-    amount: 10,
-    hpBoost: 25,
-    freeDefend: false,
-    attackBoost: 0,
-    message: "Trust the data.",
-    timestamp: mockNow - 900_000,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -211,20 +148,16 @@ interface SponsorFeedProps {
 
 export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isDev = process.env.NODE_ENV === "development";
 
   // Extract sponsor entries from WebSocket events
   const entries: SponsorEntry[] = useMemo(() => {
-    if (!events || events.length === 0) {
-      if (isDev) return MOCK_SPONSORS;
-      return [];
-    }
+    if (!events || events.length === 0) return [];
 
     const sponsorEvents = events.filter(
       (e): e is SponsorBoostEvent => e.type === "sponsor_boost",
     );
 
-    if (sponsorEvents.length === 0 && isDev) return MOCK_SPONSORS;
+    if (sponsorEvents.length === 0) return [];
 
     return sponsorEvents.map((event, i) => {
       const meta = agentMeta?.get(event.data.agentId);
@@ -246,7 +179,7 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
         isNew: i === sponsorEvents.length - 1,
       };
     });
-  }, [events, agentMeta, isDev]);
+  }, [events, agentMeta]);
 
   // Total burned
   const totalBurned = useMemo(
