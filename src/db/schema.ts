@@ -29,7 +29,7 @@ export interface BattleRow {
   ended_at: string | null;
   winner_id: string | null;
   epoch_count: number;
-  /** Betting lifecycle phase: OPEN, LOCKED, or SETTLED. */
+  /** Betting lifecycle phase: OPEN or SETTLED (LOCKED phase removed). */
   betting_phase: string;
   /** Season this battle belongs to (nullable for pre-season battles). */
   season_id: string | null;
@@ -93,6 +93,8 @@ export interface BetRow {
   placed_at: string;
   settled: number; // 0 or 1
   payout: number;
+  price_at_bet?: number | null; // Price when bet was placed (dynamic pricing)
+  shares?: number | null; // Number of shares purchased
 }
 
 export interface SponsorshipRow {
@@ -105,6 +107,7 @@ export interface SponsorshipRow {
   accepted: number; // 0 or 1
   tier: string | null;
   epoch_number: number | null;
+  tx_hash: string | null; // On-chain burn transaction hash
 }
 
 export interface BattleRecordRow {
@@ -551,7 +554,7 @@ export async function insertBet(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO bets (id, battle_id, user_address, agent_id, amount, placed_at, settled, payout) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO bets (id, battle_id, user_address, agent_id, amount, placed_at, settled, payout, price_at_bet, shares) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       bet.id,
@@ -562,6 +565,8 @@ export async function insertBet(
       bet.placed_at,
       bet.settled,
       bet.payout,
+      bet.price_at_bet ?? null,
+      bet.shares ?? null,
     )
     .run();
 }

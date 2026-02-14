@@ -27,5 +27,9 @@ Thumbs.db
 # Generated replays
 replays/
 
+# Foundry artifacts
+contracts/broadcast/
+contracts/cache/
+
 # Beads (local task tracking)
 .beads/

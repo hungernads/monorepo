@@ -175,7 +175,7 @@ export default function LobbyCard({ lobby }: { lobby: LobbyData }) {
           tabIndex={isFull ? -1 : undefined}
           onClick={isFull ? (e) => e.preventDefault() : undefined}
         >
-          {isFull ? 'Full' : 'Join Battle'}
+          {isFull ? 'Full' : 'Watch Battle'}
         </Link>
       </div>
     </div>

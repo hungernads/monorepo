@@ -254,6 +254,7 @@ export class SponsorshipManager {
    * @param message        Public message from the sponsor
    * @param tier           Sponsorship tier
    * @param epochNumber    Target epoch (effects apply during this epoch)
+   * @param txHash         On-chain burn transaction hash (optional for DEMO tier)
    */
   async sponsorTiered(
     battleId: string,
@@ -263,6 +264,7 @@ export class SponsorshipManager {
     message: string,
     tier: SponsorTier,
     epochNumber: number,
+    txHash?: string | null,
   ): Promise<Sponsorship> {
     const config = TIER_CONFIGS[tier];
 
@@ -298,6 +300,7 @@ export class SponsorshipManager {
       accepted: 1, // MVP: always accept
       tier,
       epoch_number: epochNumber,
+      tx_hash: txHash || null,
     };
 
     await insertSponsorship(this.db, row);
@@ -329,6 +332,7 @@ export class SponsorshipManager {
     sponsorAddress: string,
     amount: number,
     message: string,
+    txHash?: string | null,
   ): Promise<Sponsorship> {
     if (amount < MIN_SPONSORSHIP_AMOUNT) {
       throw new Error(
@@ -349,6 +353,7 @@ export class SponsorshipManager {
       accepted: 1, // MVP: always accept
       tier: null,
       epoch_number: null,
+      tx_hash: txHash || null,
     };
 
     await insertSponsorship(this.db, row);

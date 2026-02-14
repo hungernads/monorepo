@@ -43,7 +43,7 @@ import type { BaseAgent } from '../agents/base-agent';
 import { BettingPool, DEFAULT_BETTING_LOCK_AFTER_EPOCH } from '../betting/pool';
 import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
-import { updateBattle, insertBattleEvents } from '../db/schema';
+import { updateBattle, insertBattleEvents, getAgentsByBattle } from '../db/schema';
 import { createChainClient, monadTestnet, type AgentResult as ChainAgentResult } from '../chain/client';
 import { distributePrizes, type PayoutAgent, type PrizeDistribution } from '../arena/payouts';
 import { createMoltbookPoster } from '../moltbook';
@@ -81,7 +81,7 @@ export interface BattleAgent {
 export interface BattleConfig {
   /** Max epochs before timeout. Computed dynamically from agent count via computePhaseConfig(). */
   maxEpochs: number;
-  /** Epochs to keep betting open (default DEFAULT_BETTING_LOCK_AFTER_EPOCH). */
+  /** @deprecated Betting no longer locks after N epochs. Field kept for backward compatibility but ignored. */
   bettingWindowEpochs: number;
   /** Which assets agents can predict on (default all four). */
   assets: string[];
@@ -107,7 +107,7 @@ export interface BattleState {
   startedAt: string | null;
   completedAt: string | null;
   winnerId: string | null;
-  /** Betting lifecycle phase: OPEN -> LOCKED -> SETTLED. */
+  /** Betting lifecycle phase: OPEN -> SETTLED (LOCKED removed). */
   bettingPhase: BettingPhase;
   /** Per-battle configuration. */
   config: BattleConfig;
@@ -577,40 +577,9 @@ export class ArenaDO implements DurableObject {
       console.error('[ArenaDO] Failed to persist grid snapshot:', err);
     }
 
-    // ── Betting phase transition: OPEN -> LOCKED ──────────────────
-    // After N epochs, lock betting so no new bets can be placed.
-    // Per-battle config takes priority, then env var, then global default.
-    const lockAfter = battleState.config?.bettingWindowEpochs
-      ?? (this.env.BETTING_LOCK_AFTER_EPOCH
-        ? parseInt(this.env.BETTING_LOCK_AFTER_EPOCH, 10)
-        : DEFAULT_BETTING_LOCK_AFTER_EPOCH);
-
-    if (battleState.bettingPhase === 'OPEN' && battleState.epoch >= lockAfter) {
-      battleState.bettingPhase = 'LOCKED';
-      console.log(
-        `[ArenaDO] Betting locked for battle ${battleState.battleId} at epoch ${battleState.epoch}`,
-      );
-
-      // Persist phase change to D1
-      try {
-        await updateBattle(this.env.DB, battleState.battleId, {
-          betting_phase: 'LOCKED',
-        });
-      } catch (err) {
-        console.error(`[ArenaDO] Failed to update D1 betting_phase to LOCKED:`, err);
-      }
-
-      // Broadcast phase change to spectators
-      const sockets = this.state.getWebSockets();
-      broadcastEvent(sockets, {
-        type: 'betting_phase_change',
-        data: {
-          phase: 'LOCKED',
-          epoch: battleState.epoch,
-          reason: `Betting locked after epoch ${lockAfter}`,
-        },
-      });
-    }
+    // ── Betting phase transition removed ────────────────────────────
+    // Betting now remains OPEN for the entire battle (no epoch-based locking).
+    // Phase only transitions to SETTLED when battle completes.
 
     // ── Max epochs timeout guard ──────────────────────────────────
     // If the battle didn't end naturally but we've hit the epoch limit,
@@ -795,6 +764,10 @@ export class ArenaDO implements DurableObject {
       let prizeDistribution: PrizeDistribution | null = null;
       if (tier !== 'FREE') {
         try {
+          // Query D1 for player wallets (agents table stores wallet_address from lobby join)
+          const dbAgents = await getAgentsByBattle(this.env.DB, battleState.battleId);
+          const walletMap = new Map(dbAgents.map((a) => [a.id, a.wallet_address]));
+
           const payoutAgents: PayoutAgent[] = Object.values(battleState.agents).map((agent) => ({
             id: agent.id,
             name: agent.name,
@@ -803,7 +776,8 @@ export class ArenaDO implements DurableObject {
             epochsSurvived: agent.epochsSurvived,
             isAlive: agent.isAlive,
             isWinner: agent.id === winnerId,
-            walletAddress: agent.walletAddress,
+            // Use player's actual wallet from D1, fallback to ephemeral wallet
+            walletAddress: walletMap.get(agent.id) ?? agent.walletAddress,
           }));
 
           prizeDistribution = await distributePrizes(

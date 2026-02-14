@@ -230,26 +230,23 @@ export class WarriorAgent extends BaseAgent {
     let combatStake: number | undefined = raw.combatStake as number | undefined;
 
     if (weakestTarget) {
-      // Prey exists — Warriors almost always engage
-      const shouldEngage = Math.random() < WARRIOR_CONFIG.combatProbability;
-      if (shouldEngage || isDesperate) {
-        // Decide ATTACK vs SABOTAGE based on target class
-        const isTargetDefender = weakestTarget.class === 'SURVIVOR';
-        if (isTargetDefender && Math.random() < WARRIOR_CONFIG.sabotageVsDefenderProb) {
-          combatStance = 'SABOTAGE';
-        } else {
-          combatStance = 'ATTACK';
-        }
-        combatTarget = weakestTarget.name;
-
-        // Combat stake: proportional to how weak the target is
-        const targetWeakness = 1 - weakestTarget.hp / weakestTarget.maxHp;
-        combatStake = Math.max(
-          30,
-          Math.round(this.hp * 0.1 * (1 + targetWeakness)),
-        );
-        combatStake = Math.min(combatStake, Math.round(this.hp * 0.3));
+      // Prey exists — Warriors ALWAYS engage (removed probability check)
+      // Decide ATTACK vs SABOTAGE based on target class
+      const isTargetDefender = weakestTarget.class === 'SURVIVOR';
+      if (isTargetDefender && Math.random() < WARRIOR_CONFIG.sabotageVsDefenderProb) {
+        combatStance = 'SABOTAGE';
+      } else {
+        combatStance = 'ATTACK';
       }
+      combatTarget = weakestTarget.name;
+
+      // Combat stake: proportional to how weak the target is
+      const targetWeakness = 1 - weakestTarget.hp / weakestTarget.maxHp;
+      combatStake = Math.max(
+        30,
+        Math.round(this.hp * 0.1 * (1 + targetWeakness)),
+      );
+      combatStake = Math.min(combatStake, Math.round(this.hp * 0.3));
     } else if (combatStance === 'ATTACK' || combatStance === 'SABOTAGE') {
       // LLM picked a target even though no one is below threshold — allow it but cap stake
       if (combatTarget && combatStake) {

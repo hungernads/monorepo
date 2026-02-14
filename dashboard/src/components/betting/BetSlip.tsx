@@ -17,6 +17,9 @@ export interface BetSlipAgent {
   class: AgentClass;
   odds: number;
   impliedProbability: number;
+  price: number; // Share price ($0.XX format)
+  totalShares: number; // Total shares bought for this agent
+  userShares: number; // User's current shares for this agent
   hp: number;
   maxHp: number;
   alive: boolean;
@@ -49,8 +52,19 @@ export default function BetSlip({
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [lastBetShares, setLastBetShares] = useState<number | null>(null);
 
   const parsedAmount = parseFloat(betAmount);
+
+  // Calculate shares: amount / price
+  const shares = agent && !isNaN(parsedAmount) && parsedAmount > 0
+    ? parsedAmount / agent.price
+    : 0;
+
+  // Estimated payout: shares * $1.00 (full payout if agent wins)
+  const estimatedPayout = shares * 1.0;
+
+  // Legacy odds-based payout (for comparison/validation)
   const potentialPayout =
     agent && !isNaN(parsedAmount) && parsedAmount > 0
       ? parsedAmount * agent.odds
@@ -84,6 +98,7 @@ export default function BetSlip({
     setIsPending(true);
     const API_BASE =
       process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+    const currentShares = shares; // Capture shares before clearing
     try {
       const res = await fetch(`${API_BASE}/bet`, {
         method: "POST",
@@ -103,9 +118,12 @@ export default function BetSlip({
         );
       }
 
+      setLastBetShares(currentShares); // Store shares for success message
       setBetAmount("");
       setShowConfirm(false);
       onSuccess();
+      // Clear shares message after 5s
+      setTimeout(() => setLastBetShares(null), 5000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setShowConfirm(false);
@@ -148,7 +166,10 @@ export default function BetSlip({
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded bg-gold/20 px-2 py-0.5 text-xs font-bold text-gold">
-            {agent.odds.toFixed(2)}x
+            ${agent.price.toFixed(2)}
+          </span>
+          <span className="text-[10px] text-gray-500">
+            {agent.odds.toFixed(1)}x
           </span>
           <button
             onClick={() => {
@@ -180,6 +201,13 @@ export default function BetSlip({
 
       {/* Bet form */}
       <div className="p-3 space-y-3">
+        {/* Success message with shares */}
+        {lastBetShares !== null && (
+          <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-center text-xs text-green-400">
+            Bet placed! You received <span className="font-bold">{lastBetShares.toFixed(2)} shares</span>
+          </div>
+        )}
+
         {/* Amount input */}
         <div>
           <label className="mb-1 block text-[10px] uppercase tracking-wider text-gray-600">
@@ -226,30 +254,43 @@ export default function BetSlip({
           ))}
         </div>
 
-        {/* Payout breakdown */}
-        {potentialPayout > 0 && (
+        {/* Shares & Payout breakdown */}
+        {shares > 0 && agent && (
           <div className="space-y-1 rounded bg-colosseum-bg/80 px-3 py-2">
             <div className="flex items-center justify-between text-[10px] text-gray-500">
               <span>Stake</span>
               <span>{parsedAmount.toFixed(0)} $HNADS</span>
             </div>
             <div className="flex items-center justify-between text-[10px] text-gray-500">
-              <span>Odds</span>
-              <span>{agent.odds.toFixed(2)}x</span>
+              <span>Price per share</span>
+              <span>${agent.price.toFixed(2)}</span>
             </div>
             <div className="h-px bg-colosseum-surface-light" />
             <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-400">Potential Payout</span>
+              <span className="text-gray-400">You'll receive</span>
               <span className="font-bold text-gold">
-                {potentialPayout.toFixed(2)} $HNADS
+                {shares.toFixed(2)} shares
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-gray-600">Estimated payout</span>
+              <span className="font-bold text-green-400">
+                {estimatedPayout.toFixed(2)} $HNADS
               </span>
             </div>
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-gray-600">Profit if won</span>
               <span className="font-bold text-green-400">
-                +{netProfit.toFixed(2)} $HNADS
+                +{(estimatedPayout - parsedAmount).toFixed(2)} $HNADS
               </span>
             </div>
+            {/* Show current user shares if any */}
+            {agent.userShares > 0 && (
+              <div className="flex items-center justify-between text-[10px] text-blue-400 pt-1 border-t border-colosseum-surface-light">
+                <span>Your current shares</span>
+                <span className="font-bold">{agent.userShares.toFixed(2)}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -261,8 +302,10 @@ export default function BetSlip({
           <div className="space-y-2">
             <p className="text-center text-[10px] text-gray-400">
               Confirm {parsedAmount} $HNADS on{" "}
-              <span className="font-bold text-white">{agent.name}</span> at{" "}
-              <span className="text-gold">{agent.odds.toFixed(2)}x</span>?
+              <span className="font-bold text-white">{agent.name}</span>
+              <br />
+              <span className="text-gold">{shares.toFixed(2)} shares</span> at{" "}
+              <span className="text-gold">${agent.price.toFixed(2)}</span> each?
             </p>
             <div className="flex gap-2">
               <button

@@ -118,19 +118,18 @@ Content-Type: application/json
 {
   "agentClasses": ["WARRIOR", "TRADER", "SURVIVOR", "PARASITE", "GAMBLER"],
   "maxEpochs": 8,
-  "bettingWindowEpochs": 3,
   "assets": ["ETH", "BTC", "SOL", "MON"]
 }
 \`\`\`
 
-All fields optional. Defaults: 5 agents (one of each class), dynamic max epochs (8-14 based on player count), 3 epoch betting window.
+All fields optional. Defaults: 5 agents (one of each class), dynamic max epochs (8-14 based on player count). Note: bettingWindowEpochs deprecated (betting always open).
 
 Response:
 \`\`\`json
 {
   "ok": true,
   "battleId": "uuid",
-  "config": { "maxEpochs": 8, "bettingWindowEpochs": 3, "assets": ["ETH","BTC","SOL","MON"] },
+  "config": { "maxEpochs": 8, "assets": ["ETH","BTC","SOL","MON"] },
   "agents": [
     { "id": "uuid", "class": "WARRIOR", "name": "WARRIOR-a1b2c3" },
     { "id": "uuid", "class": "TRADER", "name": "TRADER-d4e5f6" }
@@ -150,7 +149,7 @@ Response:
   "battleId": "uuid",
   "status": "ACTIVE",
   "epoch": 7,
-  "bettingPhase": "LOCKED",
+  "bettingPhase": "OPEN",
   "agents": [
     {
       "id": "uuid",
@@ -193,7 +192,7 @@ Response:
 }
 \`\`\`
 
-Phases: \`OPEN\` (bets accepted), \`LOCKED\` (no more bets), \`SETTLED\` (payouts done)
+Phases: \`OPEN\` (bets accepted for entire battle), \`SETTLED\` (payouts done)
 
 ### 3.6 Place a Bet
 \`\`\`
@@ -344,7 +343,7 @@ Upgrade to WebSocket for live battle events. Events are JSON with a \`type\` fie
 - \`battle_end\` -- winner announcement
 - \`odds_update\` -- new odds after epoch
 - \`sponsor_boost\` -- parachute drop applied
-- \`betting_phase_change\` -- OPEN/LOCKED/SETTLED transition
+- \`betting_phase_change\` -- OPEN/SETTLED transition
 
 ---
 

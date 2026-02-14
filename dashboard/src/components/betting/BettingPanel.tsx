@@ -11,6 +11,7 @@ import OddsSparkline from "./OddsSparkline";
 import BetSlip from "./BetSlip";
 import type { BetSlipAgent } from "./BetSlip";
 import SettlementView from "./SettlementView";
+import type { BattleEvent } from "@/lib/websocket";
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -21,7 +22,13 @@ interface OddsResponse {
   battleId: string;
   totalPool: number;
   perAgent: Record<string, number>;
-  odds: Record<string, { probability: number; decimal: number }>;
+  odds: Record<string, {
+    probability: number;
+    decimal: number;
+    price: number;
+    totalShares: number;
+  }>;
+  userShares?: Record<string, number>; // Optional: user's shares per agent when ?user=address is passed
 }
 
 /** GET /user/:address/bets response */
@@ -54,6 +61,10 @@ interface BettingPanelProps {
     winnerName: string;
     totalEpochs: number;
   } | null;
+  /** Lobby tier (optional, defaults to allow betting). */
+  tier?: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
+  /** WebSocket events stream (for listening to agent_death events). */
+  events?: BattleEvent[];
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +75,8 @@ export default function BettingPanel({
   agents,
   battleId,
   winner,
+  tier,
+  events = [],
 }: BettingPanelProps) {
   // ── Wallet state ──
   const { address, isConnected } = useAccount();
@@ -76,9 +89,15 @@ export default function BettingPanel({
   const previousOddsRef = useRef<Record<string, number>>({});
   const oddsHistoryRef = useRef<Record<string, number[]>>({});
 
-  // ── Fetch live odds from API ──
-  const { data: oddsData, loading: oddsLoading } = useFetch<OddsResponse>(
-    `/battle/${battleId}/odds`,
+  // ── Fetch live odds from API (with user shares if connected) ──
+  const oddsUrl = useMemo(() => {
+    return isConnected && address
+      ? `/battle/${battleId}/odds?user=${address}`
+      : `/battle/${battleId}/odds`;
+  }, [battleId, isConnected, address]);
+
+  const { data: oddsData, loading: oddsLoading, refetch: refetchOdds } = useFetch<OddsResponse>(
+    oddsUrl,
     { pollInterval: 15_000 },
   );
 
@@ -95,17 +114,69 @@ export default function BettingPanel({
   const aliveAgents = useMemo(() => agents.filter((a) => a.alive), [agents]);
   const deadAgents = useMemo(() => agents.filter((a) => !a.alive), [agents]);
 
+  // ── Tier-based betting check ──
+  // Tier configs (hardcoded to match backend src/arena/tiers.ts)
+  const TIER_BETTING_ENABLED: Record<string, boolean> = {
+    FREE: false,
+    IRON: true,
+    BRONZE: true,
+    SILVER: true,
+    GOLD: true,
+  };
+  const bettingAllowed = tier ? TIER_BETTING_ENABLED[tier] ?? true : true;
+
+  // ── Track alive count and refetch odds when an agent dies ──
+  // Primary trigger: WebSocket agent_death events for immediate response.
+  // Fallback trigger: aliveAgents.length change (epoch_end updates).
+  // When an agent dies, refetch odds immediately to show updated probabilities
+  // without waiting for the next 15s poll interval or epoch_end event.
+  const lastDeathEventIndexRef = useRef(-1);
+  useEffect(() => {
+    // Find the latest agent_death event we haven't processed yet
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === 'agent_death' && i > lastDeathEventIndexRef.current) {
+        // New death event detected — refetch odds immediately
+        refetchOdds();
+        lastDeathEventIndexRef.current = i;
+        break;
+      }
+    }
+  }, [events, refetchOdds]);
+
+  // Fallback: Track alive count changes from epoch_end updates
+  const aliveCountRef = useRef(aliveAgents.length);
+  useEffect(() => {
+    // Skip initial mount (first render when data loads)
+    if (aliveCountRef.current === 0 && aliveAgents.length > 0) {
+      aliveCountRef.current = aliveAgents.length;
+      return;
+    }
+
+    // If alive count decreased, an agent died — refetch odds immediately
+    if (aliveAgents.length < aliveCountRef.current) {
+      refetchOdds();
+    }
+
+    aliveCountRef.current = aliveAgents.length;
+  }, [aliveAgents.length, refetchOdds]);
+
   // ── Derive odds + track history ──
   const agentOdds = useMemo(() => {
     const apiOdds = oddsData?.odds ?? {};
+    const userShares = oddsData?.userShares ?? {};
     // Dynamic fallback: equal odds = N alive agents (1/N probability)
     const equalOddsMultiplier = aliveAgents.length > 0 ? aliveAgents.length : 5.0;
     return aliveAgents.map((agent) => {
       const multiplier = apiOdds[agent.id]?.decimal ?? equalOddsMultiplier;
+      const price = apiOdds[agent.id]?.price ?? (1 / equalOddsMultiplier);
+      const totalShares = apiOdds[agent.id]?.totalShares ?? 0;
       return {
         ...agent,
         odds: multiplier,
         impliedProbability: (1 / multiplier) * 100,
+        price,
+        totalShares,
+        userShares: userShares[agent.id] ?? 0,
       };
     });
   }, [aliveAgents, oddsData]);
@@ -166,6 +237,9 @@ export default function BettingPanel({
       class: entry.class,
       odds: entry.odds,
       impliedProbability: entry.impliedProbability,
+      price: entry.price,
+      totalShares: entry.totalShares,
+      userShares: entry.userShares,
       hp: entry.hp,
       maxHp: entry.maxHp,
       alive: entry.alive,
@@ -237,14 +311,17 @@ export default function BettingPanel({
                 <button
                   key={agent.id}
                   onClick={() =>
-                    setSelectedAgentId(
+                    bettingAllowed && setSelectedAgentId(
                       isSelected ? "" : agent.id,
                     )
                   }
+                  disabled={!bettingAllowed}
                   className={`w-full flex items-center justify-between rounded border px-3 py-3 text-xs transition-all sm:py-2 ${
                     isSelected
                       ? "border-gold/50 bg-gold/10 ring-1 ring-gold/20"
-                      : "border-colosseum-surface-light bg-colosseum-bg/50 hover:border-gray-600 hover:bg-colosseum-bg/80"
+                      : !bettingAllowed
+                        ? "border-colosseum-surface-light bg-colosseum-bg/30 opacity-60 cursor-not-allowed"
+                        : "border-colosseum-surface-light bg-colosseum-bg/50 hover:border-gray-600 hover:bg-colosseum-bg/80"
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -278,12 +355,18 @@ export default function BettingPanel({
                       currentOdds={agent.odds}
                       previousOdds={prevOdds}
                     />
-                    {/* Implied probability (hidden on mobile) */}
-                    <span className="hidden text-gray-500 sm:inline">
-                      {agent.impliedProbability.toFixed(0)}%
+                    {/* User shares (if any) */}
+                    {agent.userShares > 0 && (
+                      <span className="hidden text-xs text-green-400 sm:inline">
+                        {agent.userShares.toFixed(0)} shares
+                      </span>
+                    )}
+                    {/* Price (primary display) */}
+                    <span className="min-w-[3.5rem] rounded bg-gold/20 px-2 py-0.5 text-center font-bold text-gold">
+                      ${agent.price.toFixed(2)}
                     </span>
-                    {/* Odds badge */}
-                    <span className="min-w-[3rem] rounded bg-gold/20 px-2 py-0.5 text-center font-bold text-gold">
+                    {/* Odds multiplier (secondary, smaller) */}
+                    <span className="hidden text-[10px] text-gray-500 sm:inline">
                       {agent.odds.toFixed(1)}x
                     </span>
                   </div>
@@ -342,12 +425,20 @@ export default function BettingPanel({
           </div>
         )}
 
-        <BetSlip
-          agent={selectedBetSlipAgent}
-          battleId={battleId}
-          onClear={() => setSelectedAgentId("")}
-          onSuccess={handleBetSuccess}
-        />
+        {!bettingAllowed ? (
+          <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/30 p-4">
+            <p className="text-center text-xs text-gray-600">
+              Betting is not available for {tier} tier battles
+            </p>
+          </div>
+        ) : (
+          <BetSlip
+            agent={selectedBetSlipAgent}
+            battleId={battleId}
+            onClear={() => setSelectedAgentId("")}
+            onSuccess={handleBetSuccess}
+          />
+        )}
       </div>
 
       {/* ------- MY ACTIVE BETS ------- */}

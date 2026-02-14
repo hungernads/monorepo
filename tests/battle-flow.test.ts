@@ -677,6 +677,116 @@ function testAgentHeal(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// TEST SUITE: Storm Simultaneous Death Winner Logic
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function testStormSimultaneousDeathWinner(): Promise<void> {
+  section('Winner Logic: Simultaneous Storm Deaths');
+
+  const arena = new ArenaManager('test-storm-death', { maxEpochs: 20, epochIntervalMs: 0 });
+
+  // Spawn just 2 agents to test mutual elimination
+  arena.spawnAgents(['WARRIOR', 'TRADER']);
+  arena.startBattleImmediate();
+
+  const agents = arena.getAllAgents();
+  assert(agents.length === 2, 'Should have 2 agents');
+
+  // Simulate both agents dying in the same epoch (e.g., storm damage)
+  arena.incrementEpoch();
+
+  // Mark both as dead and eliminate them
+  for (const agent of agents) {
+    agent.hp = 0;
+    agent.isAlive = false;
+    arena.eliminateAgent(agent.id);
+  }
+
+  // Verify both are in elimination records at the same epoch
+  const eliminations = arena.getEliminations();
+  assert(eliminations.length === 2, 'Should have 2 elimination records');
+  assert(eliminations[0].eliminatedAtEpoch === 1, 'First agent eliminated at epoch 1');
+  assert(eliminations[1].eliminatedAtEpoch === 1, 'Second agent eliminated at epoch 1');
+
+  // Battle should be complete (0 agents alive)
+  assert(arena.isComplete(), 'Battle should be complete with 0 agents alive');
+
+  // CRITICAL: getWinner() should NOT return null
+  const winner = arena.getWinner();
+  assert(winner !== null, 'Winner should NOT be null even with simultaneous deaths');
+
+  // Winner should have a reason explaining the tiebreak
+  const winnerReason = arena.getWinnerReason();
+  assert(winnerReason !== null && winnerReason.length > 0, 'Winner reason should be set');
+  assert(winnerReason?.includes('rekt'), 'Winner reason should mention mutual rekt');
+
+  // Complete battle and verify winner in record
+  const record = arena.completeBattle();
+  assert(record.winnerId !== null, 'Battle record should have a winnerId');
+  assert(record.winnerName !== null, 'Battle record should have a winnerName');
+  assert(record.winnerClass !== null, 'Battle record should have a winnerClass');
+  assert(record.winnerReason !== undefined, 'Battle record should have a winnerReason');
+
+  console.log(`  Winner: ${record.winnerName} (${record.winnerReason})`);
+}
+
+async function testStormSimultaneousDeathWithEpochProcessor(): Promise<void> {
+  section('Winner Logic: Simultaneous Deaths via processEpoch()');
+
+  const arena = new ArenaManager('test-storm-epoch', { maxEpochs: 20, epochIntervalMs: 0 });
+
+  // Spawn 2 agents
+  arena.spawnAgents(['WARRIOR', 'SURVIVOR']);
+  arena.startBattleImmediate();
+
+  const agents = arena.getAllAgents();
+
+  // Manually force both agents to near-death HP (will die from bleed)
+  // Bleed is 2% of HP, min 1 damage. So agents with low HP will die
+  for (const agent of agents) {
+    // Use takeDamage() to properly update internal state
+    agent.takeDamage(999); // Take 999 damage to bring HP to 1
+    console.log(`  DEBUG: ${agent.name} HP after takeDamage: ${agent.hp}, isAlive: ${agent.isAlive}`);
+  }
+
+  // Run an epoch (bleed + death check should trigger)
+  const priceFeed = new SimulatedPriceFeed();
+
+  const savedError = console.error;
+  const savedWarn = console.warn;
+  console.error = () => {};
+  console.warn = () => {};
+
+  const result = await processEpoch(arena, priceFeed, undefined, mockFinalWords);
+
+  console.error = savedError;
+  console.warn = savedWarn;
+
+  // Debug output
+  console.log(`  DEBUG: Deaths count: ${result.deaths.length}`);
+  console.log(`  DEBUG: Bleed results count: ${result.bleedResults.length}`);
+  for (const br of result.bleedResults) {
+    console.log(`  DEBUG: Bleed - ${br.agentId}: ${br.hpBefore} -> ${br.hpAfter} (damage: ${br.bleedAmount})`);
+  }
+  console.log(`  DEBUG: Agent states after epoch:`);
+  for (const agentState of result.agentStates) {
+    console.log(`  DEBUG:   ${agentState.name}: HP=${agentState.hp}, alive=${agentState.isAlive}`);
+  }
+
+  // Both should die from bleed
+  assert(result.deaths.length === 2, 'Both agents should die from bleed/storm');
+  assert(result.battleComplete === true, 'Battle should be complete');
+
+  // CRITICAL: winner field should be populated, NOT undefined
+  assert(result.winner !== undefined, 'EpochResult should have a winner even with simultaneous deaths');
+  assert(result.winner!.id.length > 0, 'Winner should have an ID');
+  assert(result.winner!.name.length > 0, 'Winner should have a name');
+  assert(result.winner!.reason !== undefined && result.winner!.reason.length > 0, 'Winner should have a reason');
+
+  console.log(`  Winner: ${result.winner!.name} (${result.winner!.reason})`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // RUN ALL TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -713,6 +823,10 @@ async function runAllTests(): Promise<void> {
   // Integration
   await testFullBattleFlow();
   await testLessonExtraction();
+
+  // Storm Simultaneous Death Winner Logic
+  await testStormSimultaneousDeathWinner();
+  await testStormSimultaneousDeathWithEpochProcessor();
 
   // Summary
   console.log('\n==============================');

@@ -878,6 +878,20 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
   const { address, isConnected: walletConnected } = useAccount();
   const { favorites, toggle: toggleFavorite, isFavorite } = useFavoriteAgents();
+
+  // ── Fetch battle metadata (tier, etc.) ──
+  const [battleTier, setBattleTier] = useState<'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD'>('IRON');
+  useEffect(() => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
+    fetch(`${API_BASE}/battle/${battleId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.tier) {
+          setBattleTier(data.tier);
+        }
+      })
+      .catch((err) => console.warn('Failed to fetch battle metadata:', err));
+  }, [battleId]);
   const { toasts, addToast, removeToast } = useToast();
   const { addBurn } = useBurnCounter();
   const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
@@ -1359,7 +1373,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
             <CollapsiblePanel title="Bets" defaultOpen={false}>
               <div className="p-3">
-                <BettingPanel agents={agents} battleId={battleId} winner={winner} />
+                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} events={events} />
               </div>
             </CollapsiblePanel>
           </div>

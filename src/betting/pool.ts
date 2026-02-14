@@ -26,13 +26,13 @@ import { SeasonManager } from './seasons';
 /**
  * Betting lifecycle phases for a battle.
  *
- * - OPEN:    Bets are accepted (battle start through first N epochs).
- * - LOCKED:  No new bets accepted; battle still in progress.
+ * - OPEN:    Bets are accepted for any ACTIVE battle (no epoch limit).
  * - SETTLED: Battle complete, payouts distributed.
  */
-export type BettingPhase = 'OPEN' | 'LOCKED' | 'SETTLED';
+export type BettingPhase = 'OPEN' | 'SETTLED';
 
 /**
+ * @deprecated Betting no longer locks after N epochs. Bets accepted for entire battle.
  * Number of epochs after which betting locks.
  * After this many epochs have been processed, no new bets are accepted.
  * Can be overridden via BETTING_LOCK_AFTER_EPOCH env var.
@@ -111,12 +111,15 @@ export class BettingPool {
    *
    * Validates inputs, persists to D1, and returns the bet ID.
    * Throws on invalid input (caller should catch and return 400).
+   *
+   * @param priceAtBet - Optional price (probability) at which bet was placed (for dynamic pricing).
    */
   async placeBet(
     battleId: string,
     userAddress: string,
     agentId: string,
     amount: number,
+    priceAtBet?: number,
   ): Promise<PlaceBetResult> {
     if (!battleId) throw new Error('battleId is required');
     if (!userAddress) throw new Error('userAddress is required');
@@ -125,6 +128,9 @@ export class BettingPool {
 
     const betId = crypto.randomUUID();
     const now = new Date().toISOString();
+
+    // Calculate shares if price is provided
+    const shares = priceAtBet && priceAtBet > 0 ? amount / priceAtBet : undefined;
 
     const row: BetRow = {
       id: betId,
@@ -135,6 +141,8 @@ export class BettingPool {
       placed_at: now,
       settled: 0,
       payout: 0,
+      price_at_bet: priceAtBet,
+      shares,
     };
 
     await insertBet(this.db, row);
@@ -282,39 +290,45 @@ export class BettingPool {
     // Mark losers first (bulk update).
     await settleBattleBets(this.db, battleId, winnerId);
 
-    // Compute winner payouts.
+    // Compute winner payouts using share-weighted distribution.
     const winningBets = bets.filter(b => b.agent_id === winnerId);
-    const totalWinningStake = winningBets.reduce((sum, b) => sum + b.amount, 0);
+
+    // Helper: get effective shares for a bet (with legacy fallback)
+    const effectiveShares = (bet: BetRow) => bet.shares ?? (bet.amount / 0.20);
+
+    const totalWinningShares = winningBets.reduce((sum, b) => sum + effectiveShares(b), 0);
 
     const payouts: Payout[] = [];
 
-    if (totalWinningStake > 0) {
+    if (totalWinningShares > 0) {
       // Aggregate per-user (a user can have multiple bets on the winner).
-      const userStakes = new Map<string, { total: number; betIds: string[] }>();
+      const userStakes = new Map<string, { totalShares: number; totalAmount: number; betIds: string[] }>();
 
       for (const bet of winningBets) {
-        const entry = userStakes.get(bet.user_address) ?? { total: 0, betIds: [] };
-        entry.total += bet.amount;
+        const entry = userStakes.get(bet.user_address) ?? { totalShares: 0, totalAmount: 0, betIds: [] };
+        entry.totalShares += effectiveShares(bet);
+        entry.totalAmount += bet.amount;
         entry.betIds.push(bet.id);
         userStakes.set(bet.user_address, entry);
       }
 
-      // ── Distribute winner pool proportionally ──────────────────
-      for (const [userAddress, { total, betIds }] of userStakes) {
-        const share = total / totalWinningStake;
-        const userPayout = Math.floor(winnerPool * share * 100) / 100; // floor to 2 dp
+      // ── Distribute winner pool proportionally by shares ──────────────────
+      for (const [userAddress, { totalShares, totalAmount, betIds }] of userStakes) {
+        const shareRatio = totalShares / totalWinningShares;
+        const userPayout = Math.floor(winnerPool * shareRatio * 100) / 100; // floor to 2 dp
 
         payouts.push({
           userAddress,
-          betAmount: total,
+          betAmount: totalAmount,
           payout: userPayout,
         });
 
-        // Distribute payout across the user's individual bet rows proportionally.
+        // Distribute payout across the user's individual bet rows proportionally by shares.
         for (const betId of betIds) {
           const bet = winningBets.find(b => b.id === betId)!;
-          const betShare = bet.amount / total;
-          const betPayout = Math.floor(userPayout * betShare * 100) / 100;
+          const betShares = effectiveShares(bet);
+          const betShareRatio = betShares / totalShares;
+          const betPayout = Math.floor(userPayout * betShareRatio * 100) / 100;
           await settleBet(this.db, betId, betPayout);
         }
       }

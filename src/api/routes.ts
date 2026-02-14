@@ -173,7 +173,7 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
  *
  * Body (all fields optional):
  *   - tier:                string        — tier name (FREE, IRON, BRONZE, SILVER, GOLD) (default: FREE)
- *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
+ *   - bettingWindowEpochs: number        — DEPRECATED: ignored (betting open for entire battle)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
  * NOTE: maxPlayers, feeAmount, hnadsFee, and maxEpochs are now determined by tier (not customizable).
@@ -201,23 +201,10 @@ app.post('/battle/create', async (c) => {
     const hnadsFee = tierConfig.hnadsFee;
     const maxEpochs = tierConfig.maxEpochs;
 
-    // ── Parse & validate bettingWindowEpochs ───────────────────────
-    let bettingWindowEpochs = DEFAULT_BATTLE_CONFIG.bettingWindowEpochs;
-    if (body.bettingWindowEpochs !== undefined) {
-      if (typeof body.bettingWindowEpochs !== 'number' || !Number.isInteger(body.bettingWindowEpochs)) {
-        return c.json({ error: 'bettingWindowEpochs must be an integer' }, 400);
-      }
-      if (body.bettingWindowEpochs < 0 || body.bettingWindowEpochs > 50) {
-        return c.json({ error: 'bettingWindowEpochs must be between 0 and 50' }, 400);
-      }
-      if (body.bettingWindowEpochs > maxEpochs) {
-        return c.json(
-          { error: `bettingWindowEpochs (${body.bettingWindowEpochs}) cannot exceed maxEpochs (${maxEpochs})` },
-          400,
-        );
-      }
-      bettingWindowEpochs = body.bettingWindowEpochs;
-    }
+    // ── bettingWindowEpochs deprecated ─────────────────────────────
+    // Betting no longer locks after N epochs - always open for entire battle.
+    // Config field kept for backward compatibility but ignored.
+    const bettingWindowEpochs = DEFAULT_BATTLE_CONFIG.bettingWindowEpochs;
 
     // ── Parse & validate assets ────────────────────────────────────
     let assets = [...DEFAULT_BATTLE_CONFIG.assets];
@@ -1144,24 +1131,86 @@ app.post('/bet', async (c) => {
       );
     }
 
-    // Enforce betting phase gate: only accept bets when phase is OPEN.
-    const bettingPhase = battle.betting_phase ?? 'OPEN';
-    if (bettingPhase !== 'OPEN') {
+    // Betting phase check removed - bets accepted for entire battle duration.
+    // Phase only transitions to SETTLED when battle completes.
+
+    // Enforce tier-based betting rules: check if betting is enabled for this tier.
+    const tier = (battle.tier ?? 'FREE') as LobbyTier;
+    const tierConfig = getTierConfig(tier);
+    if (!tierConfig.bettingEnabled) {
       return c.json(
         {
-          error: `Betting is ${bettingPhase.toLowerCase()} for this battle`,
-          bettingPhase,
+          error: `Betting is not available for ${tier} tier battles`,
+          tier,
         },
         400,
       );
     }
 
     const pool = new BettingPool(c.env.DB);
-    const result = await pool.placeBet(battleId, userAddress, agentId, amount);
+
+    // Calculate current odds to capture price at bet placement.
+    // Get betting pool breakdown.
+    const { perAgent } = await pool.getBattlePool(battleId);
+
+    // Get latest agent HP from most recent epoch actions.
+    const epochs = await getEpochsByBattle(c.env.DB, battleId);
+    const latestEpoch = epochs[epochs.length - 1];
+    const agentHpMap: Record<string, { hp: number; maxHp: number; isAlive: boolean }> = {};
+
+    if (latestEpoch) {
+      const actions = await getEpochActions(c.env.DB, latestEpoch.id);
+      for (const action of actions) {
+        agentHpMap[action.agent_id] = {
+          hp: action.hp_after ?? 1000,
+          maxHp: 1000,
+          isAlive: (action.hp_after ?? 1000) > 0,
+        };
+      }
+    }
+
+    // Fallback to default HP if no epoch data yet.
+    if (Object.keys(agentHpMap).length === 0) {
+      const battleAgents = await getAgentsByBattle(c.env.DB, battleId);
+      for (const agent of battleAgents) {
+        agentHpMap[agent.id] = { hp: 1000, maxHp: 1000, isAlive: true };
+      }
+    }
+
+    // Fetch win rates for each agent.
+    const winRates: Record<string, number> = {};
+    for (const agentId of Object.keys(agentHpMap)) {
+      const [wins, battles] = await Promise.all([
+        getAgentWins(c.env.DB, agentId),
+        getAgentBattleCount(c.env.DB, agentId),
+      ]);
+      winRates[agentId] = battles > 0 ? wins / battles : 0;
+    }
+
+    // Build inputs and calculate odds.
+    const agents = Object.entries(agentHpMap).map(([id, state]) => ({
+      id,
+      ...state,
+    }));
+    const inputs = buildOddsInputs(agents, perAgent, winRates);
+    const odds = calculateOdds(inputs);
+
+    // Extract price for the agent being bet on.
+    const priceAtBet = odds[agentId]?.probability;
+
+    // Place bet with price and shares.
+    const result = await pool.placeBet(battleId, userAddress, agentId, amount, priceAtBet);
+
+    // Calculate shares for response.
+    const shares = priceAtBet && priceAtBet > 0 ? amount / priceAtBet : undefined;
 
     return c.json({
       ok: true,
-      bet: result,
+      bet: {
+        ...result,
+        price: priceAtBet,
+        shares,
+      },
     });
   } catch (error) {
     console.error('Failed to place bet:', error);
@@ -1244,11 +1293,40 @@ app.get('/battle/:id/odds', async (c) => {
     const inputs = buildOddsInputs(agents, perAgent, winRates);
     const odds = calculateOdds(inputs);
 
+    // Calculate total shares per agent from unsettled bets.
+    const bets = await pool.getBets(battleId);
+    const totalSharesByAgent: Record<string, number> = {};
+    for (const bet of bets) {
+      if (!bet.settled) {
+        // For now, treat amount as shares (1:1 ratio).
+        // In a dynamic pricing system, this would be bet.shares or (bet.amount / bet.price).
+        const shares = bet.amount;
+        totalSharesByAgent[bet.agent_id] = (totalSharesByAgent[bet.agent_id] ?? 0) + shares;
+      }
+    }
+
+    // Enrich odds with price (alias of probability) and totalShares.
+    const enrichedOdds: Record<string, {
+      probability: number;
+      decimal: number;
+      price: number;
+      totalShares: number;
+    }> = {};
+
+    for (const [agentId, oddsData] of Object.entries(odds)) {
+      enrichedOdds[agentId] = {
+        probability: oddsData.probability,
+        decimal: oddsData.decimal,
+        price: oddsData.probability, // Alias for frontend clarity
+        totalShares: totalSharesByAgent[agentId] ?? 0,
+      };
+    }
+
     return c.json({
       battleId,
       totalPool: total,
       perAgent,
-      odds,
+      odds: enrichedOdds,
     });
   } catch (error) {
     console.error('Failed to calculate odds:', error);
@@ -1265,7 +1343,7 @@ app.get('/battle/:id/odds', async (c) => {
  * Get the current betting phase for a battle.
  * Returns the phase from the ArenaDO (live state) with D1 fallback.
  *
- * Response: { battleId, bettingPhase: "OPEN"|"LOCKED"|"SETTLED", epoch, status }
+ * Response: { battleId, bettingPhase: "OPEN"|"SETTLED", epoch, status }
  */
 app.get('/battle/:id/phase', async (c) => {
   try {
@@ -1538,11 +1616,12 @@ app.post('/battle/:id/settle', async (c) => {
  *   - message:        string  (optional)
  *   - tier:           string  (optional) -- BREAD_RATION | MEDICINE_KIT | ARMOR_PLATING | WEAPON_CACHE | CORNUCOPIA
  *   - epochNumber:    number  (optional) -- target epoch for effects. Required if tier is set.
+ *   - txHash:         string  (optional) -- on-chain burn transaction hash (required for non-BREAD_RATION tiers)
  */
 app.post('/sponsor', async (c) => {
   try {
     const body = await c.req.json();
-    const { battleId, agentId, amount, message, sponsorAddress, tier: tierStr, epochNumber } = body as {
+    const { battleId, agentId, amount, message, sponsorAddress, tier: tierStr, epochNumber, txHash } = body as {
       battleId?: string;
       agentId?: string;
       amount?: number;
@@ -1550,6 +1629,7 @@ app.post('/sponsor', async (c) => {
       sponsorAddress?: string;
       tier?: string;
       epochNumber?: number;
+      txHash?: string;
     };
 
     if (!battleId || !agentId || !sponsorAddress) {
@@ -1593,6 +1673,14 @@ app.post('/sponsor', async (c) => {
         );
       }
 
+      // Validate txHash for non-BREAD_RATION tiers
+      if (tier !== 'BREAD_RATION' && !txHash) {
+        return c.json(
+          { error: `Transaction hash (txHash) is required for ${tier} tier sponsorships` },
+          400,
+        );
+      }
+
       const sponsorship = await manager.sponsorTiered(
         battleId,
         agentId,
@@ -1601,6 +1689,7 @@ app.post('/sponsor', async (c) => {
         message ?? '',
         tier,
         epochNumber,
+        txHash,
       );
 
       return c.json({
@@ -1617,6 +1706,7 @@ app.post('/sponsor', async (c) => {
       sponsorAddress,
       amount,
       message ?? '',
+      txHash,
     );
 
     return c.json({
@@ -2015,21 +2105,78 @@ app.post('/bet/buy', async (c) => {
       slippagePercent ?? 1,
     );
 
-    // Record in off-chain pool for odds/leaderboard tracking
+    // Calculate current odds to capture price at bet placement.
     const pool = new BettingPool(c.env.DB);
+    const { perAgent } = await pool.getBattlePool(battleId);
+
+    // Get latest agent HP from most recent epoch actions.
+    const epochs = await getEpochsByBattle(c.env.DB, battleId);
+    const latestEpoch = epochs[epochs.length - 1];
+    const agentHpMap: Record<string, { hp: number; maxHp: number; isAlive: boolean }> = {};
+
+    if (latestEpoch) {
+      const actions = await getEpochActions(c.env.DB, latestEpoch.id);
+      for (const action of actions) {
+        agentHpMap[action.agent_id] = {
+          hp: action.hp_after ?? 1000,
+          maxHp: 1000,
+          isAlive: (action.hp_after ?? 1000) > 0,
+        };
+      }
+    }
+
+    // Fallback to default HP if no epoch data yet.
+    if (Object.keys(agentHpMap).length === 0) {
+      const battleAgents = await getAgentsByBattle(c.env.DB, battleId);
+      for (const agent of battleAgents) {
+        agentHpMap[agent.id] = { hp: 1000, maxHp: 1000, isAlive: true };
+      }
+    }
+
+    // Fetch win rates for each agent.
+    const winRates: Record<string, number> = {};
+    for (const agentId of Object.keys(agentHpMap)) {
+      const [wins, battles] = await Promise.all([
+        getAgentWins(c.env.DB, agentId),
+        getAgentBattleCount(c.env.DB, agentId),
+      ]);
+      winRates[agentId] = battles > 0 ? wins / battles : 0;
+    }
+
+    // Build inputs and calculate odds.
+    const agents = Object.entries(agentHpMap).map(([id, state]) => ({
+      id,
+      ...state,
+    }));
+    const inputs = buildOddsInputs(agents, perAgent, winRates);
+    const odds = calculateOdds(inputs);
+
+    // Extract price for the agent being bet on.
+    const priceAtBet = odds[agentId]?.probability;
+
+    // Record in off-chain pool for odds/leaderboard tracking with price and shares.
+    const betAmount = Number(formatEther(amountWei));
     const betRecord = await pool.placeBet(
       battleId,
       client.walletAddress,
       agentId,
-      Number(formatEther(amountWei)),
+      betAmount,
+      priceAtBet,
     );
+
+    // Calculate shares for response.
+    const shares = priceAtBet && priceAtBet > 0 ? betAmount / priceAtBet : undefined;
 
     return c.json({
       ok: true,
       txHash,
       tokenAddress,
       amountInMon,
-      bet: betRecord,
+      bet: {
+        ...betRecord,
+        price: priceAtBet,
+        shares,
+      },
     });
   } catch (error) {
     console.error('Failed to buy $HNADS:', error);

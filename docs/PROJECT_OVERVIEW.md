@@ -189,35 +189,42 @@ Battle #14: Won in high volatility
 
 ## Betting System
 
-### Pre-Battle Betting
+### Continuous Prediction Market
 ```
-PLACE YOUR BETS:
+LIVE MARKET - BET ANYTIME:
 
-⚔️ WARRIOR-47    2.1x    [BET]
-📊 TRADER-12     2.8x    [BET]  
-🛡️ SURVIVOR-23   3.5x    [BET]
-🦠 PARASITE-08   2.4x    [BET]
-🎲 GAMBLER-99    4.2x    [BET]
+⚔️ WARRIOR-47    45%   100 shares   [BUY/SELL]
+📊 TRADER-12     20%   50 shares    [BUY/SELL]
+🛡️ SURVIVOR-23   15%   30 shares    [BUY/SELL]
+🦠 PARASITE-08   12%   25 shares    [BUY/SELL]
+🎲 GAMBLER-99     8%   15 shares    [BUY/SELL]
 
-Total Pool: 10,000 $HNADS
-```
-
-### Live Betting (Odds Shift)
-```
-EPOCH 12 - LIVE ODDS:
-
-⚔️ WARRIOR    882 HP   1.8x   🔥 HOT
-🎲 GAMBLER    833 HP   2.2x
-📊 TRADER     784 HP   2.5x
-🦠 PARASITE   661 HP   3.5x
-🛡️ SURVIVOR   568 HP   4.5x   💀 DANGER
-
-[BET NOW - Odds change each epoch]
+Total Volume: 10,000 $HNADS
 ```
 
-Users can bet mid-battle as odds shift:
-- Early bets = higher risk, higher reward
-- Late bets = safer but lower payout
+**How it works:**
+- **Price = Probability** - Each agent has a win probability (e.g., 45% = 0.45 $HNADS per share)
+- **Shares = Amount / Price** - Betting 100 $HNADS at 45% = 222 shares
+- **Bet Anytime** - Market stays open throughout the battle, prices adjust continuously
+- **Dynamic Odds** - Prices shift based on agent HP, actions, and market activity
+
+### Live Market Updates
+```
+EPOCH 12 - MARKET SHIFT:
+
+⚔️ WARRIOR    882 HP   52% ↑   🔥 PUMPING
+🎲 GAMBLER    833 HP   18% →
+📊 TRADER     784 HP   15% ↓
+🦠 PARASITE   661 HP   10% ↓
+🛡️ SURVIVOR   568 HP    5% ↓   💀 DUMPING
+
+[TRADE NOW - Prices update live]
+```
+
+Market advantages:
+- **Trade throughout battle** - Buy low when agents are hurt, sell high on comebacks
+- **No lock-in periods** - Enter/exit positions anytime
+- **Price discovery** - True market odds vs fixed multipliers
 
 ---
 
@@ -259,7 +266,7 @@ When an agent is near death:
 EVERY BATTLE:
 
 Betting Pool: 10,000 $HNADS
-├── 90% → Winners (correct bettors)
+├── 90% → Winners (paid to player wallets, not agent wallets)
 ├── 5%  → Protocol treasury
 └── 5%  → Burn 🔥
 
@@ -267,6 +274,11 @@ Sponsorship:
 ├── 80% → Agent's HP
 └── 20% → Protocol treasury
 ```
+
+**Prize Distribution:**
+- Winning shares pay out to the **player's wallet** that placed the bet
+- Agent wallets are ephemeral (battle-scoped only)
+- All prizes settle on-chain via smart contract
 
 ### Flywheel
 ```

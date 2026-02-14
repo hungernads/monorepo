@@ -237,13 +237,14 @@ export interface BetsSettledEvent {
 }
 
 /**
- * Emitted when the betting phase transitions (OPEN -> LOCKED -> SETTLED).
+ * Emitted when the betting phase transitions (OPEN -> SETTLED).
+ * LOCKED phase removed - betting stays open for entire battle.
  * Clients should use this to enable/disable bet placement UI.
  */
 export interface BettingPhaseChangeEvent {
   type: 'betting_phase_change';
   data: {
-    phase: 'OPEN' | 'LOCKED' | 'SETTLED';
+    phase: 'OPEN' | 'SETTLED';
     /** Epoch at which the transition occurred. */
     epoch: number;
     /** Human-readable reason for the transition. */
