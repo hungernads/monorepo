@@ -78,12 +78,12 @@ export default function ActionFeed({ entries }: ActionFeedProps) {
                               : ""
               }`}
             >
-              {/* Timestamp -- suppressHydrationWarning because locale-formatted
-                  times can differ between server and client renders */}
+              {/* Epoch + Timestamp */}
               <span
-                className="mt-px shrink-0 text-[10px] text-gray-700"
+                className="mt-px shrink-0 text-[10px] text-gray-700 tabular-nums"
                 suppressHydrationWarning
               >
+                <span className="text-gray-600">E{entry.epoch}</span>{" "}
                 {formatTime(entry.timestamp)}
               </span>
 
