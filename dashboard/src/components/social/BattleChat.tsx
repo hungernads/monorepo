@@ -21,44 +21,6 @@ interface BattleChatProps {
   userDisplayName?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Mock messages for demo
-// ---------------------------------------------------------------------------
-
-const now = new Date("2026-02-08T12:00:00Z").getTime();
-
-const MOCK_MESSAGES: ChatMessage[] = [
-  {
-    id: "cm-1",
-    sender: "0xdead...beef",
-    text: "BLOODFANG is unstoppable rn",
-    timestamp: now - 120_000,
-  },
-  {
-    id: "cm-2",
-    sender: "0xfade...1337",
-    text: "MADLAD all in on MON DOWN lmaooo",
-    timestamp: now - 95_000,
-  },
-  {
-    id: "cm-3",
-    sender: "0xcafe...babe",
-    text: "IRONSHELL just vibing with shields up",
-    timestamp: now - 72_000,
-  },
-  {
-    id: "cm-4",
-    sender: "0xaaaa...2222",
-    text: "rip COPYCAT. never had a chance",
-    timestamp: now - 45_000,
-  },
-  {
-    id: "cm-5",
-    sender: "0xdead...beef",
-    text: "May the nads be ever in your favor",
-    timestamp: now - 20_000,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -77,7 +39,7 @@ export default function BattleChat({
   isConnected = false,
   userDisplayName = "anon",
 }: BattleChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -120,25 +82,31 @@ export default function BattleChat({
         ref={scrollRef}
         className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 scrollbar-thin"
       >
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className="animate-feed-enter rounded px-2 py-1 text-xs hover:bg-colosseum-surface-light/30"
-          >
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className="shrink-0 text-[10px] text-gray-700"
-                suppressHydrationWarning
-              >
-                {formatChatTime(msg.timestamp)}
-              </span>
-              <span className="shrink-0 font-bold text-accent-light">
-                {msg.sender}
-              </span>
-              <span className="break-all text-gray-400">{msg.text}</span>
-            </div>
+        {messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-xs text-gray-600">
+            No messages yet. Be the first to speak!
           </div>
-        ))}
+        ) : (
+          messages.map((msg) => (
+            <div
+              key={msg.id}
+              className="animate-feed-enter rounded px-2 py-1 text-xs hover:bg-colosseum-surface-light/30"
+            >
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className="shrink-0 text-[10px] text-gray-700"
+                  suppressHydrationWarning
+                >
+                  {formatChatTime(msg.timestamp)}
+                </span>
+                <span className="shrink-0 font-bold text-accent-light">
+                  {msg.sender}
+                </span>
+                <span className="break-all text-gray-400">{msg.text}</span>
+              </div>
+            </div>
+          ))
+        )}
         {/* Scroll sentinel — auto-scroll target */}
         <div ref={bottomRef} />
       </div>
