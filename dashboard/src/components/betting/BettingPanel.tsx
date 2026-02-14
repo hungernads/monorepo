@@ -121,7 +121,7 @@ export default function BettingPanel({
   // ── Tier-based betting check ──
   // Tier configs (hardcoded to match backend src/arena/tiers.ts)
   const TIER_BETTING_ENABLED: Record<string, boolean> = {
-    FREE: false,
+    FREE: true,
     IRON: true,
     BRONZE: true,
     SILVER: true,
