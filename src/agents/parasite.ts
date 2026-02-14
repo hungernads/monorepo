@@ -75,6 +75,18 @@ function findScavengeTargets(
   );
 }
 
+/**
+ * Find weak agents (<30% HP) that Parasite can attack opportunistically.
+ */
+function findWeakTargets(
+  selfId: string,
+  agents: ArenaAgentState[],
+): ArenaAgentState[] {
+  return agents.filter(
+    a => a.id !== selfId && a.isAlive && a.hp / a.maxHp < 0.30,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // ParasiteAgent
 // ---------------------------------------------------------------------------
@@ -104,6 +116,7 @@ export class ParasiteAgent extends BaseAgent {
     // Parasite-specific context: identify host and scavenge targets
     const host = findHost(this.id, arenaState.agents);
     const scavengeTargets = findScavengeTargets(this.id, arenaState.agents);
+    const weakTargets = findWeakTargets(this.id, arenaState.agents);
 
     const hostContext = host
       ? `\nYOUR HOST (copy this agent): ${host.name} (${host.class}) at ${host.hp} HP (${Math.round(host.hpRatio * 100)}% relative strength). Mirror their likely prediction at 50% stake size.`
@@ -114,9 +127,14 @@ export class ParasiteAgent extends BaseAgent {
         ? `\nSCAVENGE TARGETS (below 15% HP): ${scavengeTargets.map(t => `${t.name} (${t.hp} HP)`).join(', ')}. Use SABOTAGE - your +10% class bonus makes it the best scavenging tool. Bypasses any desperate DEFEND.`
         : '\nNo scavenge targets available (no agents below 15% HP).';
 
+    const weakTargetsContext =
+      weakTargets.length > 0
+        ? `\nWEAK TARGETS (below 30% HP): ${weakTargets.map(t => `${t.name} (${t.hp} HP)`).join(', ')}. Opportunistic SABOTAGE recommended when adjacent.`
+        : '';
+
     const skillContext = this.getSkillPromptContext();
     const allianceContext = this.getAlliancePromptContext();
-    const parasitePromptSuffix = `${hostContext}${scavengeContext}\n${skillContext}\n${allianceContext}`;
+    const parasitePromptSuffix = `${hostContext}${scavengeContext}${weakTargetsContext}\n${skillContext}\n${allianceContext}`;
 
     try {
       const result = await agentDecision(
@@ -144,6 +162,15 @@ export class ParasiteAgent extends BaseAgent {
       // Convert ATTACK to SABOTAGE (Parasite's strength)
       if (combatStance === 'ATTACK') {
         combatStance = 'SABOTAGE';
+      }
+
+      // Parasite now attacks weak targets (<30% HP) opportunistically
+      if (combatStance === 'NONE' && weakTargets.length > 0) {
+        // Find weakest target and attack
+        const weakest = weakTargets.sort((a, b) => a.hp - b.hp)[0];
+        combatStance = 'SABOTAGE';
+        combatTarget = weakest.name;
+        combatStake = Math.round(this.hp * 0.1); // Conservative 10% stake
       }
 
       // Cap SABOTAGE stake (Parasite is cautious)

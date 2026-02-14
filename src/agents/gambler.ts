@@ -29,10 +29,10 @@ const GAMBLER_CONFIG = {
   /** Prediction stake range */
   stakeMin: 5,
   stakeMax: 50, // Capped by PredictionSchema
-  /** Probability of each combat stance */
-  attackProbability: 0.25,
-  sabotageProbability: 0.20,
-  defendProbability: 0.20,
+  /** Probability of each combat stance - tuned for ~50% attack rate */
+  attackProbability: 0.35,
+  sabotageProbability: 0.15,
+  defendProbability: 0.15,
   // Remaining ~35% = NONE
   /** Max proportion of HP to risk on combat */
   combatStakeMaxPct: 0.4,
