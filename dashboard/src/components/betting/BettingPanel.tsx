@@ -11,6 +11,7 @@ import OddsSparkline from "./OddsSparkline";
 import BetSlip from "./BetSlip";
 import type { BetSlipAgent } from "./BetSlip";
 import SettlementView from "./SettlementView";
+import type { SettlementTxs } from "./SettlementView";
 import type { BattleEvent } from "@/lib/websocket";
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,8 @@ interface BettingPanelProps {
   tier?: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
   /** WebSocket events stream (for listening to agent_death events). */
   events?: BattleEvent[];
+  /** On-chain settlement transaction hashes (from battle_end event or API). */
+  settlementTxs?: SettlementTxs;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +80,7 @@ export default function BettingPanel({
   winner,
   tier,
   events = [],
+  settlementTxs,
 }: BettingPanelProps) {
   // ── Wallet state ──
   const { address, isConnected } = useAccount();
@@ -272,6 +276,7 @@ export default function BettingPanel({
           settled: b.settled,
         }))}
         totalPool={oddsData?.totalPool ?? 0}
+        settlementTxs={settlementTxs}
       />
     );
   }

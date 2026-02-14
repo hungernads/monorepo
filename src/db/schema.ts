@@ -51,6 +51,12 @@ export interface BattleRow {
   hnads_treasury: string;
   /** Maximum epochs allowed for this tier. */
   max_epochs: number;
+  /** On-chain tx hash from HungernadsArena.recordResult(). */
+  record_result_tx: string | null;
+  /** On-chain tx hash from HungernadsBetting.settleBattle(). */
+  settle_bets_tx: string | null;
+  /** JSON array of PayoutTx objects from prize distribution. */
+  prize_txs: string | null;
 }
 
 export interface EpochRow {
@@ -366,6 +372,18 @@ export async function updateBattle(
   if (fields.max_epochs !== undefined) {
     setClauses.push('max_epochs = ?');
     values.push(fields.max_epochs);
+  }
+  if (fields.record_result_tx !== undefined) {
+    setClauses.push('record_result_tx = ?');
+    values.push(fields.record_result_tx);
+  }
+  if (fields.settle_bets_tx !== undefined) {
+    setClauses.push('settle_bets_tx = ?');
+    values.push(fields.settle_bets_tx);
+  }
+  if (fields.prize_txs !== undefined) {
+    setClauses.push('prize_txs = ?');
+    values.push(fields.prize_txs);
   }
 
   if (setClauses.length === 0) return;

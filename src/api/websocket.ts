@@ -128,6 +128,11 @@ export interface BattleEndEvent {
     totalEpochs: number;
     /** How the winner was determined (e.g. "Last nad standing", "Mutual rekt — tiebreak by kills"). */
     reason?: string;
+    /** On-chain settlement transaction hashes (populated when chain client is available). */
+    settlementTxs?: {
+      recordResult?: string;
+      settleBets?: string;
+    };
   };
 }
 
@@ -506,6 +511,16 @@ export interface PrizeDistributionEvent {
     survivalBonuses: { agentId: string; agentName: string; bonusHnads: string }[];
     transactionCount: number;
     successCount: number;
+    /** Individual transaction details (tx hashes, amounts, success status). */
+    transactions?: Array<{
+      type: string;
+      recipient: string;
+      amount: string;
+      txHash: string;
+      success: boolean;
+      agentId?: string;
+      agentName?: string;
+    }>;
   };
 }
 

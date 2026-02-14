@@ -25,11 +25,45 @@ interface WinnerInfo {
   totalEpochs: number;
 }
 
+export interface SettlementTxs {
+  recordResult?: string;
+  settleBets?: string;
+  prizes?: Array<{
+    type: string;
+    recipient: string;
+    amount: string;
+    txHash: string;
+    success: boolean;
+    agentId?: string;
+    agentName?: string;
+  }>;
+}
+
 interface SettlementViewProps {
   winner: WinnerInfo;
   agents: AgentState[];
   bets: SettledBet[];
   totalPool: number;
+  settlementTxs?: SettlementTxs;
+}
+
+const EXPLORER_URL = "https://testnet.monadexplorer.com/tx/";
+
+function TxLink({ hash, label }: { hash: string; label: string }) {
+  const short = `${hash.slice(0, 6)}...${hash.slice(-4)}`;
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="text-[10px] text-gray-500">{label}</span>
+      <a
+        href={`${EXPLORER_URL}${hash}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono text-[10px] text-accent hover:text-accent/80 hover:underline"
+      >
+        {short}
+      </a>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +75,7 @@ export default function SettlementView({
   agents,
   bets,
   totalPool,
+  settlementTxs,
 }: SettlementViewProps) {
   const winnerAgent = agents.find((a) => a.id === winner.winnerId);
   const winnerCfg = winnerAgent
@@ -64,6 +99,11 @@ export default function SettlementView({
   const totalPayout = settledBets.reduce((sum, b) => sum + b.actualPayout, 0);
   const netResult = totalPayout - totalWagered;
   const hasWinningBets = settledBets.some((b) => b.won);
+
+  const hasTxs =
+    settlementTxs?.recordResult ||
+    settlementTxs?.settleBets ||
+    (settlementTxs?.prizes && settlementTxs.prizes.some((p) => p.txHash));
 
   return (
     <div className="space-y-4">
@@ -99,6 +139,42 @@ export default function SettlementView({
           </div>
         </div>
       </div>
+
+      {/* On-Chain Settlement */}
+      {hasTxs && (
+        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/50 p-3">
+          <h3 className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">
+            On-Chain Settlement
+          </h3>
+          <div className="divide-y divide-colosseum-surface-light">
+            {settlementTxs?.recordResult && (
+              <TxLink hash={settlementTxs.recordResult} label="Record Result" />
+            )}
+            {settlementTxs?.settleBets && (
+              <TxLink hash={settlementTxs.settleBets} label="Settle Bets" />
+            )}
+            {settlementTxs?.prizes
+              ?.filter((p) => p.txHash && p.success)
+              .map((p, i) => (
+                <TxLink
+                  key={i}
+                  hash={p.txHash}
+                  label={
+                    p.type === "burn_hnads"
+                      ? "Burn $HNADS"
+                      : p.type === "treasury_hnads"
+                        ? "Treasury"
+                        : p.type === "withdraw_mon"
+                          ? `Winner Payout`
+                          : p.agentName
+                            ? `${p.type === "kill_bonus" ? "Kill" : "Survival"} Bonus: ${p.agentName}`
+                            : p.type
+                  }
+                />
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Your results */}
       {settledBets.length > 0 ? (

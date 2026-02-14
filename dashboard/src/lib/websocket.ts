@@ -107,6 +107,11 @@ export interface BattleEndEvent {
     totalEpochs: number;
     /** How the winner was determined (e.g. "Last nad standing", "Mutual rekt -- tiebreak by kills"). */
     reason?: string;
+    /** On-chain settlement transaction hashes (populated when chain client is available). */
+    settlementTxs?: {
+      recordResult?: string;
+      settleBets?: string;
+    };
   };
 }
 

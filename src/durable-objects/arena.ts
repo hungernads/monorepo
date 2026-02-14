@@ -43,7 +43,7 @@ import type { BaseAgent } from '../agents/base-agent';
 import { BettingPool, DEFAULT_BETTING_LOCK_AFTER_EPOCH } from '../betting/pool';
 import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
-import { updateBattle, insertBattleEvents, getAgentsByBattle } from '../db/schema';
+import { updateBattle, insertBattleEvents, getAgentsByBattle, getBattle } from '../db/schema';
 import { createChainClient, monadTestnet, type AgentResult as ChainAgentResult } from '../chain/client';
 import { distributePrizes, type PayoutAgent, type PrizeDistribution } from '../arena/payouts';
 import { createMoltbookPoster } from '../moltbook';
@@ -722,6 +722,8 @@ export class ArenaDO implements DurableObject {
       // Writes to HungernadsArena.recordResult() and HungernadsBetting.settleBattle().
       // Non-blocking: chain failures are logged but don't crash the battle.
       // Falls back gracefully when env vars are missing (dev mode).
+      let recordResultTxHash: string | null = null;
+      let settleBetsTxHash: string | null = null;
       const chainClient = createChainClient(this.env);
       if (chainClient && winnerId) {
         const chainAgentMap = await this.state.storage.get<Record<string, number>>('chainAgentMap');
@@ -739,16 +741,16 @@ export class ArenaDO implements DurableObject {
 
           // Record result on HungernadsArena
           try {
-            await chainClient.recordResult(battleState.battleId, numericWinnerId, chainResults);
-            console.log(`[ArenaDO] Battle ${battleState.battleId} result recorded on-chain`);
+            recordResultTxHash = await chainClient.recordResult(battleState.battleId, numericWinnerId, chainResults);
+            console.log(`[ArenaDO] Battle ${battleState.battleId} result recorded on-chain: ${recordResultTxHash}`);
           } catch (err) {
             console.error(`[ArenaDO] On-chain recordResult failed for ${battleState.battleId}:`, err);
           }
 
           // Settle bets on HungernadsBetting
           try {
-            await chainClient.settleBets(battleState.battleId, numericWinnerId);
-            console.log(`[ArenaDO] Bets settled on-chain for ${battleState.battleId}`);
+            settleBetsTxHash = await chainClient.settleBets(battleState.battleId, numericWinnerId);
+            console.log(`[ArenaDO] Bets settled on-chain for ${battleState.battleId}: ${settleBetsTxHash}`);
           } catch (err) {
             console.error(`[ArenaDO] On-chain settleBets failed for ${battleState.battleId}:`, err);
           }
@@ -807,6 +809,15 @@ export class ArenaDO implements DurableObject {
               survivalBonuses: prizeDistribution.survivalBonuses,
               transactionCount: prizeDistribution.transactions.length,
               successCount: prizeDistribution.transactions.filter((t) => t.success).length,
+              transactions: prizeDistribution.transactions.map((t) => ({
+                type: t.type,
+                recipient: t.recipient,
+                amount: t.amount,
+                txHash: t.txHash,
+                success: t.success,
+                agentId: t.agentId,
+                agentName: t.agentName,
+              })),
             },
           });
         } catch (err) {
@@ -889,6 +900,12 @@ export class ArenaDO implements DurableObject {
             hnads_burned: prizeDistribution.pool.hnadsBurned,
             hnads_treasury: prizeDistribution.pool.hnadsTreasury,
           } : {}),
+          // Persist on-chain settlement tx hashes
+          record_result_tx: recordResultTxHash,
+          settle_bets_tx: settleBetsTxHash,
+          prize_txs: prizeDistribution
+            ? JSON.stringify(prizeDistribution.transactions)
+            : null,
         });
       } catch (err) {
         console.error(`[ArenaDO] Failed to update D1 battle row:`, err);
@@ -1642,12 +1659,26 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
               (a) => a.id === battleState.winnerId,
             );
             if (winnerAgent) {
+              // Include settlement tx hashes if available (from D1 battle row)
+              let settlementTxs: { recordResult?: string; settleBets?: string } | undefined;
+              try {
+                const battle = await getBattle(this.env.DB, battleState.battleId);
+                if (battle?.record_result_tx || battle?.settle_bets_tx) {
+                  settlementTxs = {};
+                  if (battle.record_result_tx) settlementTxs.recordResult = battle.record_result_tx;
+                  if (battle.settle_bets_tx) settlementTxs.settleBets = battle.settle_bets_tx;
+                }
+              } catch {
+                // Non-fatal: settlement txs are optional display data
+              }
+
               const endEvent: BattleEvent = {
                 type: 'battle_end',
                 data: {
                   winnerId: winnerAgent.id,
                   winnerName: winnerAgent.name,
                   totalEpochs: battleState.epoch,
+                  ...(settlementTxs ? { settlementTxs } : {}),
                 },
               };
               server.send(JSON.stringify(endEvent));
