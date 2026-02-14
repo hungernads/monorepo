@@ -26,6 +26,7 @@ interface BattleRow {
   ended_at: string | null;
   winner_id: string | null;
   epoch_count: number;
+  winner_kills?: number | null;
 }
 
 interface BattlesResponse {
@@ -634,7 +635,7 @@ export default function HomePage() {
             battleId: b.id.slice(0, 6),
             winnerName,
             winnerClass,
-            killCount: 0, // Not available from BattleRow
+            killCount: b.winner_kills ?? 0,
             durationEpochs: b.epoch_count,
             endedAt: b.ended_at
               ? new Date(b.ended_at).getTime()
@@ -898,7 +899,17 @@ export default function HomePage() {
           ) : recentResults.length === 0 ? (
             <EmptyState message="No completed battles yet." />
           ) : (
-            <RecentResults results={recentResults} />
+            <>
+              <RecentResults results={recentResults} />
+              <div className="mt-4 text-center">
+                <Link
+                  href="/battles"
+                  className="text-xs font-bold uppercase tracking-wider text-gray-600 transition-colors hover:text-gold"
+                >
+                  View All Battles
+                </Link>
+              </div>
+            </>
           )}
         </div>
 

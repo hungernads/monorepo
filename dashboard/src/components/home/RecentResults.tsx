@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { AgentClass } from "@/types";
 
 interface RecentResult {
@@ -43,7 +44,12 @@ export default function RecentResults({ results }: RecentResultsProps) {
             className="flex flex-col gap-1.5 rounded border border-colosseum-surface-light bg-colosseum-bg/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <span className="text-xs text-gray-600 flex-shrink-0">#{r.battleId}</span>
+              <Link
+                href={`/battle/${r.battleId}`}
+                className="text-xs text-gray-600 flex-shrink-0 hover:text-gold transition-colors"
+              >
+                #{r.battleId}
+              </Link>
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-sm font-bold text-gray-200 truncate">
                   {r.winnerName}
