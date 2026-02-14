@@ -244,7 +244,7 @@ export class ArenaManager {
     this.endedAt = null;
     this.cancelledAt = null;
     this.eliminations = [];
-    this.grid = createGrid(); // 37-tile hex grid (radius 3)
+    this.grid = createGrid(); // 19-tile hex grid (radius 2) — forces combat proximity with 5-8 agents
     this.agentBuffs = new Map();
     this.lobbyAgents = new Map();
     this.countdownEndsAt = null;
@@ -712,36 +712,60 @@ export class ArenaManager {
       const lastSurvivors = this.eliminations.filter(e => e.eliminatedAtEpoch === maxEpoch);
 
       if (lastSurvivors.length === 1) {
-        const winner = this.agents.get(lastSurvivors[0].agentId) ?? null;
-        if (winner) {
-          this.winnerReason = `Mutual rekt — ${winner.name} was the last to fall (epoch ${maxEpoch})`;
+        const winner = this.agents.get(lastSurvivors[0].agentId);
+        if (!winner) {
+          // DEFENSIVE: Agent missing from Map (shouldn't happen). Use elimination record data.
+          console.error(
+            `[Winner] Agent ${lastSurvivors[0].agentId} (${lastSurvivors[0].agentName}) not found in agents Map! Using elimination record data.`
+          );
+          this.winnerReason = `Mutual rekt — ${lastSurvivors[0].agentName} was the last to fall (epoch ${maxEpoch}) [data from elimination record]`;
+          // Return a minimal BaseAgent-like object (won't be a true BaseAgent instance, but has the required fields)
+          // This is a last-resort fallback and should never happen in production.
+          return null; // Return null here, the epoch processor will handle the fallback
         }
+        this.winnerReason = `Mutual rekt — ${winner.name} was the last to fall (epoch ${maxEpoch})`;
         return winner;
       }
 
       // Tiebreak by most kills
       const withKills = lastSurvivors.map(e => {
         const agent = this.agents.get(e.agentId);
+        if (!agent) {
+          console.warn(
+            `[Winner] Agent ${e.agentId} (${e.agentName}) missing from agents Map during tiebreak. Assuming 0 kills.`
+          );
+        }
         return { record: e, agent, kills: agent?.kills ?? 0 };
       });
       const maxKills = Math.max(...withKills.map(w => w.kills));
       const topKillers = withKills.filter(w => w.kills === maxKills);
 
       if (topKillers.length === 1) {
-        const winner = topKillers[0].agent ?? null;
-        if (winner) {
-          this.winnerReason = `Mutual rekt — ${winner.name} died last (epoch ${maxEpoch}) with the most kills (${maxKills})`;
+        const winner = topKillers[0].agent;
+        if (!winner) {
+          // Agent missing from Map — fallback to null (epoch processor will handle)
+          console.error(
+            `[Winner] Tiebreak winner ${topKillers[0].record.agentName} missing from agents Map!`
+          );
+          return null;
         }
+        this.winnerReason = `Mutual rekt — ${winner.name} died last (epoch ${maxEpoch}) with the most kills (${maxKills})`;
         return winner;
       }
 
       // Random tiebreak among equal-kill agents
       const randomIdx = Math.floor(Math.random() * topKillers.length);
-      const winner = topKillers[randomIdx].agent ?? null;
-      if (winner) {
-        const names = topKillers.map(w => w.agent?.name ?? 'unknown').join(', ');
-        this.winnerReason = `Mutual rekt — random tiebreak among last survivors: ${names} (epoch ${maxEpoch}, ${maxKills} kills each)`;
+      const chosen = topKillers[randomIdx];
+      const winner = chosen.agent;
+      if (!winner) {
+        // Agent missing from Map — fallback to null (epoch processor will handle)
+        console.error(
+          `[Winner] Random tiebreak winner ${chosen.record.agentName} missing from agents Map!`
+        );
+        return null;
       }
+      const names = topKillers.map(w => w.agent?.name ?? w.record.agentName).join(', ');
+      this.winnerReason = `Mutual rekt — random tiebreak among last survivors: ${names} (epoch ${maxEpoch}, ${maxKills} kills each)`;
       return winner;
     }
 

@@ -680,6 +680,40 @@ export async function processEpoch(
         kills: winnerAgent.kills,
         reason: winnerReason ?? undefined,
       };
+    } else {
+      // DEFENSIVE: If getWinner() returned null but battle is complete,
+      // force-pick from elimination records (e.g., simultaneous storm deaths).
+      const eliminations = arena.getEliminations();
+      if (eliminations.length > 0) {
+        // Pick the last-eliminated agent as fallback
+        const maxEpoch = Math.max(...eliminations.map(e => e.eliminatedAtEpoch));
+        const lastEliminated = eliminations.filter(e => e.eliminatedAtEpoch === maxEpoch);
+        const fallbackElim = lastEliminated[0]; // Pick first from last-eliminated cohort
+
+        // Try to get full agent data if still in the Map
+        const fallbackAgent = arena.getAgent(fallbackElim.agentId);
+        if (fallbackAgent) {
+          winner = {
+            id: fallbackAgent.id,
+            name: fallbackAgent.name,
+            class: fallbackAgent.agentClass,
+            kills: fallbackAgent.kills,
+            reason: `Emergency tiebreak: ${fallbackAgent.name} died last at epoch ${maxEpoch} (simultaneous elimination)`,
+          };
+        } else {
+          // Last resort: use elimination record data directly
+          winner = {
+            id: fallbackElim.agentId,
+            name: fallbackElim.agentName,
+            class: fallbackElim.agentClass,
+            kills: 0, // Unknown, use 0
+            reason: `Emergency tiebreak: ${fallbackElim.agentName} died last at epoch ${maxEpoch} (simultaneous elimination, agent data unavailable)`,
+          };
+        }
+        console.warn(
+          `[Winner] DEFENSIVE FALLBACK: getWinner() returned null but battle complete. Force-picked ${winner.name} from elimination records.`
+        );
+      }
     }
   }
 
