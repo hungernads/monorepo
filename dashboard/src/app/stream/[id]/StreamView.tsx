@@ -22,7 +22,6 @@ import type {
   BattleEndEvent,
   PhaseChangeEvent,
   StormDamageEvent,
-  AgentTokenTradeEvent,
 } from "@/lib/websocket";
 import type { AgentClass } from "@/types";
 import StreamHighlightBanner from "@/components/stream/HighlightBanner";
@@ -89,15 +88,24 @@ function eventToFeedEntries(
   switch (event.type) {
     case "epoch_start": {
       const e = event as EpochStartEvent;
-      return [
-        {
-          id: `ws-${index}`,
+      const entries: FeedEntry[] = [];
+      if (e.data.epochNumber === 1) {
+        entries.push({
+          id: `ws-${index}-battle-start`,
           timestamp: ts,
-          epoch: e.data.epochNumber,
-          type: "MARKET",
-          message: `Epoch ${e.data.epochNumber} begins. Market prices updated.`,
-        },
-      ];
+          epoch: 1,
+          type: "BATTLE_START",
+          message: "BATTLE BEGINS — May the nads be ever in your favor.",
+        });
+      }
+      entries.push({
+        id: `ws-${index}`,
+        timestamp: ts,
+        epoch: e.data.epochNumber,
+        type: "MARKET",
+        message: `Epoch ${e.data.epochNumber} begins. Market prices updated.`,
+      });
+      return entries;
     }
 
     case "agent_action": {
@@ -320,29 +328,6 @@ function eventToFeedEntries(
       ];
     }
 
-    case "agent_token_trade": {
-      const e = event as AgentTokenTradeEvent;
-      const meta = agentMeta.get(e.data.agentId);
-      const agentName = meta?.name ?? e.data.agentName;
-      const agentClass = meta?.class;
-      const verb = e.data.action === 'buy' ? 'bought' : 'panic-sold';
-      const txSuffix = e.data.txHash
-        ? ` (tx: ${e.data.txHash.slice(0, 10)}...)`
-        : ' (tx pending)';
-      return [
-        {
-          id: `ws-${index}`,
-          timestamp: ts,
-          epoch: e.data.epochNumber,
-          type: "TOKEN_TRADE",
-          agentId: e.data.agentId,
-          agentName,
-          agentClass,
-          message: `${agentName} ${verb} $HNADS for ${e.data.amount} MON. ${e.data.reason}${txSuffix}`,
-        },
-      ];
-    }
-
     case "battle_end": {
       const e = event as BattleEndEvent;
       const reason = e.data.reason ?? "Last nad standing";
@@ -357,6 +342,13 @@ function eventToFeedEntries(
           epoch: latestEpoch,
           type: "BATTLE_END",
           message,
+        },
+        {
+          id: `ws-${index}-battle-over`,
+          timestamp: ts,
+          epoch: latestEpoch,
+          type: "BATTLE_END",
+          message: "BATTLE OVER",
         },
       ];
     }

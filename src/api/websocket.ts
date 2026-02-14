@@ -126,6 +126,7 @@ export interface BattleEndEvent {
     winnerId: string;
     winnerName: string;
     totalEpochs: number;
+    epochNumber: number;
     /** How the winner was determined (e.g. "Last nad standing", "Mutual rekt — tiebreak by kills"). */
     reason?: string;
   };
@@ -970,6 +971,7 @@ export function epochToEvents(result: EpochResult): BattleEvent[] {
         winnerId: result.winner.id,
         winnerName: result.winner.name,
         totalEpochs: result.epochNumber,
+        epochNumber: result.epochNumber,
         reason: result.winner.reason,
       },
     });

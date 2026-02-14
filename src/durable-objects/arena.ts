@@ -563,11 +563,6 @@ export class ArenaDO implements DurableObject {
       );
     }
 
-    // ── Fire agent token trades (non-blocking) ──────────────────
-    // Agents auto-buy $HNADS on prediction wins, auto-sell on combat damage.
-    // Uses fire-and-forget pattern: tx failure must NOT break the game loop.
-    this.fireAgentTokenTrades(result, battleState);
-
     // ── Persist grid state for new WebSocket connections ─────────
     // Store the serialized grid snapshot so that spectators connecting
     // between epochs receive the latest tile/item/position state.
@@ -679,6 +674,7 @@ export class ArenaDO implements DurableObject {
             winnerId: timeoutWinner.id,
             winnerName: timeoutWinner.name,
             totalEpochs: battleState.epoch,
+            epochNumber: battleState.epoch,
           },
         });
       }
@@ -1039,99 +1035,6 @@ export class ArenaDO implements DurableObject {
       }).catch((err) => {
         console.error(`[Wallet] Fund failed for ${agent.name} (${agent.walletAddress}):`, err);
       });
-    }
-  }
-
-  /**
-   * Fire-and-forget agent token trades on nad.fun (buy-only, per-agent wallets).
-   *
-   * On prediction win (positive hpChange): agent auto-buys $HNADS ("victory purchase").
-   * On kill (combat death): attacker auto-buys $HNADS ("kill trophy").
-   *
-   * Amount: 0.001 MON per 10 HP gained/lost (proportional).
-   * Non-blocking: tx failure is logged but never breaks the game loop.
-   */
-  private fireAgentTokenTrades(result: EpochResult, battleState: BattleState): void {
-    if (!this.env.MONAD_RPC_URL) return;
-
-    const tokenAddress = (this.env.NADFUN_TOKEN_ADDRESS ?? '0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777') as Address;
-    const sockets = this.state.getWebSockets();
-    const epochNumber = result.epochNumber;
-
-    /** Create a per-agent NadFunClient (or null if agent has no wallet). */
-    const getAgentClient = (agentId: string): NadFunClient | null => {
-      const agent = battleState.agents[agentId];
-      if (!agent?.privateKey || !this.env.MONAD_RPC_URL) return null;
-      return new NadFunClient({
-        rpcUrl: this.env.MONAD_RPC_URL,
-        privateKey: agent.privateKey as `0x${string}`,
-        network: 'testnet',
-      });
-    };
-
-    /** Fire a buy-and-broadcast for a given agent. */
-    const fireBuy = (agentId: string, agentName: string, monAmount: number, reason: string, walletAddr?: string) => {
-      const client = getAgentClient(agentId);
-      if (!client) return;
-      const amountWei = BigInt(Math.round(monAmount * 1e18));
-
-      client.buyToken(tokenAddress, amountWei).then((txHash) => {
-        console.log(
-          `[TokenTrade] ${agentName} victory-bought $HNADS for ${monAmount.toFixed(4)} MON (wallet: ${walletAddr ?? '?'}): ${txHash}`,
-        );
-        broadcastEvent(sockets, {
-          type: 'agent_token_trade',
-          data: {
-            agentId,
-            agentName,
-            action: 'buy',
-            amount: monAmount.toFixed(4),
-            reason,
-            txHash,
-            epochNumber,
-            agentWallet: walletAddr ?? '',
-          },
-        });
-      }).catch((err) => {
-        console.error(`[TokenTrade] Buy failed for ${agentName}:`, err);
-        broadcastEvent(sockets, {
-          type: 'agent_token_trade',
-          data: {
-            agentId,
-            agentName,
-            action: 'buy',
-            amount: monAmount.toFixed(4),
-            reason,
-            txHash: '',
-            epochNumber,
-            agentWallet: walletAddr ?? '',
-          },
-        });
-      });
-    };
-
-    // ── Buy triggers: prediction wins ──────────────────────────────
-    for (const pred of result.predictionResults) {
-      if (pred.hpChange > 0) {
-        const agent = battleState.agents[pred.agentId];
-        if (!agent) continue;
-
-        // 0.001 MON per 10 HP gained, minimum 0.0001 MON
-        const monAmount = Math.max(0.0001, (pred.hpChange / 10) * 0.001);
-        fireBuy(pred.agentId, agent.name, monAmount, `Prediction win (+${Math.round(pred.hpChange)} HP)`, agent.walletAddress);
-      }
-    }
-
-    // ── Buy triggers: kills (killer buys as kill trophy) ───────────
-    for (const death of result.deaths) {
-      if (death.killerId) {
-        const attacker = battleState.agents[death.killerId];
-        if (!attacker) continue;
-
-        // 0.002 MON per kill (flat reward)
-        const monAmount = 0.002;
-        fireBuy(death.killerId, attacker.name, monAmount, `Kill trophy (REKT ${death.agentName})`, attacker.walletAddress);
-      }
     }
   }
 
@@ -1772,6 +1675,7 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
                   winnerId: winnerAgent.id,
                   winnerName: winnerAgent.name,
                   totalEpochs: battleState.epoch,
+                  epochNumber: battleState.epoch,
                 },
               };
               server.send(JSON.stringify(endEvent));

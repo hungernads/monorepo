@@ -105,6 +105,7 @@ export interface BattleEndEvent {
     winnerId: string;
     winnerName: string;
     totalEpochs: number;
+    epochNumber?: number;
     /** How the winner was determined (e.g. "Last nad standing", "Mutual rekt -- tiebreak by kills"). */
     reason?: string;
   };
@@ -158,25 +159,6 @@ export interface TokenSellEvent {
     amountOut: string;
     txHash: string;
     blockNumber: string;
-  };
-}
-
-/** Agent-initiated token trade during a battle (buy-only, per-agent wallet). */
-export interface AgentTokenTradeEvent {
-  type: 'agent_token_trade';
-  data: {
-    agentId: string;
-    agentName: string;
-    action: 'buy' | 'sell';
-    /** MON amount (human-readable string, e.g. "0.001") */
-    amount: string;
-    /** Trigger reason: prediction win, kill trophy, etc. */
-    reason: string;
-    /** On-chain tx hash (empty string if tx failed) */
-    txHash: string;
-    epochNumber: number;
-    /** Agent's ephemeral wallet address that sent the transaction. */
-    agentWallet?: string;
   };
 }
 
@@ -418,8 +400,7 @@ export type BattleEvent =
   | LobbyUpdateEvent
   | BattleStartingEvent
   | PhaseChangeEvent
-  | StormDamageEvent
-  | AgentTokenTradeEvent;
+  | StormDamageEvent;
 
 export type BattleEventHandler = (event: BattleEvent) => void;
 export type ConnectionHandler = (connected: boolean) => void;

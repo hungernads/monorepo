@@ -202,6 +202,8 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
    * -1 means hydration hasn't completed yet (no dedup applied).
    */
   const hydratedUpToEpochRef = useRef(-1);
+  /** Tracks whether battle_end has been received — reject further events after. */
+  const battleEndReceivedRef = useRef(false);
 
   /**
    * Extract the epoch number from a BattleEvent if available.
@@ -218,6 +220,15 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
 
   // Process incoming events and update derived state
   const handleEvent = useCallback((event: BattleEvent, isHydration = false) => {
+    // ── Stop accepting events after battle_end (live only) ──
+    if (battleEndReceivedRef.current && !isHydration) return;
+
+    // ── Dedup battle_end — only accept the first one ──
+    if (event.type === 'battle_end') {
+      if (battleEndReceivedRef.current) return;
+      battleEndReceivedRef.current = true;
+    }
+
     // ── Dedup: skip live WS events that overlap with hydrated history ──
     if (!isHydration && hydratedUpToEpochRef.current >= 0) {
       const epoch = getEventEpoch(event);
