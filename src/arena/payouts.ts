@@ -44,7 +44,7 @@ export interface PayoutAgent {
 
 /** Result of a single on-chain payout operation. */
 export interface PayoutTx {
-  type: 'burn_hnads' | 'treasury_hnads' | 'withdraw_mon' | 'kill_bonus' | 'survival_bonus';
+  type: 'burn_hnads' | 'treasury_hnads' | 'withdraw_mon' | 'distribute_prize' | 'kill_bonus' | 'survival_bonus';
   /** Target address (burn address, treasury, or agent wallet). */
   recipient: string;
   /** Amount as a human-readable string. */
@@ -159,13 +159,13 @@ export async function distributePrizes(
     transactions.push(tx);
   }
 
-  // ── Step 3: Withdraw MON fees to owner ─────────────────────────
-  if (!isFree && chainClient && parseFloat(pool.totalMon) > 0) {
+  // ── Step 3: Distribute MON fees (80% winner, 20% treasury) ────
+  if (!isFree && chainClient && parseFloat(pool.totalMon) > 0 && winnerAgent?.walletAddress) {
     const tx = await safeChainCall(
-      () => chainClient.withdrawFees(battleId),
-      'withdraw_mon',
-      'owner',
-      pool.totalMon,
+      () => chainClient.distributePrize(battleId, winnerAgent.walletAddress as Address),
+      'distribute_prize',
+      winnerAgent.walletAddress,
+      pool.winnerPayout,
     );
     transactions.push(tx);
   }

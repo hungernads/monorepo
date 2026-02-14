@@ -287,6 +287,45 @@ export const hungernadsArenaAbi = [
     outputs: [{ name: '', type: 'uint256' }],
   },
 
+  // --- Prize Distribution ---
+  {
+    type: 'event',
+    name: 'PrizeDistributed',
+    inputs: [
+      { name: 'battleId', type: 'bytes32', indexed: true },
+      { name: 'winner', type: 'address', indexed: true },
+      { name: 'winnerAmount', type: 'uint256', indexed: false },
+      { name: 'treasuryAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'distributePrize',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_battleId', type: 'bytes32' },
+      { name: '_winner', type: 'address' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'prizeDistributed',
+    stateMutability: 'view',
+    inputs: [{ name: 'battleId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'WINNER_SHARE_BPS',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  { type: 'error', name: 'PrizeAlreadyDistributed', inputs: [] },
+  { type: 'error', name: 'TreasuryNotSet', inputs: [] },
+  { type: 'error', name: 'TransferFailed', inputs: [] },
+
   // --- $HNADS Fee Functions ---
   {
     type: 'event',

@@ -100,8 +100,11 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice battleId => total $HNADS sent to treasury (50% of collected).
     mapping(bytes32 => uint256) public hnadsTreasury;
 
+    /// @notice battleId => whether MON prize has been distributed.
+    mapping(bytes32 => bool) public prizeDistributed;
+
     /// @dev Storage gap for future upgrades.
-    uint256[44] private __gap;
+    uint256[43] private __gap;
 
     // -----------------------------------------------------------------------
     // Events
@@ -120,6 +123,7 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     event HnadsTreasuryTransferred(bytes32 indexed battleId, uint256 amount);
     event HnadsTokenUpdated(address indexed previousToken, address indexed newToken);
     event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
+    event PrizeDistributed(bytes32 indexed battleId, address indexed winner, uint256 winnerAmount, uint256 treasuryAmount);
 
     // -----------------------------------------------------------------------
     // Errors
@@ -140,6 +144,9 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     error HnadsTransferFailed();
     error InsufficientHnadsBalance();
     error HnadsTokenNotSet();
+    error PrizeAlreadyDistributed();
+    error TreasuryNotSet();
+    error TransferFailed();
 
     // -----------------------------------------------------------------------
     // Modifiers
@@ -318,10 +325,12 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     /// @notice Withdraw collected entry fees for a completed battle. Only callable by owner.
+    ///         Acts as emergency fallback — blocked if prize was already distributed.
     /// @param _battleId The battle to withdraw fees from.
     function withdrawFees(bytes32 _battleId) external onlyOwner {
         Battle storage b = battles[_battleId];
         if (b.state != BattleState.Completed) revert BattleNotCompleted();
+        if (prizeDistributed[_battleId]) revert PrizeAlreadyDistributed();
 
         uint256 amount = feesCollected[_battleId];
         if (amount == 0) revert NoFeesToWithdraw();
@@ -329,9 +338,44 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         feesCollected[_battleId] = 0;
 
         (bool success,) = owner().call{value: amount}("");
-        if (!success) revert ZeroAddress(); // reuse error for transfer fail
+        if (!success) revert TransferFailed();
 
         emit FeesWithdrawn(_battleId, owner(), amount);
+    }
+
+    /// @notice Winner share in basis points (80%).
+    uint256 public constant WINNER_SHARE_BPS = 8000;
+
+    /// @notice Basis points denominator.
+    uint256 public constant BPS_DENOMINATOR = 10000;
+
+    /// @notice Distribute MON entry fees: 80% to winner, 20% to treasury.
+    ///         Only callable by oracle after battle completes.
+    /// @param _battleId The completed battle.
+    /// @param _winner Winner's wallet address (resolved off-chain from D1).
+    function distributePrize(bytes32 _battleId, address _winner) external onlyOracle {
+        Battle storage b = battles[_battleId];
+        if (b.state != BattleState.Completed) revert BattleNotCompleted();
+        if (prizeDistributed[_battleId]) revert PrizeAlreadyDistributed();
+        if (_winner == address(0)) revert ZeroAddress();
+        if (treasury == address(0)) revert TreasuryNotSet();
+
+        uint256 pool = feesCollected[_battleId];
+        if (pool == 0) revert NoFeesToWithdraw();
+
+        prizeDistributed[_battleId] = true;
+        feesCollected[_battleId] = 0;
+
+        uint256 winnerAmount = (pool * WINNER_SHARE_BPS) / BPS_DENOMINATOR;
+        uint256 treasuryAmount = pool - winnerAmount;
+
+        (bool s1,) = _winner.call{value: winnerAmount}("");
+        if (!s1) revert TransferFailed();
+
+        (bool s2,) = treasury.call{value: treasuryAmount}("");
+        if (!s2) revert TransferFailed();
+
+        emit PrizeDistributed(_battleId, _winner, winnerAmount, treasuryAmount);
     }
 
     // -----------------------------------------------------------------------

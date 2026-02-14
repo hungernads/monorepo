@@ -923,6 +923,9 @@ export class ArenaDO implements DurableObject {
           // Persist on-chain settlement tx hashes
           record_result_tx: recordResultTxHash,
           settle_bets_tx: settleBetsTxHash,
+          distribute_prize_tx: prizeDistribution
+            ? prizeDistribution.transactions.find(t => t.type === 'distribute_prize' && t.success)?.txHash ?? null
+            : null,
           prize_txs: prizeDistribution
             ? JSON.stringify(prizeDistribution.transactions)
             : null,
@@ -1680,13 +1683,14 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
             );
             if (winnerAgent) {
               // Include settlement tx hashes if available (from D1 battle row)
-              let settlementTxs: { recordResult?: string; settleBets?: string } | undefined;
+              let settlementTxs: { recordResult?: string; settleBets?: string; distributePrize?: string } | undefined;
               try {
                 const battle = await getBattle(this.env.DB, battleState.battleId);
-                if (battle?.record_result_tx || battle?.settle_bets_tx) {
+                if (battle?.record_result_tx || battle?.settle_bets_tx || battle?.distribute_prize_tx) {
                   settlementTxs = {};
                   if (battle.record_result_tx) settlementTxs.recordResult = battle.record_result_tx;
                   if (battle.settle_bets_tx) settlementTxs.settleBets = battle.settle_bets_tx;
+                  if (battle.distribute_prize_tx) settlementTxs.distributePrize = battle.distribute_prize_tx;
                 }
               } catch {
                 // Non-fatal: settlement txs are optional display data

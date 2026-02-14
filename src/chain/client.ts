@@ -320,9 +320,31 @@ export class HungernadsChainClient {
   }
 
   /**
+   * Distribute MON entry fees: 80% to winner, 20% to treasury.
+   * Calls HungernadsArena.distributePrize(bytes32, address).
+   * Oracle-only. Replaces withdrawFees as the primary distribution method.
+   */
+  async distributePrize(battleId: string, winnerAddress: Address): Promise<Hash> {
+    const battleBytes = battleIdToBytes32(battleId);
+
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'distributePrize',
+        args: [battleBytes, winnerAddress],
+      });
+
+      console.log(`[chain] distributePrize tx: ${hash} (winner: ${winnerAddress})`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    }, `distributePrize(${battleId})`);
+  }
+
+  /**
    * Withdraw collected MON entry fees for a completed battle.
    * Calls HungernadsArena.withdrawFees(bytes32).
-   * Owner-only. Sends all collected MON to the contract owner.
+   * Owner-only. Emergency fallback — blocked if prize already distributed.
    */
   async withdrawFees(battleId: string): Promise<Hash> {
     const battleBytes = battleIdToBytes32(battleId);

@@ -661,6 +661,135 @@ contract HungernadsArenaTest is Test {
         arena.upgradeToAndCall(address(newImpl), "");
     }
 
+    // -----------------------------------------------------------------------
+    // distributePrize
+    // -----------------------------------------------------------------------
+
+    address winner = makeAddr("winner");
+    address treasuryAddr = makeAddr("treasury");
+
+    function _setupCompletedBattleWithFees(bytes32 _bid, uint256 fee) internal {
+        _registerBattleWithFee(_bid, fee);
+        vm.deal(player1, 10 ether);
+        vm.deal(player2, 10 ether);
+
+        vm.prank(player1);
+        arena.payEntryFee{value: fee}(_bid);
+        vm.prank(player2);
+        arena.payEntryFee{value: fee}(_bid);
+
+        vm.startPrank(oracle);
+        arena.activateBattle(_bid);
+        arena.recordResult(_bid, 1, _buildResults(1));
+        vm.stopPrank();
+
+        // Set treasury
+        arena.setTreasury(treasuryAddr);
+    }
+
+    function test_distributePrize_happyPath() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+        // Total pool = 2 ether. Winner gets 80% = 1.6 ether, treasury gets 20% = 0.4 ether.
+
+        uint256 winnerBalBefore = winner.balance;
+        uint256 treasuryBalBefore = treasuryAddr.balance;
+
+        vm.prank(oracle);
+        arena.distributePrize(battleId1, winner);
+
+        assertEq(winner.balance - winnerBalBefore, 1.6 ether);
+        assertEq(treasuryAddr.balance - treasuryBalBefore, 0.4 ether);
+        assertEq(arena.feesCollected(battleId1), 0);
+        assertTrue(arena.prizeDistributed(battleId1));
+    }
+
+    function test_distributePrize_emitsEvent() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+
+        vm.prank(oracle);
+        vm.expectEmit(true, true, false, true);
+        emit HungernadsArena.PrizeDistributed(battleId1, winner, 1.6 ether, 0.4 ether);
+        arena.distributePrize(battleId1, winner);
+    }
+
+    function test_distributePrize_doubleDistribution_reverts() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+
+        vm.startPrank(oracle);
+        arena.distributePrize(battleId1, winner);
+
+        vm.expectRevert(HungernadsArena.PrizeAlreadyDistributed.selector);
+        arena.distributePrize(battleId1, winner);
+        vm.stopPrank();
+    }
+
+    function test_withdrawFees_blockedAfterDistribute() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+
+        vm.prank(oracle);
+        arena.distributePrize(battleId1, winner);
+
+        vm.expectRevert(HungernadsArena.PrizeAlreadyDistributed.selector);
+        arena.withdrawFees(battleId1);
+    }
+
+    function test_distributePrize_zeroPool_reverts() public {
+        // Register battle with fee, but nobody pays
+        vm.prank(oracle);
+        arena.registerBattle(battleId1, agentIds, 0.1 ether);
+        vm.startPrank(oracle);
+        arena.activateBattle(battleId1);
+        arena.recordResult(battleId1, 1, _buildResults(1));
+        vm.stopPrank();
+        arena.setTreasury(treasuryAddr);
+
+        vm.prank(oracle);
+        vm.expectRevert(HungernadsArena.NoFeesToWithdraw.selector);
+        arena.distributePrize(battleId1, winner);
+    }
+
+    function test_distributePrize_nonOracle_reverts() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+
+        vm.prank(rando);
+        vm.expectRevert(HungernadsArena.OnlyOracle.selector);
+        arena.distributePrize(battleId1, rando);
+    }
+
+    function test_distributePrize_battleNotCompleted_reverts() public {
+        _registerBattleWithFee(battleId1, 1 ether);
+        arena.setTreasury(treasuryAddr);
+
+        vm.prank(oracle);
+        vm.expectRevert(HungernadsArena.BattleNotCompleted.selector);
+        arena.distributePrize(battleId1, winner);
+    }
+
+    function test_distributePrize_zeroWinner_reverts() public {
+        _setupCompletedBattleWithFees(battleId1, 1 ether);
+
+        vm.prank(oracle);
+        vm.expectRevert(HungernadsArena.ZeroAddress.selector);
+        arena.distributePrize(battleId1, address(0));
+    }
+
+    function test_distributePrize_noTreasury_reverts() public {
+        _registerBattleWithFee(battleId1, 1 ether);
+        vm.deal(player1, 10 ether);
+        vm.prank(player1);
+        arena.payEntryFee{value: 1 ether}(battleId1);
+
+        vm.startPrank(oracle);
+        arena.activateBattle(battleId1);
+        arena.recordResult(battleId1, 1, _buildResults(1));
+        vm.stopPrank();
+        // Treasury not set
+
+        vm.prank(oracle);
+        vm.expectRevert(HungernadsArena.TreasuryNotSet.selector);
+        arena.distributePrize(battleId1, winner);
+    }
+
     // Allow receiving ETH for withdrawFees test
     receive() external payable {}
 }

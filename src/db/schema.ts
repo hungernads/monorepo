@@ -55,6 +55,8 @@ export interface BattleRow {
   record_result_tx: string | null;
   /** On-chain tx hash from HungernadsBetting.settleBattle(). */
   settle_bets_tx: string | null;
+  /** On-chain tx hash from HungernadsArena.distributePrize(). */
+  distribute_prize_tx: string | null;
   /** JSON array of PayoutTx objects from prize distribution. */
   prize_txs: string | null;
 }
@@ -393,6 +395,10 @@ export async function updateBattle(
   if (fields.settle_bets_tx !== undefined) {
     setClauses.push('settle_bets_tx = ?');
     values.push(fields.settle_bets_tx);
+  }
+  if (fields.distribute_prize_tx !== undefined) {
+    setClauses.push('distribute_prize_tx = ?');
+    values.push(fields.distribute_prize_tx);
   }
   if (fields.prize_txs !== undefined) {
     setClauses.push('prize_txs = ?');

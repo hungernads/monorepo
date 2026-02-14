@@ -29,6 +29,7 @@ interface WinnerInfo {
 export interface SettlementTxs {
   recordResult?: string;
   settleBets?: string;
+  distributePrize?: string;
   prizes?: Array<{
     type: string;
     recipient: string;
@@ -104,6 +105,7 @@ export default function SettlementView({
   const hasTxs =
     settlementTxs?.recordResult ||
     settlementTxs?.settleBets ||
+    settlementTxs?.distributePrize ||
     (settlementTxs?.prizes && settlementTxs.prizes.some((p) => p.txHash));
 
   return (
@@ -154,6 +156,9 @@ export default function SettlementView({
             {settlementTxs?.settleBets && (
               <TxLink hash={settlementTxs.settleBets} label="Settle Bets" />
             )}
+            {settlementTxs?.distributePrize && (
+              <TxLink hash={settlementTxs.distributePrize} label="Winner Payout (80%)" />
+            )}
             {settlementTxs?.prizes
               ?.filter((p) => p.txHash && p.success)
               .map((p, i) => (
@@ -165,11 +170,13 @@ export default function SettlementView({
                       ? "Burn $HNADS"
                       : p.type === "treasury_hnads"
                         ? "Treasury"
-                        : p.type === "withdraw_mon"
-                          ? `Winner Payout`
-                          : p.agentName
-                            ? `${p.type === "kill_bonus" ? "Kill" : "Survival"} Bonus: ${p.agentName}`
-                            : p.type
+                        : p.type === "distribute_prize"
+                          ? "Winner Payout (80%)"
+                          : p.type === "withdraw_mon"
+                            ? "Fee Withdrawal"
+                            : p.agentName
+                              ? `${p.type === "kill_bonus" ? "Kill" : "Survival"} Bonus: ${p.agentName}`
+                              : p.type
                   }
                 />
               ))}
