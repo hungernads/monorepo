@@ -1,8 +1,7 @@
 "use client";
 
 import type { BattleAgent } from "@/components/battle/mock-data";
-
-const EXPLORER_TX_URL = "https://testnet.monadexplorer.com/tx/";
+import { EXPLORER_TX_URL } from "@/lib/wallet";
 
 interface ShareButtonProps {
   battleId: string;

@@ -70,6 +70,9 @@ const isMainnet = process.env.NEXT_PUBLIC_CHAIN === 'mainnet';
 /** The active Monad chain. All components should use this. */
 export const monadChain: Chain = isMainnet ? monadMainnet : monadTestnet;
 
+/** Block explorer base URL for transaction links (no trailing slash). */
+export const EXPLORER_TX_URL = `${monadChain.blockExplorers?.default.url ?? 'https://testnet.monadexplorer.com'}/tx/`;
+
 // ─── Wagmi + RainbowKit Config ──────────────────────────────────────
 
 export const wagmiConfig = getDefaultConfig({

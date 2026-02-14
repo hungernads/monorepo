@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { AgentState, AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
+import { EXPLORER_TX_URL } from "@/lib/wallet";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,7 +48,7 @@ interface SettlementViewProps {
   settlementTxs?: SettlementTxs;
 }
 
-const EXPLORER_URL = "https://testnet.monadexplorer.com/tx/";
+const EXPLORER_URL = EXPLORER_TX_URL;
 
 function TxLink({ hash, label }: { hash: string; label: string }) {
   const short = `${hash.slice(0, 6)}...${hash.slice(-4)}`;
