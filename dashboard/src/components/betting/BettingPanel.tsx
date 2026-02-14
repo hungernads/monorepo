@@ -22,7 +22,13 @@ interface OddsResponse {
   battleId: string;
   totalPool: number;
   perAgent: Record<string, number>;
-  odds: Record<string, { probability: number; decimal: number }>;
+  odds: Record<string, {
+    probability: number;
+    decimal: number;
+    price: number;
+    totalShares: number;
+  }>;
+  userShares?: Record<string, number>; // Optional: user's shares per agent when ?user=address is passed
 }
 
 /** GET /user/:address/bets response */
@@ -83,9 +89,15 @@ export default function BettingPanel({
   const previousOddsRef = useRef<Record<string, number>>({});
   const oddsHistoryRef = useRef<Record<string, number[]>>({});
 
-  // ── Fetch live odds from API ──
+  // ── Fetch live odds from API (with user shares if connected) ──
+  const oddsUrl = useMemo(() => {
+    return isConnected && address
+      ? `/battle/${battleId}/odds?user=${address}`
+      : `/battle/${battleId}/odds`;
+  }, [battleId, isConnected, address]);
+
   const { data: oddsData, loading: oddsLoading, refetch: refetchOdds } = useFetch<OddsResponse>(
-    `/battle/${battleId}/odds`,
+    oddsUrl,
     { pollInterval: 15_000 },
   );
 
@@ -151,14 +163,20 @@ export default function BettingPanel({
   // ── Derive odds + track history ──
   const agentOdds = useMemo(() => {
     const apiOdds = oddsData?.odds ?? {};
+    const userShares = oddsData?.userShares ?? {};
     // Dynamic fallback: equal odds = N alive agents (1/N probability)
     const equalOddsMultiplier = aliveAgents.length > 0 ? aliveAgents.length : 5.0;
     return aliveAgents.map((agent) => {
       const multiplier = apiOdds[agent.id]?.decimal ?? equalOddsMultiplier;
+      const price = apiOdds[agent.id]?.price ?? (1 / equalOddsMultiplier);
+      const totalShares = apiOdds[agent.id]?.totalShares ?? 0;
       return {
         ...agent,
         odds: multiplier,
         impliedProbability: (1 / multiplier) * 100,
+        price,
+        totalShares,
+        userShares: userShares[agent.id] ?? 0,
       };
     });
   }, [aliveAgents, oddsData]);
@@ -219,6 +237,9 @@ export default function BettingPanel({
       class: entry.class,
       odds: entry.odds,
       impliedProbability: entry.impliedProbability,
+      price: entry.price,
+      totalShares: entry.totalShares,
+      userShares: entry.userShares,
       hp: entry.hp,
       maxHp: entry.maxHp,
       alive: entry.alive,
@@ -334,12 +355,18 @@ export default function BettingPanel({
                       currentOdds={agent.odds}
                       previousOdds={prevOdds}
                     />
-                    {/* Implied probability (hidden on mobile) */}
-                    <span className="hidden text-gray-500 sm:inline">
-                      {agent.impliedProbability.toFixed(0)}%
+                    {/* User shares (if any) */}
+                    {agent.userShares > 0 && (
+                      <span className="hidden text-xs text-green-400 sm:inline">
+                        {agent.userShares.toFixed(0)} shares
+                      </span>
+                    )}
+                    {/* Price (primary display) */}
+                    <span className="min-w-[3.5rem] rounded bg-gold/20 px-2 py-0.5 text-center font-bold text-gold">
+                      ${agent.price.toFixed(2)}
                     </span>
-                    {/* Odds badge */}
-                    <span className="min-w-[3rem] rounded bg-gold/20 px-2 py-0.5 text-center font-bold text-gold">
+                    {/* Odds multiplier (secondary, smaller) */}
+                    <span className="hidden text-[10px] text-gray-500 sm:inline">
                       {agent.odds.toFixed(1)}x
                     </span>
                   </div>
