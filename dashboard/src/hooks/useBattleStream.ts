@@ -215,6 +215,7 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
     const d = event.data as Record<string, unknown>;
     if (typeof d.epochNumber === 'number') return d.epochNumber;
     if (typeof d.epoch === 'number') return d.epoch;
+    if (typeof d.totalEpochs === 'number') return d.totalEpochs;
     return -1;
   }, []);
 

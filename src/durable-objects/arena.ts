@@ -674,7 +674,6 @@ export class ArenaDO implements DurableObject {
             winnerId: timeoutWinner.id,
             winnerName: timeoutWinner.name,
             totalEpochs: battleState.epoch,
-            epochNumber: battleState.epoch,
           },
         });
       }
@@ -1675,7 +1674,6 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
                   winnerId: winnerAgent.id,
                   winnerName: winnerAgent.name,
                   totalEpochs: battleState.epoch,
-                  epochNumber: battleState.epoch,
                 },
               };
               server.send(JSON.stringify(endEvent));
