@@ -202,6 +202,19 @@ export interface BattleEventRow {
   created_at: string;
 }
 
+export interface PrizeTransactionRow {
+  id: number;
+  battle_id: string;
+  type: string;
+  recipient: string;
+  amount: string;
+  tx_hash: string;
+  success: number; // 0 or 1
+  error: string | null;
+  agent_id: string | null;
+  created_at: string;
+}
+
 // ─── Agent Queries ───────────────────────────────────────────────
 
 export async function insertAgent(
@@ -1969,5 +1982,65 @@ export async function getBattleEvents(
     )
     .bind(battleId)
     .all<BattleEventRow>();
+  return result.results;
+}
+
+// ─── Prize Transaction Queries ──────────────────────────────────────
+
+/**
+ * Batch-insert prize distribution transactions for a battle.
+ * Each transaction represents a single on-chain operation (burn, treasury,
+ * withdrawal, kill bonus, or survival bonus).
+ * Uses D1 batch API for atomicity and performance.
+ */
+export async function savePrizeTransactions(
+  db: D1Database,
+  battleId: string,
+  transactions: Array<{
+    type: string;
+    recipient: string;
+    amount: string;
+    txHash: string;
+    success: boolean;
+    error?: string;
+    agentId?: string;
+  }>,
+): Promise<void> {
+  if (transactions.length === 0) return;
+
+  const stmts = transactions.map((tx) =>
+    db
+      .prepare(
+        'INSERT INTO prize_transactions (battle_id, type, recipient, amount, tx_hash, success, error, agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .bind(
+        battleId,
+        tx.type,
+        tx.recipient,
+        tx.amount,
+        tx.txHash,
+        tx.success ? 1 : 0,
+        tx.error ?? null,
+        tx.agentId ?? null,
+      ),
+  );
+
+  await db.batch(stmts);
+}
+
+/**
+ * Get all prize transactions for a specific battle.
+ * Returns transactions ordered by creation time for deterministic ordering.
+ */
+export async function getPrizeTransactions(
+  db: D1Database,
+  battleId: string,
+): Promise<PrizeTransactionRow[]> {
+  const result = await db
+    .prepare(
+      'SELECT * FROM prize_transactions WHERE battle_id = ? ORDER BY id ASC',
+    )
+    .bind(battleId)
+    .all<PrizeTransactionRow>();
   return result.results;
 }

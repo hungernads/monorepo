@@ -881,6 +881,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
   // ── Fetch battle metadata (tier, etc.) ──
   const [battleTier, setBattleTier] = useState<'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD'>('IRON');
+  const [prizeData, setPrizeData] = useState<any>(null);
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
     fetch(`${API_BASE}/battle/${battleId}`)
@@ -888,6 +889,13 @@ export default function BattleView({ battleId }: BattleViewProps) {
       .then((data) => {
         if (data.tier) {
           setBattleTier(data.tier);
+        }
+        // If battle is completed, fetch prize distribution
+        if (data.status === 'COMPLETED') {
+          fetch(`${API_BASE}/battle/${battleId}/prizes`)
+            .then((res) => res.json())
+            .then((prizes) => setPrizeData(prizes))
+            .catch((err) => console.warn('Failed to fetch prize data:', err));
         }
       })
       .catch((err) => console.warn('Failed to fetch battle metadata:', err));
