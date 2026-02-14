@@ -153,6 +153,12 @@ export interface SponsorEffect {
   sponsorshipId: string;
   /** Sponsor's display message. */
   message: string;
+  /** Sponsor wallet address. */
+  sponsorAddress: string;
+  /** On-chain tx hash (if paid on-chain). */
+  txHash?: string;
+  /** Token amount burned for this sponsorship. */
+  amount: number;
 }
 
 export interface SponsorshipResult {
@@ -233,6 +239,9 @@ function rowToSponsorEffect(row: SponsorshipRow): SponsorEffect | null {
     attackBoost: config.attackBoost,
     sponsorshipId: row.id,
     message: row.message ?? '',
+    sponsorAddress: row.sponsor_address,
+    txHash: row.tx_hash ?? undefined,
+    amount: row.amount,
   };
 }
 

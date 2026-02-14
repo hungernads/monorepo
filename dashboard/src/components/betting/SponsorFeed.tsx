@@ -98,6 +98,7 @@ interface SponsorEntry {
   freeDefend: boolean;
   attackBoost: number;
   message?: string;
+  txHash?: string;
   timestamp: number;
   isNew?: boolean;
 }
@@ -175,6 +176,7 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
         freeDefend: event.data.freeDefend,
         attackBoost: event.data.attackBoost,
         message: event.data.message || undefined,
+        txHash: event.data.txHash || undefined,
         timestamp: Date.now() - (sponsorEvents.length - i) * 1000,
         isNew: i === sponsorEvents.length - 1,
       };
@@ -267,6 +269,16 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
                   </div>
                   <span className="text-[10px] text-gray-600">
                     from {entry.sponsor}
+                    {entry.txHash && (
+                      <> — <a
+                        href={`https://testnet.monadexplorer.com/tx/${entry.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gold hover:underline"
+                      >
+                        TX: {entry.txHash.slice(0, 8)}...{entry.txHash.slice(-4)}
+                      </a></>
+                    )}
                   </span>
                 </div>
 

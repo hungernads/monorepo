@@ -285,8 +285,10 @@ export interface SponsorBoostEvent {
     freeDefend: boolean;
     attackBoost: number;
     message: string;
-    /** Sponsor wallet address (added by feed processor). */
+    /** Sponsor wallet address. */
     sponsorAddress?: string;
+    /** On-chain tx hash. */
+    txHash?: string;
     /** Token amount burned. */
     amount?: number;
   };

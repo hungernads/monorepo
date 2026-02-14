@@ -114,6 +114,9 @@ export interface SponsorBoostResult {
   attackBoost: number;
   sponsorshipId: string;
   message: string;
+  sponsorAddress: string;
+  txHash?: string;
+  amount: number;
 }
 
 /** Result of storm damage applied to a single agent. */
@@ -852,6 +855,9 @@ function applySponsorBoosts(
       attackBoost: effect.attackBoost,
       sponsorshipId: effect.sponsorshipId,
       message: effect.message,
+      sponsorAddress: effect.sponsorAddress,
+      txHash: effect.txHash,
+      amount: effect.amount,
     });
   }
 

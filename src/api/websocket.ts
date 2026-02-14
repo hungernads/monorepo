@@ -298,6 +298,9 @@ export interface SponsorBoostEvent {
     freeDefend: boolean;
     attackBoost: number;
     message: string;
+    sponsorAddress?: string;
+    txHash?: string;
+    amount?: number;
   };
 }
 
@@ -752,6 +755,9 @@ export function epochToEvents(result: EpochResult): BattleEvent[] {
           freeDefend: boost.freeDefend,
           attackBoost: boost.attackBoost,
           message: boost.message,
+          sponsorAddress: boost.sponsorAddress,
+          txHash: boost.txHash,
+          amount: boost.amount,
         },
       });
     }
