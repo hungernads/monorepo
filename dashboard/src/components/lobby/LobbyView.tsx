@@ -365,8 +365,8 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
           <div className="flex items-center gap-2 rounded-lg border border-gold/20 bg-gold/5 px-4 py-2">
             <div className="h-2 w-2 animate-pulse rounded-full bg-gold" />
             <span className="text-xs font-medium text-gold">
-              {agents.length < 5
-                ? `Need ${5 - agents.length} more gladiators to start countdown`
+              {agents.length < 4
+                ? `Need ${4 - agents.length} more gladiators to start countdown`
                 : "Waiting for more gladiators..."}
             </span>
           </div>
