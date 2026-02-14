@@ -1148,11 +1148,69 @@ app.post('/bet', async (c) => {
     }
 
     const pool = new BettingPool(c.env.DB);
-    const result = await pool.placeBet(battleId, userAddress, agentId, amount);
+
+    // Calculate current odds to capture price at bet placement.
+    // Get betting pool breakdown.
+    const { perAgent } = await pool.getBattlePool(battleId);
+
+    // Get latest agent HP from most recent epoch actions.
+    const epochs = await getEpochsByBattle(c.env.DB, battleId);
+    const latestEpoch = epochs[epochs.length - 1];
+    const agentHpMap: Record<string, { hp: number; maxHp: number; isAlive: boolean }> = {};
+
+    if (latestEpoch) {
+      const actions = await getEpochActions(c.env.DB, latestEpoch.id);
+      for (const action of actions) {
+        agentHpMap[action.agent_id] = {
+          hp: action.hp_after ?? 1000,
+          maxHp: 1000,
+          isAlive: (action.hp_after ?? 1000) > 0,
+        };
+      }
+    }
+
+    // Fallback to default HP if no epoch data yet.
+    if (Object.keys(agentHpMap).length === 0) {
+      const battleAgents = await getAgentsByBattle(c.env.DB, battleId);
+      for (const agent of battleAgents) {
+        agentHpMap[agent.id] = { hp: 1000, maxHp: 1000, isAlive: true };
+      }
+    }
+
+    // Fetch win rates for each agent.
+    const winRates: Record<string, number> = {};
+    for (const agentId of Object.keys(agentHpMap)) {
+      const [wins, battles] = await Promise.all([
+        getAgentWins(c.env.DB, agentId),
+        getAgentBattleCount(c.env.DB, agentId),
+      ]);
+      winRates[agentId] = battles > 0 ? wins / battles : 0;
+    }
+
+    // Build inputs and calculate odds.
+    const agents = Object.entries(agentHpMap).map(([id, state]) => ({
+      id,
+      ...state,
+    }));
+    const inputs = buildOddsInputs(agents, perAgent, winRates);
+    const odds = calculateOdds(inputs);
+
+    // Extract price for the agent being bet on.
+    const priceAtBet = odds[agentId]?.probability;
+
+    // Place bet with price and shares.
+    const result = await pool.placeBet(battleId, userAddress, agentId, amount, priceAtBet);
+
+    // Calculate shares for response.
+    const shares = priceAtBet && priceAtBet > 0 ? amount / priceAtBet : undefined;
 
     return c.json({
       ok: true,
-      bet: result,
+      bet: {
+        ...result,
+        price: priceAtBet,
+        shares,
+      },
     });
   } catch (error) {
     console.error('Failed to place bet:', error);
@@ -2047,21 +2105,78 @@ app.post('/bet/buy', async (c) => {
       slippagePercent ?? 1,
     );
 
-    // Record in off-chain pool for odds/leaderboard tracking
+    // Calculate current odds to capture price at bet placement.
     const pool = new BettingPool(c.env.DB);
+    const { perAgent } = await pool.getBattlePool(battleId);
+
+    // Get latest agent HP from most recent epoch actions.
+    const epochs = await getEpochsByBattle(c.env.DB, battleId);
+    const latestEpoch = epochs[epochs.length - 1];
+    const agentHpMap: Record<string, { hp: number; maxHp: number; isAlive: boolean }> = {};
+
+    if (latestEpoch) {
+      const actions = await getEpochActions(c.env.DB, latestEpoch.id);
+      for (const action of actions) {
+        agentHpMap[action.agent_id] = {
+          hp: action.hp_after ?? 1000,
+          maxHp: 1000,
+          isAlive: (action.hp_after ?? 1000) > 0,
+        };
+      }
+    }
+
+    // Fallback to default HP if no epoch data yet.
+    if (Object.keys(agentHpMap).length === 0) {
+      const battleAgents = await getAgentsByBattle(c.env.DB, battleId);
+      for (const agent of battleAgents) {
+        agentHpMap[agent.id] = { hp: 1000, maxHp: 1000, isAlive: true };
+      }
+    }
+
+    // Fetch win rates for each agent.
+    const winRates: Record<string, number> = {};
+    for (const agentId of Object.keys(agentHpMap)) {
+      const [wins, battles] = await Promise.all([
+        getAgentWins(c.env.DB, agentId),
+        getAgentBattleCount(c.env.DB, agentId),
+      ]);
+      winRates[agentId] = battles > 0 ? wins / battles : 0;
+    }
+
+    // Build inputs and calculate odds.
+    const agents = Object.entries(agentHpMap).map(([id, state]) => ({
+      id,
+      ...state,
+    }));
+    const inputs = buildOddsInputs(agents, perAgent, winRates);
+    const odds = calculateOdds(inputs);
+
+    // Extract price for the agent being bet on.
+    const priceAtBet = odds[agentId]?.probability;
+
+    // Record in off-chain pool for odds/leaderboard tracking with price and shares.
+    const betAmount = Number(formatEther(amountWei));
     const betRecord = await pool.placeBet(
       battleId,
       client.walletAddress,
       agentId,
-      Number(formatEther(amountWei)),
+      betAmount,
+      priceAtBet,
     );
+
+    // Calculate shares for response.
+    const shares = priceAtBet && priceAtBet > 0 ? betAmount / priceAtBet : undefined;
 
     return c.json({
       ok: true,
       txHash,
       tokenAddress,
       amountInMon,
-      bet: betRecord,
+      bet: {
+        ...betRecord,
+        price: priceAtBet,
+        shares,
+      },
     });
   } catch (error) {
     console.error('Failed to buy $HNADS:', error);

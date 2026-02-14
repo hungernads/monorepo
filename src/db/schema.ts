@@ -93,6 +93,8 @@ export interface BetRow {
   placed_at: string;
   settled: number; // 0 or 1
   payout: number;
+  price_at_bet?: number | null; // Price when bet was placed (dynamic pricing)
+  shares?: number | null; // Number of shares purchased
 }
 
 export interface SponsorshipRow {
@@ -552,7 +554,7 @@ export async function insertBet(
 ): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO bets (id, battle_id, user_address, agent_id, amount, placed_at, settled, payout) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO bets (id, battle_id, user_address, agent_id, amount, placed_at, settled, payout, price_at_bet, shares) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       bet.id,
@@ -563,6 +565,8 @@ export async function insertBet(
       bet.placed_at,
       bet.settled,
       bet.payout,
+      bet.price_at_bet ?? null,
+      bet.shares ?? null,
     )
     .run();
 }
