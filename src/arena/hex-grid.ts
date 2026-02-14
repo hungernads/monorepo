@@ -1,13 +1,13 @@
 /**
- * HUNGERNADS - 37-Tile Axial Coordinate Hex Grid System
+ * HUNGERNADS - 19-Tile Axial Coordinate Hex Grid System
  *
- * Expanded arena: 4-ring honeycomb (radius 3) with 37 tiles.
+ * Compact arena: 3-ring honeycomb (radius 2) with 19 tiles.
+ * Reduced from 37 tiles (radius 3) to force more combat proximity with 5-8 agents.
  *
  * Layout (flat-top hexagons, axial coordinates q,r):
  *
- *  Ring 3 (EDGE - outer 18 tiles):  Lv 1 - Sparse items, dim + dashed
- *  Ring 2 (NORMAL - middle 12 tiles): Lv 2 - Standard spawn rates
- *  Ring 1 (CORNUCOPIA - inner 6 tiles): Lv 3 - Good loot (cornucopia)
+ *  Ring 2 (EDGE - outer 12 tiles):    Lv 1 - Sparse items, dim + dashed
+ *  Ring 1 (NORMAL - middle 6 tiles):  Lv 2 - Standard spawn rates
  *  Ring 0 (CORNUCOPIA - center 1 tile): Lv 4 - Best loot (legendary)
  *
  * All functions are pure with no side effects.
@@ -42,8 +42,11 @@ export type { BattlePhase } from './types/status';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Grid radius. 0 = center only, 1 = 7 tiles, 2 = 19 tiles, 3 = 37 tiles. */
-export const GRID_RADIUS = 3;
+/** Grid radius. 0 = center only, 1 = 7 tiles, 2 = 19 tiles, 3 = 37 tiles.
+ * REDUCED FROM 3 to 2: With 5-8 agents on 37 tiles, agents were too spread out and never adjacent for combat.
+ * 19 tiles forces closer proximity and more frequent combat encounters during HUNT/BLOOD phases.
+ */
+export const GRID_RADIUS = 2;
 
 /**
  * Axial direction offsets for the 6 hex neighbors (flat-top orientation).
@@ -266,14 +269,19 @@ export function getTilesByType(type: TileType, grid: HexGridState): HexTile[] {
 }
 
 /**
- * Get all outer ring tiles (Lv1, ring 3, distance 3 from center).
- * These are the 18 EDGE tiles where agents should spawn.
- * Returns only empty (unoccupied) outer ring tiles.
+ * Get all outer ring tiles (maximum distance from center = grid.radius).
+ * For radius 2 grid: 12 EDGE tiles at distance 2.
+ * For radius 3 grid: 18 EDGE tiles at distance 3.
+ * Returns only empty (unoccupied) outer ring tiles for agent spawning.
  */
 export function getOuterRingTiles(grid: HexGridState): HexTile[] {
+  const center: HexCoord = { q: 0, r: 0 };
+  const maxDistance = grid.radius;
   const results: HexTile[] = [];
+
   for (const tile of grid.tiles.values()) {
-    if (tile.level === 1 && tile.occupantId === null) {
+    const dist = getDistance(tile.coord, center);
+    if (dist === maxDistance && tile.occupantId === null) {
       results.push(tile);
     }
   }
@@ -460,14 +468,15 @@ export function moveAgent(
  * Storm ring threshold per battle phase.
  *
  * A tile is in the storm if its distance from center >= the stormRing value.
- *   -1 = no storm (all 37 tiles safe)
- *    3 = ring 3 is storm (18 Lv1 tiles) -> 19 safe
- *    2 = ring 2+3 is storm (18+12 = 30 tiles) -> 7 safe (Lv3+Lv4 center cluster)
- *    1 = ring 1+2+3 is storm (18+12+6 = 36 tiles) -> 1 safe (center only)
+ * For radius 2 grid (19 tiles):
+ *   -1 = no storm (all 19 tiles safe)
+ *    3 = no tiles at ring 3 (grid max is 2) -> all 19 safe (HUNT has no storm)
+ *    2 = ring 2 is storm (12 Lv1 EDGE tiles) -> 7 safe (Lv2+Lv4 center)
+ *    1 = ring 1+2 is storm (18 tiles) -> 1 safe (Lv4 center only)
  */
 const STORM_RING_BY_PHASE: Record<BattlePhase, number> = {
   LOOT: -1,
-  HUNT: 3,
+  HUNT: 3,  // No storm effect with radius 2 grid
   BLOOD: 2,
   FINAL_STAND: 1,
 };
@@ -476,11 +485,11 @@ const STORM_RING_BY_PHASE: Record<BattlePhase, number> = {
  * Get all tiles that are in the storm zone for a given battle phase.
  *
  * Storm tiles deal damage to agents standing on them each epoch.
- * The storm shrinks inward as phases progress:
+ * The storm shrinks inward as phases progress (for radius 2 grid):
  *   LOOT:        no storm (empty array)
- *   HUNT:        ring 3 (Lv1) = 18 tiles
- *   BLOOD:       ring 2+3 (Lv1+Lv2) = 30 tiles
- *   FINAL_STAND: ring 1+2+3 (Lv1+Lv2+Lv3) = 36 tiles
+ *   HUNT:        no storm (ring 3 doesn't exist → empty array)
+ *   BLOOD:       ring 2 (Lv1 EDGE) = 12 tiles
+ *   FINAL_STAND: ring 1+2 (Lv1+Lv2) = 18 tiles
  */
 export function getStormTiles(phase: BattlePhase, grid: HexGridState): HexTile[] {
   const stormRing = STORM_RING_BY_PHASE[phase];
@@ -515,10 +524,11 @@ export function isStormTile(coord: HexCoord, phase: BattlePhase): boolean {
 /**
  * Get all tiles that are safe (NOT in the storm) for a given phase.
  *
- *   LOOT:        37 safe tiles (all)
- *   HUNT:        19 safe tiles (Lv2+Lv3+Lv4)
- *   BLOOD:        7 safe tiles (Lv3+Lv4, center cluster)
- *   FINAL_STAND:  1 safe tile  (Lv4, center only)
+ * For radius 2 grid (19 tiles total):
+ *   LOOT:        19 safe tiles (all)
+ *   HUNT:        19 safe tiles (all, no storm)
+ *   BLOOD:        7 safe tiles (Lv2+Lv4, center cluster)
+ *   FINAL_STAND:  1 safe tile  (Lv4 center only)
  */
 export function getSafeTiles(phase: BattlePhase, grid: HexGridState): HexTile[] {
   const stormRing = STORM_RING_BY_PHASE[phase];
