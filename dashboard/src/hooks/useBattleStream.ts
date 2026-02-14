@@ -160,11 +160,24 @@ async function fetchPersistedEvents(
 
     const events: BattleEvent[] = [];
     let seenBattleEnd = false;
+    // Track sponsor_boost events by unique key: epoch + agentId
+    const seenSponsorBoosts = new Set<string>();
     for (const row of json.events) {
       // Deduplicate: only keep the first battle_end event
       if (row.eventType === 'battle_end') {
         if (seenBattleEnd) continue;
         seenBattleEnd = true;
+      }
+      // Deduplicate: only keep the first sponsor_boost per (epoch, agentId)
+      if (row.eventType === 'sponsor_boost') {
+        try {
+          const data = JSON.parse(row.eventJson);
+          const key = `${row.epoch}-${data.agentId}`;
+          if (seenSponsorBoosts.has(key)) continue;
+          seenSponsorBoosts.add(key);
+        } catch {
+          // If parsing fails, skip this event (logged below)
+        }
       }
       // Skip legacy agent_token_trade events
       if (row.eventType === 'agent_token_trade') continue;
