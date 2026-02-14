@@ -11,6 +11,7 @@ import OddsSparkline from "./OddsSparkline";
 import BetSlip from "./BetSlip";
 import type { BetSlipAgent } from "./BetSlip";
 import SettlementView from "./SettlementView";
+import type { BattleEvent } from "@/lib/websocket";
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -56,6 +57,8 @@ interface BettingPanelProps {
   } | null;
   /** Lobby tier (optional, defaults to allow betting). */
   tier?: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
+  /** WebSocket events stream (for listening to agent_death events). */
+  events?: BattleEvent[];
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +70,7 @@ export default function BettingPanel({
   battleId,
   winner,
   tier,
+  events = [],
 }: BettingPanelProps) {
   // ── Wallet state ──
   const { address, isConnected } = useAccount();
@@ -110,9 +114,24 @@ export default function BettingPanel({
   const bettingAllowed = tier ? TIER_BETTING_ENABLED[tier] ?? true : true;
 
   // ── Track alive count and refetch odds when an agent dies ──
-  // The agents prop updates via WebSocket (epoch_end → agentStates → agents).
-  // When aliveAgents.length decreases, we immediately refetch odds to show
-  // updated probabilities without waiting for the next 15s poll interval.
+  // Primary trigger: WebSocket agent_death events for immediate response.
+  // Fallback trigger: aliveAgents.length change (epoch_end updates).
+  // When an agent dies, refetch odds immediately to show updated probabilities
+  // without waiting for the next 15s poll interval or epoch_end event.
+  const lastDeathEventIndexRef = useRef(-1);
+  useEffect(() => {
+    // Find the latest agent_death event we haven't processed yet
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === 'agent_death' && i > lastDeathEventIndexRef.current) {
+        // New death event detected — refetch odds immediately
+        refetchOdds();
+        lastDeathEventIndexRef.current = i;
+        break;
+      }
+    }
+  }, [events, refetchOdds]);
+
+  // Fallback: Track alive count changes from epoch_end updates
   const aliveCountRef = useRef(aliveAgents.length);
   useEffect(() => {
     // Skip initial mount (first render when data loads)

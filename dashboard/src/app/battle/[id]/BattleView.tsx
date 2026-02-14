@@ -1373,7 +1373,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
             <CollapsiblePanel title="Bets" defaultOpen={false}>
               <div className="p-3">
-                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} />
+                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} events={events} />
               </div>
             </CollapsiblePanel>
           </div>
