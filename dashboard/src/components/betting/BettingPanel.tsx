@@ -54,6 +54,8 @@ interface BettingPanelProps {
     winnerName: string;
     totalEpochs: number;
   } | null;
+  /** Lobby tier (optional, defaults to allow betting). */
+  tier?: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,7 @@ export default function BettingPanel({
   agents,
   battleId,
   winner,
+  tier,
 }: BettingPanelProps) {
   // ── Wallet state ──
   const { address, isConnected } = useAccount();
@@ -77,7 +80,7 @@ export default function BettingPanel({
   const oddsHistoryRef = useRef<Record<string, number[]>>({});
 
   // ── Fetch live odds from API ──
-  const { data: oddsData, loading: oddsLoading } = useFetch<OddsResponse>(
+  const { data: oddsData, loading: oddsLoading, refetch: refetchOdds } = useFetch<OddsResponse>(
     `/battle/${battleId}/odds`,
     { pollInterval: 15_000 },
   );
@@ -94,6 +97,37 @@ export default function BettingPanel({
 
   const aliveAgents = useMemo(() => agents.filter((a) => a.alive), [agents]);
   const deadAgents = useMemo(() => agents.filter((a) => !a.alive), [agents]);
+
+  // ── Tier-based betting check ──
+  // Tier configs (hardcoded to match backend src/arena/tiers.ts)
+  const TIER_BETTING_ENABLED: Record<string, boolean> = {
+    FREE: false,
+    IRON: true,
+    BRONZE: true,
+    SILVER: true,
+    GOLD: true,
+  };
+  const bettingAllowed = tier ? TIER_BETTING_ENABLED[tier] ?? true : true;
+
+  // ── Track alive count and refetch odds when an agent dies ──
+  // The agents prop updates via WebSocket (epoch_end → agentStates → agents).
+  // When aliveAgents.length decreases, we immediately refetch odds to show
+  // updated probabilities without waiting for the next 15s poll interval.
+  const aliveCountRef = useRef(aliveAgents.length);
+  useEffect(() => {
+    // Skip initial mount (first render when data loads)
+    if (aliveCountRef.current === 0 && aliveAgents.length > 0) {
+      aliveCountRef.current = aliveAgents.length;
+      return;
+    }
+
+    // If alive count decreased, an agent died — refetch odds immediately
+    if (aliveAgents.length < aliveCountRef.current) {
+      refetchOdds();
+    }
+
+    aliveCountRef.current = aliveAgents.length;
+  }, [aliveAgents.length, refetchOdds]);
 
   // ── Derive odds + track history ──
   const agentOdds = useMemo(() => {
@@ -237,14 +271,17 @@ export default function BettingPanel({
                 <button
                   key={agent.id}
                   onClick={() =>
-                    setSelectedAgentId(
+                    bettingAllowed && setSelectedAgentId(
                       isSelected ? "" : agent.id,
                     )
                   }
+                  disabled={!bettingAllowed}
                   className={`w-full flex items-center justify-between rounded border px-3 py-3 text-xs transition-all sm:py-2 ${
                     isSelected
                       ? "border-gold/50 bg-gold/10 ring-1 ring-gold/20"
-                      : "border-colosseum-surface-light bg-colosseum-bg/50 hover:border-gray-600 hover:bg-colosseum-bg/80"
+                      : !bettingAllowed
+                        ? "border-colosseum-surface-light bg-colosseum-bg/30 opacity-60 cursor-not-allowed"
+                        : "border-colosseum-surface-light bg-colosseum-bg/50 hover:border-gray-600 hover:bg-colosseum-bg/80"
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -342,12 +379,20 @@ export default function BettingPanel({
           </div>
         )}
 
-        <BetSlip
-          agent={selectedBetSlipAgent}
-          battleId={battleId}
-          onClear={() => setSelectedAgentId("")}
-          onSuccess={handleBetSuccess}
-        />
+        {!bettingAllowed ? (
+          <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/30 p-4">
+            <p className="text-center text-xs text-gray-600">
+              Betting is not available for {tier} tier battles
+            </p>
+          </div>
+        ) : (
+          <BetSlip
+            agent={selectedBetSlipAgent}
+            battleId={battleId}
+            onClear={() => setSelectedAgentId("")}
+            onSuccess={handleBetSuccess}
+          />
+        )}
       </div>
 
       {/* ------- MY ACTIVE BETS ------- */}

@@ -1156,6 +1156,19 @@ app.post('/bet', async (c) => {
       );
     }
 
+    // Enforce tier-based betting rules: check if betting is enabled for this tier.
+    const tier = (battle.tier ?? 'FREE') as LobbyTier;
+    const tierConfig = getTierConfig(tier);
+    if (!tierConfig.bettingEnabled) {
+      return c.json(
+        {
+          error: `Betting is not available for ${tier} tier battles`,
+          tier,
+        },
+        400,
+      );
+    }
+
     const pool = new BettingPool(c.env.DB);
     const result = await pool.placeBet(battleId, userAddress, agentId, amount);
 
@@ -1538,11 +1551,12 @@ app.post('/battle/:id/settle', async (c) => {
  *   - message:        string  (optional)
  *   - tier:           string  (optional) -- BREAD_RATION | MEDICINE_KIT | ARMOR_PLATING | WEAPON_CACHE | CORNUCOPIA
  *   - epochNumber:    number  (optional) -- target epoch for effects. Required if tier is set.
+ *   - txHash:         string  (optional) -- on-chain burn transaction hash (required for non-BREAD_RATION tiers)
  */
 app.post('/sponsor', async (c) => {
   try {
     const body = await c.req.json();
-    const { battleId, agentId, amount, message, sponsorAddress, tier: tierStr, epochNumber } = body as {
+    const { battleId, agentId, amount, message, sponsorAddress, tier: tierStr, epochNumber, txHash } = body as {
       battleId?: string;
       agentId?: string;
       amount?: number;
@@ -1550,6 +1564,7 @@ app.post('/sponsor', async (c) => {
       sponsorAddress?: string;
       tier?: string;
       epochNumber?: number;
+      txHash?: string;
     };
 
     if (!battleId || !agentId || !sponsorAddress) {
@@ -1593,6 +1608,14 @@ app.post('/sponsor', async (c) => {
         );
       }
 
+      // Validate txHash for non-BREAD_RATION tiers
+      if (tier !== 'BREAD_RATION' && !txHash) {
+        return c.json(
+          { error: `Transaction hash (txHash) is required for ${tier} tier sponsorships` },
+          400,
+        );
+      }
+
       const sponsorship = await manager.sponsorTiered(
         battleId,
         agentId,
@@ -1601,6 +1624,7 @@ app.post('/sponsor', async (c) => {
         message ?? '',
         tier,
         epochNumber,
+        txHash,
       );
 
       return c.json({
@@ -1617,6 +1641,7 @@ app.post('/sponsor', async (c) => {
       sponsorAddress,
       amount,
       message ?? '',
+      txHash,
     );
 
     return c.json({
