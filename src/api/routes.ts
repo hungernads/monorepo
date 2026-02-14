@@ -1147,6 +1147,19 @@ app.post('/bet', async (c) => {
       );
     }
 
+    // Enforce tier-based betting rules: check if betting is enabled for this tier.
+    const tier = (battle.tier ?? 'FREE') as LobbyTier;
+    const tierConfig = getTierConfig(tier);
+    if (!tierConfig.bettingEnabled) {
+      return c.json(
+        {
+          error: `Betting is not available for ${tier} tier battles`,
+          tier,
+        },
+        400,
+      );
+    }
+
     const pool = new BettingPool(c.env.DB);
 
     // Calculate current odds to capture price at bet placement.
