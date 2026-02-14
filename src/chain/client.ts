@@ -206,6 +206,22 @@ export class HungernadsChainClient {
     }, `registerBattle(${battleId})`);
   }
 
+  /** Fire-and-forget registerBattle — sends tx without waiting for receipt. */
+  async registerBattleFast(battleId: string, agentIds: number[], entryFeeWei: bigint = 0n): Promise<Hash> {
+    const battleBytes = battleIdToBytes32(battleId);
+    const agentBigInts = agentIds.map(id => BigInt(id));
+
+    const hash = await this.walletClient.writeContract({
+      address: this.arenaAddress,
+      abi: hungernadsArenaAbi,
+      functionName: 'registerBattle',
+      args: [battleBytes, agentBigInts, entryFeeWei],
+    });
+
+    console.log(`[chain] registerBattleFast tx sent: ${hash}`);
+    return hash;
+  }
+
   /**
    * Activate a battle (transition from Created to Active).
    * Calls HungernadsArena.activateBattle(bytes32).
@@ -487,6 +503,21 @@ export class HungernadsChainClient {
       address: this.arenaAddress,
       abi: hungernadsArenaAbi,
       functionName: 'feePaid',
+      args: [battleBytes, walletAddress],
+    })) as boolean;
+  }
+
+  /** Alias for checkFeePaid — used by join route */
+  async isFeePaid(battleId: string, walletAddress: Address): Promise<boolean> {
+    return this.checkFeePaid(battleId, walletAddress);
+  }
+
+  async isHnadsFeePaid(battleId: string, walletAddress: Address): Promise<boolean> {
+    const battleBytes = battleIdToBytes32(battleId);
+    return (await this.publicClient.readContract({
+      address: this.arenaAddress,
+      abi: hungernadsArenaAbi,
+      functionName: 'hnadsFeePaid',
       args: [battleBytes, walletAddress],
     })) as boolean;
   }

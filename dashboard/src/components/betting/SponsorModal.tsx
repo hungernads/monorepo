@@ -9,6 +9,7 @@ interface SponsorModalProps {
   onClose: () => void;
   agents: AgentState[];
   battleId: string;
+  currentEpoch: number;
 }
 
 export default function SponsorModal({
@@ -16,6 +17,7 @@ export default function SponsorModal({
   onClose,
   agents,
   battleId,
+  currentEpoch,
 }: SponsorModalProps) {
   // Close on Escape key
   const handleKeyDown = useCallback(
@@ -80,6 +82,7 @@ export default function SponsorModal({
         <SponsorTierSelector
           agents={agents}
           battleId={battleId}
+          currentEpoch={currentEpoch}
           onSuccess={onClose}
           onClose={onClose}
         />

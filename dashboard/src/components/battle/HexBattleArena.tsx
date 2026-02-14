@@ -525,7 +525,7 @@ function HexTile({
   if (hpPct <= 0.3) hpColor = "#dc2626";
   else if (hpPct <= 0.6) hpColor = "#f59e0b";
 
-  const cfg = agent ? CLASS_CONFIG[agent.class] : null;
+  const cfg = agent ? CLASS_CONFIG[agent.class] ?? CLASS_CONFIG.WARRIOR : null;
 
   return (
     <g

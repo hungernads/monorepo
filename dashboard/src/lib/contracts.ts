@@ -18,8 +18,8 @@
  */
 
 import { useReadContract, useWriteContract, useAccount } from 'wagmi';
-import { parseEther, type Address, keccak256, encodePacked } from 'viem';
-import { BETTING_ADDRESS, ARENA_ADDRESS } from './wallet';
+import { parseEther, type Address, keccak256, encodeAbiParameters } from 'viem';
+import { BETTING_ADDRESS, ARENA_ADDRESS, monadChain } from './wallet';
 
 // ─── ABI Subsets (user-facing functions only) ────────────────────────
 
@@ -136,6 +136,16 @@ const arenaAbi = [
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    type: 'function',
+    name: 'hnadsFeePaid',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'battleId', type: 'bytes32' },
+      { name: 'player', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -145,7 +155,7 @@ const arenaAbi = [
  * Must match the backend's `battleIdToBytes32`.
  */
 export function battleIdToBytes32(battleId: string): `0x${string}` {
-  return keccak256(encodePacked(['string'], [battleId]));
+  return keccak256(encodeAbiParameters([{ type: 'string' }], [battleId]));
 }
 
 // ─── Read Hooks ──────────────────────────────────────────────────────
@@ -380,9 +390,29 @@ export function useFeePaid(battleId: string) {
     abi: arenaAbi,
     functionName: 'feePaid',
     args: [battleBytes, address as Address],
+    chainId: monadChain.id,
     query: {
       enabled: !!address,
-      refetchInterval: 10_000,
+      refetchInterval: 5_000,
+    },
+  });
+}
+
+/**
+ * Check whether the connected user has paid the $HNADS fee for a battle.
+ */
+export function useHnadsFeePaid(battleId: string) {
+  const { address } = useAccount();
+  const battleBytes = battleIdToBytes32(battleId);
+  return useReadContract({
+    address: ARENA_ADDRESS,
+    abi: arenaAbi,
+    functionName: 'hnadsFeePaid',
+    args: [battleBytes, address as Address],
+    chainId: monadChain.id,
+    query: {
+      enabled: !!address,
+      refetchInterval: 5_000,
     },
   });
 }

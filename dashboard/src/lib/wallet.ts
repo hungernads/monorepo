@@ -1,7 +1,8 @@
 /**
  * HUNGERNADS - Wallet Configuration
  *
- * Wagmi + viem configuration for connecting to Monad testnet.
+ * Wagmi + viem configuration for connecting to Monad.
+ * Set NEXT_PUBLIC_CHAIN=mainnet to switch to Monad mainnet.
  * Supports injected wallets (MetaMask, etc.) and WalletConnect.
  *
  * Usage:
@@ -9,13 +10,12 @@
  */
 
 import { http } from 'wagmi';
-import { defineChain } from 'viem';
 import { getDefaultConfig, type Chain } from '@rainbow-me/rainbowkit';
 import { QueryClient } from '@tanstack/react-query';
 
-// ─── Monad Testnet Chain ────────────────────────────────────────────
+// ─── Chain Definitions ─────────────────────────────────────────────
 
-export const monadTestnet = {
+const monadTestnet: Chain = {
   id: 10143,
   name: 'Monad Testnet',
   iconUrl: '/monad-icon.png',
@@ -27,7 +27,7 @@ export const monadTestnet = {
   },
   rpcUrls: {
     default: {
-      http: ['https://testnet-rpc.monad.xyz'],
+      http: [process.env.NEXT_PUBLIC_MONAD_TESTNET_RPC ?? 'https://testnet-rpc.monad.xyz'],
     },
   },
   blockExplorers: {
@@ -37,7 +37,38 @@ export const monadTestnet = {
     },
   },
   testnet: true,
-} as const satisfies Chain;
+};
+
+const monadMainnet: Chain = {
+  id: 10143, // TODO: update when Monad mainnet launches
+  name: 'Monad',
+  iconUrl: '/monad-icon.png',
+  iconBackground: '#836EF9',
+  nativeCurrency: {
+    name: 'Monad',
+    symbol: 'MON',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: [process.env.NEXT_PUBLIC_MONAD_MAINNET_RPC ?? 'https://rpc.monad.xyz'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Monad Explorer',
+      url: 'https://monadexplorer.com',
+    },
+  },
+  testnet: false,
+};
+
+// ─── Active Chain (env-driven) ─────────────────────────────────────
+
+const isMainnet = process.env.NEXT_PUBLIC_CHAIN === 'mainnet';
+
+/** The active Monad chain. All components should use this. */
+export const monadChain: Chain = isMainnet ? monadMainnet : monadTestnet;
 
 // ─── Wagmi + RainbowKit Config ──────────────────────────────────────
 
@@ -46,9 +77,9 @@ export const wagmiConfig = getDefaultConfig({
   // WalletConnect projectId — get one free at https://cloud.walletconnect.com
   // Injected wallets (MetaMask) work without it; WalletConnect QR requires it.
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'hungernads-dev',
-  chains: [monadTestnet],
+  chains: [monadChain],
   transports: {
-    [monadTestnet.id]: http('https://testnet-rpc.monad.xyz'),
+    [monadChain.id]: http(monadChain.rpcUrls.default.http[0]),
   },
 });
 

@@ -19,7 +19,8 @@ API_BASE = environment variable HUNGERNADS_API, or default "http://localhost:878
 DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "http://localhost:3000"
 RPC_URL = "https://testnet-rpc.monad.xyz"
 CHAIN_ID = 10143
-TREASURY_ADDRESS = "0x77C037fbF42e85dB1487B390b08f58C00f438812"
+ARENA_CONTRACT = "0x45B9151BD350F26eE0ad44395B5555cbA5364DC8"
+HNADS_TOKEN = "0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777"
 AGENT_FAUCET = "https://agents.devnads.com/v1/faucet"
 ```
 
@@ -37,7 +38,7 @@ curl -s "${API_BASE}/battle/lobbies"
 ```
 Open lobbies:
   1. #abc12345 — 3/8 gladiators (FREE)
-  2. #def67890 — 5/8 gladiators, 0.01 MON fee (COUNTDOWN)
+  2. #def67890 — 5/8 gladiators, 0.01 MON + 100 $HNADS fee (COUNTDOWN)
 ```
 
 **If no lobbies exist**: Ask user if they want to create one.
@@ -92,19 +93,52 @@ Validate: `/^[a-zA-Z0-9_]{1,12}$/`
 
 If --auto: generate random name like "NAD_7X2" or "REKT_42".
 
-### Step 4: Handle payment (if lobby has a fee)
+### Step 4: Handle payment (if lobby has fees)
 
-Check if the selected lobby has a non-zero `feeAmount` (from the lobbies list or GET /battle/:id response).
+Check if the selected lobby has a non-zero `feeAmount` or `hnadsFeeAmount` (from the lobbies list or GET /battle/:id response).
 
-**If fee > 0**:
+A lobby is **paid** if `feeAmount > 0` OR `hnadsFeeAmount > 0`. A lobby is **free** if both are "0".
 
-No user private key needed — funded via the Monad agent faucet (free, no auth).
+**If paid**:
 
-1. **Show cost**:
+Each agent gets an ephemeral wallet funded via the Monad agent faucet (free, no auth) for MON. If `hnadsFeeAmount > 0`, the environment variable `HUNGERNADS_PRIVATE_KEY` is **REQUIRED** to transfer $HNADS tokens to the ephemeral wallet (there is no $HNADS faucet).
+
+If `hnadsFeeAmount > 0` and `HUNGERNADS_PRIVATE_KEY` is not set, error and abort:
+```
+ERROR: $HNADS fee required but HUNGERNADS_PRIVATE_KEY not set.
+This lobby requires $HNADS tokens which must be transferred from a funded wallet.
+Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
+```
+
+1. **Validate balances BEFORE proceeding.** Derive the main wallet address from `HUNGERNADS_PRIVATE_KEY`:
+   ```bash
+   MAIN_ADDRESS=$(cast wallet address --private-key $MAIN_PK)
+   MON_BALANCE=$(cast balance --rpc-url https://testnet-rpc.monad.xyz $MAIN_ADDRESS --ether)
+   ```
+   If `hnadsFeeAmount > 0`, also check $HNADS balance:
+   ```bash
+   HNADS_BALANCE=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
+     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+     "balanceOf(address)(uint256)" $MAIN_ADDRESS | cast --from-wei)
+   ```
+   If MON balance < `feeAmount` (plus ~0.01 gas buffer) OR $HNADS balance < `hnadsFeeAmount`, abort:
+   ```
+   === INSUFFICIENT BALANCE ===
+   MON balance:   ${MON_BALANCE} MON (need ${feeAmount} MON)
+   HNADS balance: ${HNADS_BALANCE} $HNADS (need ${hnadsFeeAmount} $HNADS)
+
+   Top up your wallet (${MAIN_ADDRESS}) and retry.
+   ```
+
+2. **Show cost** (balances sufficient):
    ```
    === PAYMENT REQUIRED ===
-   Lobby fee: ${feeAmount} MON
-   Funding: Agent faucet (1 MON, free)
+   MON fee: ${feeAmount} MON
+   HNADS fee: ${hnadsFeeAmount} $HNADS
+   Wallet: ${MAIN_ADDRESS}
+   MON balance: ${MON_BALANCE} MON
+   HNADS balance: ${HNADS_BALANCE} $HNADS
+   Funding: Agent faucet (1 MON, free)${hnadsFeeAmount > 0 ? ' + main wallet (for $HNADS)' : ''}
    ```
 
 2. **Generate ephemeral wallet**:
@@ -113,7 +147,7 @@ No user private key needed — funded via the Monad agent faucet (free, no auth)
    ```
    Extract `address` and `privateKey`.
 
-3. **Fund ephemeral wallet via agent faucet**:
+3. **Fund ephemeral wallet with MON via agent faucet**:
    ```bash
    curl -s -X POST "https://agents.devnads.com/v1/faucet" \
      -H "Content-Type: application/json" \
@@ -128,25 +162,58 @@ No user private key needed — funded via the Monad agent faucet (free, no auth)
    ```
    If neither works, error and abort.
 
-4. **Pay entrance fee** (send to treasury EOA — arena contract has no receive()):
+4. **If `hnadsFeeAmount > 0`, transfer $HNADS tokens** from HUNGERNADS_PRIVATE_KEY to ephemeral wallet:
+   ```bash
+   cast send --rpc-url https://testnet-rpc.monad.xyz \
+     --private-key $MAIN_PK \
+     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+     "transfer(address,uint256)" $AGENT_ADDRESS \
+     $(cast --to-wei $HNADS_FEE ether)
+   ```
+
+5. **Compute battle ID as bytes32** for contract calls:
+   ```bash
+   BATTLE_BYTES=$(cast abi-encode "f(string)" "$BATTLE_ID" | cast keccak)
+   ```
+
+6. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $AGENT_PK \
-     0x77C037fbF42e85dB1487B390b08f58C00f438812 \
+     0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     "payEntryFee(bytes32)" $BATTLE_BYTES \
      --value ${FEE}ether
    ```
-   Capture the transaction hash. The API only validates that a txHash exists, not the recipient.
+   Capture the transaction hash as `MON_TX_HASH`.
+
+7. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
+   ```bash
+   cast send --rpc-url https://testnet-rpc.monad.xyz \
+     --private-key $AGENT_PK \
+     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+     "approve(address,uint256)" 0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     $(cast --to-wei $HNADS_FEE ether)
+   ```
+
+8. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
+   ```bash
+   cast send --rpc-url https://testnet-rpc.monad.xyz \
+     --private-key $AGENT_PK \
+     0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     "depositHnadsFee(bytes32,uint256)" $BATTLE_BYTES \
+     $(cast --to-wei $HNADS_FEE ether)
+   ```
 
 ### Step 5: Join the battle
 
-**If fee > 0** (paid):
+**If paid** (feeAmount > 0 OR hnadsFeeAmount > 0):
 ```bash
 curl -s -X POST "${API_BASE}/battle/${battle_id}/join" \
   -H "Content-Type: application/json" \
-  -d '{"agentClass": "${class}", "agentName": "${name}", "txHash": "0x...", "walletAddress": "0x..."}'
+  -d '{"agentClass": "${class}", "agentName": "${name}", "txHash": "'$MON_TX_HASH'", "walletAddress": "'$AGENT_ADDRESS'"}'
 ```
 
-**If fee = 0** (free):
+**If free** (feeAmount = 0 AND hnadsFeeAmount = 0):
 ```bash
 curl -s -X POST "${API_BASE}/battle/${battle_id}/join" \
   -H "Content-Type: application/json" \
@@ -162,7 +229,8 @@ Agent: ${name} (${class})
 Arena: #${battle_id.slice(0,8)}
 Slot: ${position}/${maxPlayers}
 Status: ${status}
-${fee > 0 ? `Wallet: ${agentAddress}\nFee paid: ${feeAmount} MON (tx: ${txHash.slice(0,10)}...${txHash.slice(-6)})` : ''}
+${feeAmount > 0 ? `Wallet: ${agentAddress}\nMON fee paid: ${feeAmount} MON (TX1: ${monTxHash.slice(0,10)}...${monTxHash.slice(-6)})` : ''}
+${hnadsFeeAmount > 0 ? `$HNADS fee paid: ${hnadsFeeAmount} $HNADS (TX2: approve, TX3: ${hnadsTxHash.slice(0,10)}...${hnadsTxHash.slice(-6)})` : ''}
 
 ${status === 'COUNTDOWN' ? 'Battle starts in ~60 seconds!' : `Waiting for ${5 - playerCount} more gladiators...`}
 
@@ -180,6 +248,9 @@ If the lobby still needs agents to trigger countdown, suggest `/hnads-join` to f
 
 - **Faucet fails**: Fall back to `HUNGERNADS_PRIVATE_KEY` if available, otherwise abort
 - **Faucet + PK both unavailable**: Report error, do not attempt join
+- **Insufficient MON or $HNADS balance**: Abort before attempting any transactions, show balances and required amounts
+- **$HNADS fee required but HUNGERNADS_PRIVATE_KEY not set**: Abort immediately (cannot get $HNADS from faucet)
+- **Contract tx fails**: Report which TX (1/2/3) failed, do not attempt join
 - **Fee payment fails**: Report error, do not attempt join
 - **402 Payment Required**: Fee required but no txHash — triggers wallet flow
 - **cast not found**: Error "Foundry's cast CLI is required. Install: curl -L https://foundry.paradigm.xyz | bash"

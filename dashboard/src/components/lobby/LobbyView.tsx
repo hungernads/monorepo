@@ -19,10 +19,11 @@ interface LobbyViewProps {
   battleId: string;
 }
 
-type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+type LobbyTier = 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
 
 const TIER_COLORS: Record<LobbyTier, string> = {
   FREE: '#6b7280',
+  IRON: '#8b8b8b',
   BRONZE: '#cd7f32',
   SILVER: '#c0c0c0',
   GOLD: '#f59e0b',
@@ -30,6 +31,7 @@ const TIER_COLORS: Record<LobbyTier, string> = {
 
 const TIER_LABELS: Record<LobbyTier, string> = {
   FREE: 'Free Arena',
+  IRON: 'Iron Arena',
   BRONZE: 'Bronze Arena',
   SILVER: 'Silver Arena',
   GOLD: 'Gold Arena',
@@ -38,6 +40,7 @@ const TIER_LABELS: Record<LobbyTier, string> = {
 /** Winner share per tier (mirrors backend tiers.ts). */
 const TIER_WINNER_SHARE: Record<LobbyTier, number> = {
   FREE: 0,
+  IRON: 0.8,
   BRONZE: 0.8,
   SILVER: 0.8,
   GOLD: 0.85,
@@ -46,6 +49,7 @@ const TIER_WINNER_SHARE: Record<LobbyTier, number> = {
 /** Kill bonus per tier in $HNADS. */
 const TIER_KILL_BONUS: Record<LobbyTier, string | undefined> = {
   FREE: undefined,
+  IRON: undefined,
   BRONZE: undefined,
   SILVER: '25',
   GOLD: '50',
@@ -54,6 +58,7 @@ const TIER_KILL_BONUS: Record<LobbyTier, string | undefined> = {
 /** Survival bonus per tier in $HNADS. */
 const TIER_SURVIVAL_BONUS: Record<LobbyTier, string | undefined> = {
   FREE: undefined,
+  IRON: undefined,
   BRONZE: undefined,
   SILVER: undefined,
   GOLD: '100',

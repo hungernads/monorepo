@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { parseEther } from "viem";
 import type { AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
-import { ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadTestnet } from "@/lib/wallet";
-import { battleIdToBytes32 } from "@/lib/contracts";
+import { ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadChain } from "@/lib/wallet";
+import { battleIdToBytes32, useFeePaid, useHnadsFeePaid } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,7 +46,7 @@ const MAX_NAME_LENGTH = 12;
 // ABIs (minimal, only functions used by this component)
 // ---------------------------------------------------------------------------
 
-/** Arena contract ABI: payEntryFee + depositHnadsFee */
+/** Arena contract ABI: payEntryFee + depositHnadsFee + getBattleAgents */
 const arenaFeeAbi = [
   {
     type: 'function' as const,
@@ -64,6 +64,13 @@ const arenaFeeAbi = [
       { name: '_amount', type: 'uint256' as const },
     ],
     outputs: [],
+  },
+  {
+    type: 'function' as const,
+    name: 'getBattleAgents' as const,
+    stateMutability: 'view' as const,
+    inputs: [{ name: '_battleId', type: 'bytes32' as const }],
+    outputs: [{ name: '', type: 'uint256[]' as const }],
   },
 ] as const;
 
@@ -129,7 +136,28 @@ export default function JoinForm({
 
   // ---- Wallet ----
   const { address: walletAddress, isConnected, chain } = useAccount();
-  const wrongChain = isConnected && chain?.id !== monadTestnet.id;
+  const wrongChain = isConnected && chain?.id !== monadChain.id;
+
+  // ---- On-chain battle registration check ----
+  // Battle must be registered on-chain before payEntryFee / depositHnadsFee work.
+  // Polls every 3s until registered. Returns agent IDs array (empty = not registered).
+  const battleBytes = battleIdToBytes32(battleId);
+  const { data: onChainAgents, error: regCheckError } = useReadContract({
+    address: ARENA_ADDRESS,
+    abi: arenaFeeAbi,
+    functionName: 'getBattleAgents',
+    args: [battleBytes],
+    chainId: monadChain.id,
+    query: {
+      enabled: hasAnyFee && isConnected,
+      refetchInterval: 3_000,
+    },
+  });
+  const battleRegistered = !!onChainAgents && (onChainAgents as bigint[]).length > 0;
+
+  // ---- On-chain fee status (survives page refresh) ----
+  const { data: onChainMonPaid } = useFeePaid(battleId);
+  const { data: onChainHnadsPaid } = useHnadsFeePaid(battleId);
 
   // ---- Step 1: MON fee payment (payEntryFee) ----
   const {
@@ -144,7 +172,7 @@ export default function JoinForm({
     isSuccess: monTxConfirmed,
   } = useWaitForTransactionReceipt({
     hash: monPaymentHash,
-    chainId: monadTestnet.id,
+    chainId: monadChain.id,
   });
 
   // ---- Step 2: $HNADS approve ----
@@ -160,7 +188,7 @@ export default function JoinForm({
     isFetching: isApproveConfirming,
   } = useWaitForTransactionReceipt({
     hash: approveHash,
-    chainId: monadTestnet.id,
+    chainId: monadChain.id,
   });
 
   // ---- Step 3: $HNADS deposit (depositHnadsFee) ----
@@ -176,15 +204,16 @@ export default function JoinForm({
     isSuccess: depositConfirmed,
   } = useWaitForTransactionReceipt({
     hash: hnadsDepositHash,
-    chainId: monadTestnet.id,
+    chainId: monadChain.id,
   });
 
   // ---- Derived fee state ----
-  const monFeePaid = !hasMonFee || !!monPaymentHash;
+  // Require on-chain confirmation (not just tx hash) before allowing submit
+  const monFeePaid = !hasMonFee || !!onChainMonPaid || monTxConfirmed;
   // Approve must confirm on-chain before deposit can proceed
-  const hnadsApproved = !hasHnadsFee || approveConfirmed;
-  // Deposit is "paid" once tx hash exists (backend verifies on-chain mapping)
-  const hnadsDepositDone = !hasHnadsFee || !!hnadsDepositHash;
+  const hnadsApproved = !hasHnadsFee || !!onChainHnadsPaid || approveConfirmed;
+  // Deposit must be confirmed on-chain
+  const hnadsDepositDone = !hasHnadsFee || !!onChainHnadsPaid || depositConfirmed;
   const allFeesPaid = monFeePaid && hnadsDepositDone;
 
   // ---- Derived state ----
@@ -257,7 +286,7 @@ export default function JoinForm({
           (payload as Record<string, string>).error ?? `HTTP ${res.status}`;
 
         if (res.status === 402) {
-          throw new Error("Payment required: complete all fee payments first");
+          throw new Error(serverError);
         }
         if (res.status === 409) {
           const lower = serverError.toLowerCase();
@@ -468,6 +497,17 @@ export default function JoinForm({
             </ConnectButton.Custom>
           ) : (
             <div className="space-y-3">
+              {/* Waiting for on-chain battle registration */}
+              {!battleRegistered && (
+                <div className="flex items-center gap-2 rounded-lg border border-gold/20 bg-gold/5 p-2 text-[11px] text-gold">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Registering battle on-chain... payments enabled shortly
+                </div>
+              )}
+
               {/* Step progress indicator (only if multi-step) */}
               {totalSteps > 1 && (
                 <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
@@ -518,7 +558,7 @@ export default function JoinForm({
                     <>
                       <button
                         type="button"
-                        disabled={disabled || isMonSending || isMonConfirming}
+                        disabled={disabled || !battleRegistered || isMonSending || isMonConfirming}
                         onClick={() => {
                           setError("");
                           resetMonTx();
@@ -533,14 +573,18 @@ export default function JoinForm({
                         className={`mt-2 w-full rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
                           isMonSending || isMonConfirming
                             ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
-                            : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
+                            : !battleRegistered
+                              ? "cursor-not-allowed border border-gray-700 bg-colosseum-surface text-gray-600"
+                              : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
                         } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
                       >
-                        {isMonSending
-                          ? "Confirm in Wallet..."
-                          : isMonConfirming
-                            ? "Confirming TX..."
-                            : `Pay ${feeAmount} MON`}
+                        {!battleRegistered
+                          ? "Waiting for on-chain registration..."
+                          : isMonSending
+                            ? "Confirm in Wallet..."
+                            : isMonConfirming
+                              ? "Confirming TX..."
+                              : `Pay ${feeAmount} MON`}
                       </button>
                       {monTxError && (
                         <p className="mt-1 text-[11px] text-blood-light">
@@ -649,7 +693,7 @@ export default function JoinForm({
                       </p>
                       <button
                         type="button"
-                        disabled={disabled || isDepositSending || isDepositConfirming}
+                        disabled={disabled || !battleRegistered || isDepositSending || isDepositConfirming}
                         onClick={() => {
                           setError("");
                           resetDepositTx();
@@ -663,14 +707,18 @@ export default function JoinForm({
                         className={`mt-2 w-full rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
                           isDepositSending || isDepositConfirming
                             ? "cursor-wait border border-gold/40 bg-gold/10 text-gold"
-                            : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
+                            : !battleRegistered
+                              ? "cursor-not-allowed border border-gray-700 bg-colosseum-surface text-gray-600"
+                              : "border border-gold/50 bg-gold/10 text-gold hover:bg-gold/20 active:scale-[0.98]"
                         } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
                       >
-                        {isDepositSending
-                          ? "Confirm in Wallet..."
-                          : isDepositConfirming
-                            ? "Confirming Deposit..."
-                            : `Deposit ${hnadsFeeAmount} $HNADS`}
+                        {!battleRegistered
+                          ? "Waiting for on-chain registration..."
+                          : isDepositSending
+                            ? "Confirm in Wallet..."
+                            : isDepositConfirming
+                              ? "Confirming Deposit..."
+                              : `Deposit ${hnadsFeeAmount} $HNADS`}
                       </button>
                       {depositTxError && (
                         <p className="mt-1 text-[11px] text-blood-light">

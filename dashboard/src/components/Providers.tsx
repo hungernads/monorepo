@@ -12,7 +12,7 @@
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { WagmiProvider } from 'wagmi';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { wagmiConfig, queryClient, monadTestnet } from '@/lib/wallet';
+import { wagmiConfig, queryClient, monadChain } from '@/lib/wallet';
 import { BurnCounterProvider } from '@/contexts/BurnCounterContext';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -20,7 +20,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
-          initialChain={monadTestnet}
+          initialChain={monadChain}
           theme={darkTheme({
             accentColor: '#f59e0b', // gold to match colosseum theme
             borderRadius: 'medium',

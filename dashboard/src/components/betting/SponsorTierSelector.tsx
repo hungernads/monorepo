@@ -111,6 +111,8 @@ interface SponsorTierSelectorProps {
   agents: AgentState[];
   /** Battle ID for the API call. */
   battleId: string;
+  /** Current epoch number for tier effects. */
+  currentEpoch: number;
   /** Callback fired on successful sponsorship submission. */
   onSuccess?: () => void;
   /** Callback to close the parent container/modal. */
@@ -124,6 +126,7 @@ interface SponsorTierSelectorProps {
 export default function SponsorTierSelector({
   agents,
   battleId,
+  currentEpoch,
   onSuccess,
   onClose,
 }: SponsorTierSelectorProps) {
@@ -185,6 +188,7 @@ export default function SponsorTierSelector({
           amount: selectedOption!.cost,
           message: message || "",
           tier: selectedTier,
+          epochNumber: currentEpoch + 1, // Tier effects apply next epoch
         }),
       });
 

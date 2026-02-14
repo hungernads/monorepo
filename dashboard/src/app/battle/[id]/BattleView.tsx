@@ -1248,11 +1248,11 @@ export default function BattleView({ battleId }: BattleViewProps) {
           Desktop: side-by-side. Mobile: stacked.
           ═══════════════════════════════════════════════════════════════ */}
       <div
-        className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]"
+        className="grid grid-cols-1 items-start gap-4 md:grid-cols-[2fr_1fr]"
         style={{ minHeight: "min(calc(100vh - 52px), 100%)" }}
       >
         {/* ─── Left column: Arena ─── */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 md:sticky md:top-4">
           {/* Hex battle arena */}
           <div className="card flex-1">
             <HexBattleArena
@@ -1495,6 +1495,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
         onClose={() => setSponsorModalOpen(false)}
         agents={agents}
         battleId={battleId}
+        currentEpoch={currentEpoch}
       />
     </div>
   );

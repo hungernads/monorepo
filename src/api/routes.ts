@@ -43,7 +43,7 @@ import type { AgentClass } from '../agents';
 import { MIN_AGENTS, MAX_AGENTS } from '../arena/arena';
 import { computePhaseConfig } from '../arena/phases';
 import { DEFAULT_BATTLE_CONFIG, type BattleConfig } from '../durable-objects/arena';
-import { type LobbyTier, getTierConfig, isValidTier } from '../arena/tiers';
+import { type LobbyTier, getTierConfig, isValidTier, getAllTiers } from '../arena/tiers';
 import {
   SponsorshipManager,
   BettingPool,
@@ -172,7 +172,7 @@ const VALID_ASSETS = AssetSchema.options as readonly string[];
  * No agents are spawned yet — they join individually via POST /battle/:id/join.
  *
  * Body (all fields optional):
- *   - tier:                string        — tier name (FREE, BRONZE, SILVER, GOLD) (default: FREE)
+ *   - tier:                string        — tier name (FREE, IRON, BRONZE, SILVER, GOLD) (default: FREE)
  *   - bettingWindowEpochs: number        — epochs betting stays open (default 3, range 0–50)
  *   - assets:              string[]      — assets agents can predict on (default all four)
  *
@@ -188,7 +188,7 @@ app.post('/battle/create', async (c) => {
     const tier: LobbyTier = body.tier ?? 'FREE';
     if (!isValidTier(tier)) {
       return c.json(
-        { error: `Invalid tier. Valid tiers: FREE, BRONZE, SILVER, GOLD` },
+        { error: `Invalid tier. Valid tiers: ${getAllTiers().join(', ')}` },
         400,
       );
     }
@@ -298,8 +298,29 @@ app.post('/battle/create', async (c) => {
 
     const arenaResult = await initResponse.json() as Record<string, unknown>;
 
-    // NOTE: No on-chain registration yet — that happens when the battle
-    // transitions from LOBBY → ACTIVE (after countdown).
+    // ── Register battle on-chain (non-blocking) ─────────────────────
+    // Register early so payEntryFee / depositHnadsFee work during LOBBY.
+    // Uses placeholder agent IDs [1,2] — real IDs aren't known until agents join.
+    // transitionToActive() will silently skip re-registration (BattleAlreadyExists).
+    // Non-blocking: frontend polls on-chain state before enabling payment buttons.
+    const chainClient = createChainClient(c.env);
+    if (chainClient) {
+      const entryFeeWei = feeAmount ? parseEther(feeAmount) : 0n;
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await chainClient.registerBattleFast(battleId, [1, 2], entryFeeWei);
+          console.log(`[chain] Battle ${battleId} registered on-chain (lobby phase)`);
+        } catch (err) {
+          console.error(`[chain] registerBattle failed for ${battleId}:`, err);
+        }
+        try {
+          await chainClient.createBettingPool(battleId);
+          console.log(`[chain] Betting pool created on-chain for ${battleId}`);
+        } catch (err) {
+          console.error(`[chain] createBettingPool failed for ${battleId}:`, err);
+        }
+      })());
+    }
 
     return c.json({
       ok: true,
@@ -626,34 +647,6 @@ app.post('/battle/:id/join', async (c) => {
     const monFee = parseFloat(tierConfig.monFee);
     const hnadsFee = parseFloat(tierConfig.hnadsFee);
 
-    // ── Fee gate: require txHash if MON fee > 0 ─────────────────
-    if (monFee > 0 && !txHash) {
-      return c.json(
-        {
-          error: 'MON payment required: this battle has a MON entry fee',
-          feeAmount: tierConfig.monFee,
-          hnadsFeeAmount: tierConfig.hnadsFee,
-          tier: battle.tier,
-          hint: 'Send the MON fee via payEntryFee() on HungernadsArena and provide the txHash',
-        },
-        402,
-      );
-    }
-
-    // ── Fee gate: require hnadsTxHash if $HNADS fee > 0 ─────────
-    if (hnadsFee > 0 && !hnadsTxHash) {
-      return c.json(
-        {
-          error: '$HNADS payment required: this battle has a $HNADS entry fee',
-          feeAmount: tierConfig.monFee,
-          hnadsFeeAmount: tierConfig.hnadsFee,
-          tier: battle.tier,
-          hint: 'Approve + call depositHnadsFee() on HungernadsArena and provide the hnadsTxHash',
-        },
-        402,
-      );
-    }
-
     // ── Fee gate: walletAddress required for paid tiers ──────────
     if ((monFee > 0 || hnadsFee > 0) && !walletAddress) {
       return c.json(
@@ -666,47 +659,63 @@ app.post('/battle/:id/join', async (c) => {
     }
 
     // ── On-chain fee verification ───────────────────────────────
-    // Verify both MON and $HNADS payments on-chain.
-    // Poll up to 3 times with 1s intervals to account for Monad ~1s block time.
+    // First try verifying via tx hash (fresh payment). If no hash provided,
+    // fall back to reading the on-chain mapping directly (handles page refresh).
     // Gracefully skip if chainClient is unavailable (local dev / missing env vars).
     const chainClient = createChainClient(c.env);
 
     // Verify MON fee
-    if (chainClient && monFee > 0 && txHash) {
-      const expectedFeeWei = parseEther(tierConfig.monFee);
+    if (monFee > 0) {
       let monFeePaid = false;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        monFeePaid = await chainClient.verifyFeeTransaction(
-          txHash as `0x${string}`,
-          expectedFeeWei,
-          walletAddress as `0x${string}` | undefined,
-        );
-        if (monFeePaid) break;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+      if (chainClient && txHash) {
+        const expectedFeeWei = parseEther(tierConfig.monFee);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          monFeePaid = await chainClient.verifyFeeTransaction(
+            txHash as `0x${string}`,
+            expectedFeeWei,
+            walletAddress as `0x${string}` | undefined,
+          );
+          if (monFeePaid) break;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+        }
+      } else if (chainClient && walletAddress) {
+        // No tx hash (e.g. page refresh) — read on-chain mapping directly
+        monFeePaid = await chainClient.isFeePaid(battleId, walletAddress as `0x${string}`);
+      } else if (!chainClient) {
+        // No chain client (local dev) — skip verification
+        monFeePaid = true;
       }
       if (!monFeePaid) {
         return c.json(
-          { error: 'MON fee transaction not yet confirmed on-chain. Please wait and retry.' },
+          { error: txHash ? 'MON fee transaction not yet confirmed on-chain. Please wait and retry.' : 'MON payment required: pay the entry fee first' },
           402,
         );
       }
     }
 
     // Verify $HNADS fee
-    if (chainClient && hnadsFee > 0 && hnadsTxHash && walletAddress) {
+    if (hnadsFee > 0) {
       let hnadsFeePaid = false;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        hnadsFeePaid = await chainClient.verifyHnadsFeeTransaction(
-          hnadsTxHash as `0x${string}`,
-          battleId,
-          walletAddress as `0x${string}`,
-        );
-        if (hnadsFeePaid) break;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+      if (chainClient && hnadsTxHash && walletAddress) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          hnadsFeePaid = await chainClient.verifyHnadsFeeTransaction(
+            hnadsTxHash as `0x${string}`,
+            battleId,
+            walletAddress as `0x${string}`,
+          );
+          if (hnadsFeePaid) break;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+        }
+      } else if (chainClient && walletAddress) {
+        // No tx hash (e.g. page refresh) — read on-chain mapping directly
+        hnadsFeePaid = await chainClient.isHnadsFeePaid(battleId, walletAddress as `0x${string}`);
+      } else if (!chainClient) {
+        // No chain client (local dev) — skip verification
+        hnadsFeePaid = true;
       }
       if (!hnadsFeePaid) {
         return c.json(
-          { error: '$HNADS fee transaction not yet confirmed on-chain. Please wait and retry.' },
+          { error: hnadsTxHash ? '$HNADS fee transaction not yet confirmed on-chain. Please wait and retry.' : '$HNADS payment required: deposit the fee first' },
           402,
         );
       }
@@ -1127,7 +1136,8 @@ app.post('/bet', async (c) => {
     if (!battle) {
       return c.json({ error: 'Battle not found' }, 404);
     }
-    if (battle.status !== 'BETTING_OPEN' && battle.status !== 'ACTIVE') {
+    const bettableStatuses = ['BETTING_OPEN', 'ACTIVE', 'LOBBY', 'COUNTDOWN'];
+    if (!bettableStatuses.includes(battle.status)) {
       return c.json(
         { error: `Cannot bet on battle with status '${battle.status}'` },
         400,
@@ -1956,7 +1966,8 @@ app.post('/bet/buy', async (c) => {
     if (!battle) {
       return c.json({ error: 'Battle not found' }, 404);
     }
-    if (battle.status !== 'BETTING_OPEN' && battle.status !== 'ACTIVE') {
+    const bettableStatuses = ['BETTING_OPEN', 'ACTIVE', 'LOBBY', 'COUNTDOWN'];
+    if (!bettableStatuses.includes(battle.status)) {
       return c.json(
         { error: `Cannot bet on battle with status '${battle.status}'` },
         400,

@@ -41,8 +41,8 @@ export interface BattleRow {
   countdown_ends_at: string | null;
   /** ISO timestamp when the battle was cancelled (null if not cancelled). */
   cancelled_at: string | null;
-  /** Lobby tier: FREE, BRONZE, SILVER, or GOLD. */
-  tier: 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+  /** Lobby tier. */
+  tier: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
   /** $HNADS entry fee amount (in addition to MON fee). */
   hnads_fee_amount: string;
   /** Cumulative $HNADS burned from entry fees (50% of total collected). */

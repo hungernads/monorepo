@@ -10,7 +10,7 @@
  * Higher tiers offer bigger prizes, longer battles, and bonus rewards.
  */
 
-export type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+export type LobbyTier = 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
 
 /** Epoch threshold at which survival bonuses are awarded (agents alive at this epoch get the bonus). */
 export const SURVIVAL_BONUS_EPOCH = 50;
@@ -33,6 +33,10 @@ export interface TierConfig {
   killBonus?: string;
   /** Optional $HNADS bonus awarded if alive at epoch 50. */
   survivalBonus?: string;
+  /** Whether betting is enabled for this tier. */
+  bettingEnabled: boolean;
+  /** Whether sponsoring is enabled for this tier. */
+  sponsoringEnabled: boolean;
   /** Display label. */
   label: string;
   /** Description text. */
@@ -53,8 +57,23 @@ export const TIER_CONFIGS: Record<LobbyTier, TierConfig> = {
     maxEpochs: 20,
     winnerShare: 0,
     hnadsBurnRate: 0,
+    bettingEnabled: false,
+    sponsoringEnabled: false,
     label: 'Free Arena',
     description: 'Practice battles with no stakes',
+  },
+  IRON: {
+    tier: 'IRON',
+    monFee: '0.01',
+    hnadsFee: '10',
+    maxPlayers: 8,
+    maxEpochs: 30,
+    winnerShare: 0.8,
+    hnadsBurnRate: 0.5,
+    bettingEnabled: true,
+    sponsoringEnabled: true,
+    label: 'Iron Arena',
+    description: 'Entry: 5 MON + 50 $HNADS • Winner takes 80%',
   },
   BRONZE: {
     tier: 'BRONZE',
@@ -64,6 +83,8 @@ export const TIER_CONFIGS: Record<LobbyTier, TierConfig> = {
     maxEpochs: 50,
     winnerShare: 0.8,
     hnadsBurnRate: 0.5,
+    bettingEnabled: true,
+    sponsoringEnabled: true,
     label: 'Bronze Arena',
     description: 'Entry: 10 MON + 100 $HNADS • Winner takes 80% of prize pool',
   },
@@ -75,6 +96,8 @@ export const TIER_CONFIGS: Record<LobbyTier, TierConfig> = {
     maxEpochs: 75,
     winnerShare: 0.8,
     hnadsBurnRate: 0.5,
+    bettingEnabled: true,
+    sponsoringEnabled: true,
     killBonus: '25',
     label: 'Silver Arena',
     description: 'Entry: 50 MON + 500 $HNADS • Winner takes 80% • 25 $HNADS per kill',
@@ -87,6 +110,8 @@ export const TIER_CONFIGS: Record<LobbyTier, TierConfig> = {
     maxEpochs: 100,
     winnerShare: 0.85,
     hnadsBurnRate: 0.5,
+    bettingEnabled: true,
+    sponsoringEnabled: true,
     killBonus: '50',
     survivalBonus: '100',
     label: 'Gold Arena',
@@ -147,14 +172,14 @@ export function calculatePrizePool(tier: LobbyTier, playerCount: number): {
  * Validate tier name.
  */
 export function isValidTier(tier: string): tier is LobbyTier {
-  return ['FREE', 'BRONZE', 'SILVER', 'GOLD'].includes(tier);
+  return ['FREE', 'IRON', 'BRONZE', 'SILVER', 'GOLD'].includes(tier);
 }
 
 /**
  * Get all tiers sorted by entry fee (ascending).
  */
 export function getAllTiers(): LobbyTier[] {
-  return ['FREE', 'BRONZE', 'SILVER', 'GOLD'];
+  return ['FREE', 'IRON', 'BRONZE', 'SILVER', 'GOLD'];
 }
 
 /**

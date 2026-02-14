@@ -108,7 +108,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 // Lobby tier display config (mirrors src/arena/tiers.ts for frontend display)
 // ---------------------------------------------------------------------------
 
-type LobbyTier = 'FREE' | 'BRONZE' | 'SILVER' | 'GOLD';
+type LobbyTier = 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
 
 interface LobbyTierDisplay {
   tier: LobbyTier;
@@ -133,6 +133,16 @@ const LOBBY_TIERS: LobbyTierDisplay[] = [
     winnerShare: 0,
     description: 'Practice battles with no stakes',
     color: '#6b7280',
+  },
+  {
+    tier: 'IRON',
+    label: 'Iron Arena',
+    monFee: '0.01',
+    hnadsFee: '10',
+    maxEpochs: 30,
+    winnerShare: 0.8,
+    description: 'Cheap entry to test the arena',
+    color: '#8b8b8b',
   },
   {
     tier: 'BRONZE',
@@ -685,7 +695,7 @@ export default function HomePage() {
   // ── Create a new lobby ──────────────────────────────────────────
   const [creatingLobby, setCreatingLobby] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [selectedTier, setSelectedTier] = useState<'FREE' | 'BRONZE' | 'SILVER' | 'GOLD'>('FREE');
+  const [selectedTier, setSelectedTier] = useState<LobbyTier>('FREE');
 
   const handleCreateLobby = useCallback(async () => {
     try {
@@ -746,7 +756,7 @@ export default function HomePage() {
             <p className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">
               Choose Arena Tier
             </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {LOBBY_TIERS.map((t) => {
                 const isSelected = selectedTier === t.tier;
                 return (
