@@ -603,17 +603,19 @@ export default function JoinForm({
                   {onChainMonPaid ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
-                      <span>Paid on-chain</span>
-                      {savedMonHash && (
-                        <a
-                          href={`https://testnet.monadexplorer.com/tx/${savedMonHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-1 text-gold hover:underline"
-                        >
-                          TX
-                        </a>
-                      )}
+                      <span>
+                        Paid on-chain
+                        {savedMonHash && (
+                          <> — <a
+                            href={`https://testnet.monadexplorer.com/tx/${savedMonHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gold hover:underline"
+                          >
+                            TX: {savedMonHash.slice(0, 10)}...{savedMonHash.slice(-6)}
+                          </a></>
+                        )}
+                      </span>
                     </div>
                   ) : monPaymentHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
@@ -683,17 +685,19 @@ export default function JoinForm({
                   {onChainHnadsPaid ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
-                      <span>Approved</span>
-                      {savedApproveHash && (
-                        <a
-                          href={`https://testnet.monadexplorer.com/tx/${savedApproveHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-1 text-gold hover:underline"
-                        >
-                          TX
-                        </a>
-                      )}
+                      <span>
+                        Approved
+                        {savedApproveHash && (
+                          <> — <a
+                            href={`https://testnet.monadexplorer.com/tx/${savedApproveHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gold hover:underline"
+                          >
+                            TX: {savedApproveHash.slice(0, 10)}...{savedApproveHash.slice(-6)}
+                          </a></>
+                        )}
+                      </span>
                     </div>
                   ) : approveHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
@@ -765,17 +769,19 @@ export default function JoinForm({
                   {onChainHnadsPaid ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
-                      <span>Deposited</span>
-                      {savedDepositHash && (
-                        <a
-                          href={`https://testnet.monadexplorer.com/tx/${savedDepositHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-1 text-gold hover:underline"
-                        >
-                          TX
-                        </a>
-                      )}
+                      <span>
+                        Deposited
+                        {savedDepositHash && (
+                          <> — <a
+                            href={`https://testnet.monadexplorer.com/tx/${savedDepositHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gold hover:underline"
+                          >
+                            TX: {savedDepositHash.slice(0, 10)}...{savedDepositHash.slice(-6)}
+                          </a></>
+                        )}
+                      </span>
                     </div>
                   ) : hnadsDepositHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
