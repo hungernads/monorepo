@@ -19,7 +19,10 @@
 
 import { useReadContract, useWriteContract, useAccount } from 'wagmi';
 import { parseEther, type Address, keccak256, encodeAbiParameters } from 'viem';
-import { BETTING_ADDRESS, ARENA_ADDRESS, monadChain } from './wallet';
+import { BETTING_ADDRESS, ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadChain } from './wallet';
+
+// Re-export monadChain for use in components
+export { monadChain } from './wallet';
 
 // ─── ABI Subsets (user-facing functions only) ────────────────────────
 
@@ -345,6 +348,71 @@ export function useClaimPrize() {
   }
 
   return { claim, isPending, isSuccess, error, hash };
+}
+
+// ─── ERC20 ABI (for token burn) ──────────────────────────────────
+
+/**
+ * Minimal ERC20 ABI for token transfers.
+ */
+const erc20Abi = [
+  {
+    type: 'function',
+    name: 'transfer',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
+/**
+ * Burn address (0xdEaD) for token burns.
+ */
+export const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD' as const;
+
+/**
+ * Burn $HNADS tokens by transferring to 0xdEaD.
+ *
+ * Usage:
+ *   const { burn, isPending } = useBurnHnads();
+ *   burn({ amountHnads: '100' });
+ */
+export function useBurnHnads() {
+  const { writeContract, isPending, isSuccess, error, data: hash } = useWriteContract();
+
+  function burn({ amountHnads }: { amountHnads: string }) {
+    writeContract({
+      address: HNADS_TOKEN_ADDRESS,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [BURN_ADDRESS, parseEther(amountHnads)],
+    });
+  }
+
+  return { burn, isPending, isSuccess, error, hash };
 }
 
 // ─── Arena Entry Fee Hooks ──────────────────────────────────────────

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useAccount } from "wagmi";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useAccount, useWaitForTransactionReceipt } from "wagmi";
 import type { AgentState, AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
+import { useBurnHnads, monadChain } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
 // Tier definitions (mirrors backend TIER_CONFIGS from src/betting/sponsorship.ts)
@@ -131,6 +132,7 @@ export default function SponsorTierSelector({
   onClose,
 }: SponsorTierSelectorProps) {
   const { address, isConnected } = useAccount();
+  const { burn, isPending: isBurning, isSuccess: burnSuccess, error: burnError, hash: burnTxHash } = useBurnHnads();
 
   const [selectedTier, setSelectedTier] = useState<SponsorTier | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -138,6 +140,13 @@ export default function SponsorTierSelector({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [burnStep, setBurnStep] = useState<"idle" | "burning" | "confirming" | "complete">("idle");
+
+  // Wait for burn transaction confirmation
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash: burnTxHash,
+    chainId: monadChain.id,
+  });
 
   const aliveAgents = useMemo(() => agents.filter((a) => a.alive), [agents]);
 
@@ -173,49 +182,96 @@ export default function SponsorTierSelector({
 
     setError("");
     setSubmitting(true);
+    setBurnStep("burning");
 
     try {
-      const apiBase =
-        process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+      // Step 1: Burn tokens (transfer to 0xdEaD) for non-BREAD_RATION tiers
+      let txHash: string | undefined;
+      if (selectedTier !== "BREAD_RATION") {
+        burn({ amountHnads: selectedOption!.cost.toString() });
 
-      const res = await fetch(`${apiBase}/sponsor`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          battleId,
-          agentId: selectedAgentId,
-          sponsorAddress: address,
-          amount: selectedOption!.cost,
-          message: message || "",
-          tier: selectedTier,
-          epochNumber: currentEpoch + 1, // Tier effects apply next epoch
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(
-          (body as Record<string, string>).error ?? `HTTP ${res.status}`,
-        );
+        // Wait for burn transaction to be initiated
+        // The useWaitForTransactionReceipt hook will handle confirmation
+        return; // Exit here, useEffect will continue after confirmation
       }
 
-      setSuccess(true);
-      onSuccess?.();
-
-      // Reset after brief success display
-      setTimeout(() => {
-        setSuccess(false);
-        setSelectedTier(null);
-        setSelectedAgentId("");
-        setMessage("");
-        onClose?.();
-      }, 1500);
+      // Step 2: Call API (for BREAD_RATION or after burn confirmation)
+      await submitSponsorship(txHash);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
       setSubmitting(false);
+      setBurnStep("idle");
     }
   }
+
+  const submitSponsorship = useCallback(
+    async (txHash?: string) => {
+      try {
+        setBurnStep("complete");
+
+        const apiBase =
+          process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+
+        const res = await fetch(`${apiBase}/sponsor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            battleId,
+            agentId: selectedAgentId,
+            sponsorAddress: address,
+            amount: selectedOption!.cost,
+            message: message || "",
+            tier: selectedTier,
+            epochNumber: currentEpoch + 1, // Tier effects apply next epoch
+            txHash,
+          }),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            (body as Record<string, string>).error ?? `HTTP ${res.status}`,
+          );
+        }
+
+        setSuccess(true);
+        onSuccess?.();
+
+        // Reset after brief success display
+        setTimeout(() => {
+          setSuccess(false);
+          setSelectedTier(null);
+          setSelectedAgentId("");
+          setMessage("");
+          setBurnStep("idle");
+          onClose?.();
+        }, 1500);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [
+      battleId,
+      selectedAgentId,
+      address,
+      selectedOption,
+      message,
+      selectedTier,
+      currentEpoch,
+      onSuccess,
+      onClose,
+    ],
+  );
+
+  // Auto-submit after burn confirmation
+  useEffect(() => {
+    if (isConfirmed && burnTxHash && burnStep === "burning") {
+      setBurnStep("confirming");
+      submitSponsorship(burnTxHash);
+    }
+  }, [isConfirmed, burnTxHash, burnStep, submitSponsorship]);
 
   return (
     <div className="space-y-4">
@@ -364,6 +420,38 @@ export default function SponsorTierSelector({
           {/* Error */}
           {error && <p className="text-xs text-blood">{error}</p>}
 
+          {/* Burn error */}
+          {burnError && (
+            <p className="text-xs text-blood">
+              Burn failed: {burnError.message}
+            </p>
+          )}
+
+          {/* Burn status */}
+          {burnStep === "burning" && !isConfirming && (
+            <div className="rounded border border-gold/30 bg-gold/10 px-3 py-2 text-center text-xs text-gold">
+              Confirm the token burn in your wallet...
+            </div>
+          )}
+          {isConfirming && (
+            <div className="rounded border border-gold/30 bg-gold/10 px-3 py-2 text-center text-xs text-gold">
+              Burning tokens... waiting for confirmation
+            </div>
+          )}
+          {burnTxHash && isConfirmed && (
+            <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+              <div className="mb-1">Tokens burned successfully!</div>
+              <a
+                href={`https://testnet.monadexplorer.com/tx/${burnTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] underline hover:text-green-300"
+              >
+                View transaction {burnTxHash.slice(0, 8)}...{burnTxHash.slice(-6)}
+              </a>
+            </div>
+          )}
+
           {/* Success */}
           {success && (
             <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-center text-xs text-green-400">
@@ -383,18 +471,20 @@ export default function SponsorTierSelector({
             )}
             <button
               onClick={handleSponsor}
-              disabled={submitting || success || !isConnected}
+              disabled={submitting || success || !isConnected || isBurning || isConfirming}
               className={`flex-1 rounded py-2.5 text-sm font-bold uppercase tracking-wider transition-all active:scale-[0.98] disabled:opacity-60 ${
                 selectedOption
                   ? `${selectedOption.bgAccent} ${selectedOption.color} border ${selectedOption.ringColor} hover:brightness-110`
                   : "bg-gold text-colosseum-bg hover:bg-gold-light"
               }`}
             >
-              {submitting
-                ? "Sending..."
-                : success
-                  ? "Sent!"
-                  : `Send ${selectedOption?.name ?? "Gift"}`}
+              {isBurning || isConfirming
+                ? "Burning..."
+                : submitting
+                  ? "Sending..."
+                  : success
+                    ? "Sent!"
+                    : `Send ${selectedOption?.name ?? "Gift"}`}
             </button>
           </div>
 

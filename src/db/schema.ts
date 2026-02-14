@@ -105,6 +105,7 @@ export interface SponsorshipRow {
   accepted: number; // 0 or 1
   tier: string | null;
   epoch_number: number | null;
+  tx_hash: string | null; // On-chain burn transaction hash
 }
 
 export interface BattleRecordRow {
