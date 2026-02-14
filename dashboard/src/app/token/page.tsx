@@ -80,9 +80,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
 const NADFUN_BASE_URL = 'https://nad.fun/tokens';
 
-/** nad.fun token page URL. Falls back to env var for override. */
-const NADFUN_TOKEN_URL = process.env.NEXT_PUBLIC_NADFUN_TOKEN_URL
-  || `${NADFUN_BASE_URL}/0x553C2F72D34c9b4794A04e09C6714D47Dc257777`;
+/** nad.fun token page for $HNADS — enables "Buy on nad.fun" CTAs across the page. */
+const NADFUN_TOKEN_URL = 'https://nad.fun/tokens/0x553C2F72D34c9b4794A04e09C6714D47Dc257777';
 
 const TIER_ICONS: Record<number, React.ComponentType<{ className?: string; size?: number }>> = {
   1: Droplets,
@@ -797,7 +796,7 @@ export default function TokenPage() {
           <div className="flex items-center justify-between">
             <span className="text-gray-600">Launch Platform</span>
             <a
-              href="https://nad.fun"
+              href="https://nad.fun/tokens/0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-gray-400 transition-colors hover:text-gold"

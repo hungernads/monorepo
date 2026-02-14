@@ -914,6 +914,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
 
   // ── Fetch battle metadata (tier, etc.) ──
   const [battleTier, setBattleTier] = useState<'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD'>('IRON');
+  const [bettingPhase, setBettingPhase] = useState<'OPEN' | 'LOCKED' | 'SETTLED'>('OPEN');
   const [prizeData, setPrizeData] = useState<any>(null);
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
@@ -922,6 +923,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
       .then((data) => {
         if (data.tier) {
           setBattleTier(data.tier);
+        }
+        if (data.bettingPhase) {
+          setBettingPhase(data.bettingPhase);
         }
         // If battle is completed, fetch prize distribution
         if (data.status === 'COMPLETED') {
@@ -933,6 +937,19 @@ export default function BattleView({ battleId }: BattleViewProps) {
       })
       .catch((err) => console.warn('Failed to fetch battle metadata:', err));
   }, [battleId]);
+
+  // Listen for betting_phase_change WebSocket events
+  useEffect(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === 'betting_phase_change') {
+        const phase = (events[i].data as any)?.phase;
+        if (phase) {
+          setBettingPhase(phase);
+          break;
+        }
+      }
+    }
+  }, [events]);
   const { toasts, addToast, removeToast } = useToast();
   const { addBurn } = useBurnCounter();
   const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
@@ -1414,7 +1431,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
             <CollapsiblePanel title="Bets" defaultOpen={false}>
               <div className="p-3">
-                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} events={events} settlementTxs={winner?.settlementTxs} />
+                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} bettingPhase={bettingPhase} events={events} settlementTxs={winner?.settlementTxs} />
               </div>
             </CollapsiblePanel>
           </div>

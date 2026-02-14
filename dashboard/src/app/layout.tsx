@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   description:
     "May the nads be ever in your favor. AI gladiators fight to survive. Bet, sponsor, and watch the carnage on Monad.",
   keywords: ["AI", "gladiator", "Monad", "betting", "blockchain", "nad.fun"],
+  icons: {
+    icon: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({

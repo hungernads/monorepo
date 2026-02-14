@@ -867,6 +867,12 @@ app.get('/battle/:id', async (c) => {
       if (state.agents && !Array.isArray(state.agents)) {
         state.agents = Object.values(state.agents);
       }
+      // Strip sensitive fields (privateKey) from agent data before sending to client
+      if (Array.isArray(state.agents)) {
+        state.agents = (state.agents as Record<string, unknown>[]).map(
+          ({ privateKey, ...agent }) => agent,
+        );
+      }
       return c.json(state);
     }
 

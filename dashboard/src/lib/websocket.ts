@@ -383,6 +383,15 @@ export interface StormDamageEvent {
   };
 }
 
+/** Emitted when the betting lifecycle phase changes (OPEN → LOCKED → SETTLED). */
+export interface BettingPhaseChangeEvent {
+  type: 'betting_phase_change';
+  data: {
+    phase: 'OPEN' | 'LOCKED' | 'SETTLED';
+    epoch: number;
+  };
+}
+
 export type BattleEvent =
   | EpochStartEvent
   | AgentActionEvent
@@ -406,7 +415,8 @@ export type BattleEvent =
   | LobbyUpdateEvent
   | BattleStartingEvent
   | PhaseChangeEvent
-  | StormDamageEvent;
+  | StormDamageEvent
+  | BettingPhaseChangeEvent;
 
 export type BattleEventHandler = (event: BattleEvent) => void;
 export type ConnectionHandler = (connected: boolean) => void;

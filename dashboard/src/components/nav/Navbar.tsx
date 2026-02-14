@@ -292,17 +292,19 @@ export default function Navbar() {
 
         {/* ── Right: Burn Counter + Notification + Token + Wallet/Profile ── */}
         <div className="flex items-center gap-2">
-          <BurnCounterBadge />
+          <div className="hidden lg:block">
+            <BurnCounterBadge />
+          </div>
 
           <SoundToggle isMuted={isMuted} toggleMute={toggleMute} />
 
           <NotificationBell />
 
-          <div className="hidden border-l border-colosseum-surface-light pl-3 lg:block">
+          <div className="hidden border-l border-colosseum-surface-light pl-3 xl:block">
             <TokenInfo />
           </div>
 
-          <div className="border-l border-colosseum-surface-light pl-3">
+          <div className="flex-shrink-0 border-l border-colosseum-surface-light pl-3">
             {mounted && isConnected && address ? (
               <ProfileMenu address={address} />
             ) : (

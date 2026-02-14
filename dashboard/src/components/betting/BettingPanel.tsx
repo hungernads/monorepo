@@ -64,6 +64,8 @@ interface BettingPanelProps {
   } | null;
   /** Lobby tier (optional, defaults to allow betting). */
   tier?: 'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD';
+  /** Betting lifecycle phase from backend. */
+  bettingPhase?: 'OPEN' | 'LOCKED' | 'SETTLED';
   /** WebSocket events stream (for listening to agent_death events). */
   events?: BattleEvent[];
   /** On-chain settlement transaction hashes (from battle_end event or API). */
@@ -79,6 +81,7 @@ export default function BettingPanel({
   battleId,
   winner,
   tier,
+  bettingPhase = 'OPEN',
   events = [],
   settlementTxs,
 }: BettingPanelProps) {
@@ -127,7 +130,8 @@ export default function BettingPanel({
     SILVER: true,
     GOLD: true,
   };
-  const bettingAllowed = tier ? TIER_BETTING_ENABLED[tier] ?? true : true;
+  const tierAllowed = tier ? TIER_BETTING_ENABLED[tier] ?? true : true;
+  const bettingAllowed = tierAllowed && bettingPhase === 'OPEN';
 
   // ── Track alive count and refetch odds when an agent dies ──
   // Primary trigger: WebSocket agent_death events for immediate response.
@@ -433,7 +437,11 @@ export default function BettingPanel({
         {!bettingAllowed ? (
           <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/30 p-4">
             <p className="text-center text-xs text-gray-600">
-              Betting is not available for {tier} tier battles
+              {bettingPhase === 'LOCKED'
+                ? 'Betting is locked for this battle'
+                : bettingPhase === 'SETTLED'
+                  ? 'Bets have been settled'
+                  : `Betting is not available for ${tier} tier battles`}
             </p>
           </div>
         ) : (

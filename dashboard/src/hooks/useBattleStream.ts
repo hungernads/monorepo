@@ -28,6 +28,7 @@ import {
   type GridStateEvent,
   type AgentMovedEvent,
   type PhaseChangeEvent,
+  type SponsorBoostEvent,
   type ItemType,
   type TileType,
 } from '@/lib/websocket';
@@ -395,6 +396,19 @@ export function useBattleStream(battleId: string): UseBattleStreamResult {
           phaseStartEpoch: e.data.epochNumber,
           phaseTotalEpochs: e.data.epochsRemaining,
         });
+        break;
+      }
+
+      case 'sponsor_boost': {
+        const e = event as SponsorBoostEvent;
+        // Update agent HP immediately so cards reflect the boost
+        setAgentStates((prev) =>
+          prev.map((a) =>
+            a.id === e.data.agentId
+              ? { ...a, hp: e.data.hpAfter }
+              : a,
+          ),
+        );
         break;
       }
 
