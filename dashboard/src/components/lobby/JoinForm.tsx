@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { parseEther } from "viem";
@@ -138,6 +138,32 @@ export default function JoinForm({
   const { address: walletAddress, isConnected, chain } = useAccount();
   const wrongChain = isConnected && chain?.id !== monadChain.id;
 
+  // ---- localStorage keys for saved tx hashes ----
+  const getStorageKey = (step: 'mon' | 'approve' | 'deposit') => {
+    return `hnads-fee-${battleId}-${walletAddress}-${step}`;
+  };
+
+  // ---- Read saved tx hashes on mount ----
+  const [savedMonHash, setSavedMonHash] = useState<string | null>(null);
+  const [savedApproveHash, setSavedApproveHash] = useState<string | null>(null);
+  const [savedDepositHash, setSavedDepositHash] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+
+    const monKey = getStorageKey('mon');
+    const approveKey = getStorageKey('approve');
+    const depositKey = getStorageKey('deposit');
+
+    const savedMon = localStorage.getItem(monKey);
+    const savedApprove = localStorage.getItem(approveKey);
+    const savedDeposit = localStorage.getItem(depositKey);
+
+    if (savedMon) setSavedMonHash(savedMon);
+    if (savedApprove) setSavedApproveHash(savedApprove);
+    if (savedDeposit) setSavedDepositHash(savedDeposit);
+  }, [battleId, walletAddress]);
+
   // ---- On-chain battle registration check ----
   // Battle must be registered on-chain before payEntryFee / depositHnadsFee work.
   // Polls every 3s until registered. Returns agent IDs array (empty = not registered).
@@ -175,6 +201,15 @@ export default function JoinForm({
     chainId: monadChain.id,
   });
 
+  // Save MON payment hash to localStorage when available
+  useEffect(() => {
+    if (monPaymentHash && walletAddress) {
+      const key = getStorageKey('mon');
+      localStorage.setItem(key, monPaymentHash);
+      setSavedMonHash(monPaymentHash);
+    }
+  }, [monPaymentHash, walletAddress, battleId]);
+
   // ---- Step 2: $HNADS approve ----
   const {
     writeContract: writeApproveTx,
@@ -191,6 +226,15 @@ export default function JoinForm({
     chainId: monadChain.id,
   });
 
+  // Save approve hash to localStorage when available
+  useEffect(() => {
+    if (approveHash && walletAddress) {
+      const key = getStorageKey('approve');
+      localStorage.setItem(key, approveHash);
+      setSavedApproveHash(approveHash);
+    }
+  }, [approveHash, walletAddress, battleId]);
+
   // ---- Step 3: $HNADS deposit (depositHnadsFee) ----
   const {
     writeContract: writeDepositTx,
@@ -206,6 +250,15 @@ export default function JoinForm({
     hash: hnadsDepositHash,
     chainId: monadChain.id,
   });
+
+  // Save deposit hash to localStorage when available
+  useEffect(() => {
+    if (hnadsDepositHash && walletAddress) {
+      const key = getStorageKey('deposit');
+      localStorage.setItem(key, hnadsDepositHash);
+      setSavedDepositHash(hnadsDepositHash);
+    }
+  }, [hnadsDepositHash, walletAddress, battleId]);
 
   // ---- Derived fee state ----
   // Require on-chain confirmation (not just tx hash) before allowing submit
@@ -547,7 +600,22 @@ export default function JoinForm({
                     <span className="text-xs font-bold text-gold">{feeAmount} MON</span>
                   </div>
 
-                  {monPaymentHash ? (
+                  {onChainMonPaid ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>Paid on-chain</span>
+                      {savedMonHash && (
+                        <a
+                          href={`https://testnet.monadexplorer.com/tx/${savedMonHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-gold hover:underline"
+                        >
+                          TX
+                        </a>
+                      )}
+                    </div>
+                  ) : monPaymentHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
                       <span>
@@ -612,7 +680,22 @@ export default function JoinForm({
                     <span className="text-xs font-bold text-gold">{hnadsFeeAmount} $HNADS</span>
                   </div>
 
-                  {approveHash ? (
+                  {onChainHnadsPaid ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>Approved</span>
+                      {savedApproveHash && (
+                        <a
+                          href={`https://testnet.monadexplorer.com/tx/${savedApproveHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-gold hover:underline"
+                        >
+                          TX
+                        </a>
+                      )}
+                    </div>
+                  ) : approveHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
                       <span>
@@ -679,7 +762,22 @@ export default function JoinForm({
                     <span className="text-xs font-bold text-gold">{hnadsFeeAmount} $HNADS</span>
                   </div>
 
-                  {hnadsDepositHash ? (
+                  {onChainHnadsPaid ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
+                      <CheckIcon />
+                      <span>Deposited</span>
+                      {savedDepositHash && (
+                        <a
+                          href={`https://testnet.monadexplorer.com/tx/${savedDepositHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-gold hover:underline"
+                        >
+                          TX
+                        </a>
+                      )}
+                    </div>
+                  ) : hnadsDepositHash ? (
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-green-400">
                       <CheckIcon />
                       <span>
