@@ -14,10 +14,7 @@ View odds and place a bet on a HungerNads battle via CLI.
 
 ## Configuration
 
-```
-API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
-DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
-```
+**Read `/hnads-config` for all shared constants** (API_BASE, DASHBOARD, etc.).
 
 ## Execution
 

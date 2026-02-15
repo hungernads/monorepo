@@ -15,10 +15,7 @@ Send a sponsorship to a gladiator mid-battle. Choose a tier to boost their HP an
 
 ## Configuration
 
-```
-API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
-DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
-```
+**Read `/hnads-config` for all shared constants** (API_BASE, DASHBOARD, etc.).
 
 ## Execution
 

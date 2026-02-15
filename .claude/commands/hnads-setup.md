@@ -16,11 +16,7 @@ If no arguments provided, ask the user what they want to do.
 
 ## Configuration
 
-```
-RPC_URL = environment variable MONAD_RPC_URL, or default "https://monad.drpc.org"
-CHAIN_ID = 143
-HNADS_TOKEN = "0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
-```
+**Read `/hnads-config` for all shared constants** (RPC_URL, CHAIN_ID, HNADS_TOKEN, balance check commands, and error messages).
 
 ## Prerequisites
 
@@ -101,18 +97,14 @@ If --dashboard provided, also save:
 HUNGERNADS_DASHBOARD=${dashboard}
 ```
 
-### Step 4: Fund if needed (new wallets)
+### Step 4: Fund reminder (new wallets)
 
-If MON balance is 0, offer to fund via the agent faucet:
-```bash
-curl -s -X POST "https://agents.devnads.com/v1/faucet" \
-  -H "Content-Type: application/json" \
-  -d '{"chainId": 10143, "address": "'$ADDRESS'"}'
+If MON balance is 0, tell the user they need to fund their wallet:
 ```
+Your wallet has 0 MON. To join paid lobbies, send MON to:
+  ${address}
 
-Re-check MON balance after faucet:
-```bash
-MON_BALANCE=$(cast balance --rpc-url ${RPC_URL} $ADDRESS --ether)
+You can get MON from an exchange or a friend. Free lobbies work without funds.
 ```
 
 ### Step 5: Summary
@@ -139,6 +131,6 @@ ${HNADS_BALANCE == 0 ? "Note: Your wallet has 0 $HNADS. Lobbies with $HNADS fees
 
 - **Invalid private key**: Report "Invalid private key format" and abort
 - **cast not found**: Report install instructions and abort
-- **Faucet fails**: Report "Faucet unavailable. You can fund manually by sending MON to ${address} on Monad."
+- **Zero balance**: Tell user to fund their wallet by sending MON to ${address} on Monad mainnet
 - **.env write fails**: Show the export command instead: `export HUNGERNADS_PRIVATE_KEY=${key}`
 - **Key already in .env**: Update existing value, show "Updated existing HUNGERNADS_PRIVATE_KEY"
