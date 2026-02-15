@@ -1642,7 +1642,34 @@ export default function HexBattleArena({
   // Assign agents to hexes
   const positions = useMemo(() => {
     if (externalPositions && externalPositions.size > 0) {
-      return externalPositions;
+      // Check if all agents have positions — fill missing ones with defaults
+      const missingAgents = agents.filter((a) => !externalPositions.has(a.id));
+      if (missingAgents.length === 0) return externalPositions;
+
+      // Merge: keep existing positions, assign defaults for missing agents
+      const merged = new Map(externalPositions);
+      const occupiedKeys = new Set(
+        [...externalPositions.values()].map((c) => `${c.q},${c.r}`),
+      );
+      const defaults = assignDefaultPositions(missingAgents.map((a) => a.id));
+      for (const [agentId, coord] of defaults) {
+        const key = `${coord.q},${coord.r}`;
+        if (!occupiedKeys.has(key)) {
+          merged.set(agentId, coord);
+          occupiedKeys.add(key);
+        } else {
+          // Slot taken — find any unoccupied tile
+          for (const hex of ARENA_HEXES) {
+            const hk = `${hex.q},${hex.r}`;
+            if (!occupiedKeys.has(hk)) {
+              merged.set(agentId, { q: hex.q, r: hex.r });
+              occupiedKeys.add(hk);
+              break;
+            }
+          }
+        }
+      }
+      return merged;
     }
     return assignDefaultPositions(agents.map((a) => a.id));
   }, [agents, externalPositions]);

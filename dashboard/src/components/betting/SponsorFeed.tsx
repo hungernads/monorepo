@@ -199,7 +199,7 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
   return (
     <div>
       {entries.length === 0 ? (
-        <p className="text-xs text-gray-600">
+        <p className="px-3 py-2 text-center text-xs text-gray-600">
           No sponsorships yet. Be the first to send a parachute drop!
         </p>
       ) : (

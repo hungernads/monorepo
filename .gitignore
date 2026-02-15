@@ -28,8 +28,12 @@ Thumbs.db
 replays/
 
 # Foundry artifacts
+contracts/out/
 contracts/broadcast/
 contracts/cache/
+
+# Migration scripts (may contain secrets in env vars)
+scripts/migrate-oracle.sh
 
 # Beads (local task tracking)
 .beads/

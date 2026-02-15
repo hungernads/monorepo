@@ -24,7 +24,7 @@ import {
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { hungernadsArenaAbi, hungernadsBettingAbi } from './abis';
 
-// ─── Monad Testnet Chain Definition ─────────────────────────────────
+// ─── Monad Chain Definitions ────────────────────────────────────────
 
 export const monadTestnet = defineChain({
   id: 10143,
@@ -46,6 +46,28 @@ export const monadTestnet = defineChain({
     },
   },
   testnet: true,
+});
+
+export const monadMainnet = defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: {
+    name: 'Monad',
+    symbol: 'MON',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://monad-mainnet.g.alchemy.com/v2'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Monad Explorer',
+      url: 'https://monadexplorer.com',
+    },
+  },
+  testnet: false,
 });
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -143,8 +165,10 @@ export class HungernadsChainClient {
     this.bettingAddress = config.bettingAddress;
     this.account = privateKeyToAccount(config.privateKey);
 
+    const isMainnet = !config.rpcUrl.includes('testnet');
+    const baseChain = isMainnet ? monadMainnet : monadTestnet;
     const chain = {
-      ...monadTestnet,
+      ...baseChain,
       rpcUrls: {
         default: {
           http: [config.rpcUrl],
@@ -198,20 +222,27 @@ export class HungernadsChainClient {
     }, `registerBattle(${battleId})`);
   }
 
-  /** Fire-and-forget registerBattle — sends tx without waiting for receipt. */
+  /**
+   * Register battle on-chain — sends tx and waits for receipt (with retries).
+   * Previously fire-and-forget, now uses withRetry + receipt wait for reliability.
+   */
   async registerBattleFast(battleId: string, agentIds: number[], entryFeeWei: bigint = 0n): Promise<Hash> {
     const battleBytes = battleIdToBytes32(battleId);
     const agentBigInts = agentIds.map(id => BigInt(id));
 
-    const hash = await this.walletClient.writeContract({
-      address: this.arenaAddress,
-      abi: hungernadsArenaAbi,
-      functionName: 'registerBattle',
-      args: [battleBytes, agentBigInts, entryFeeWei],
-    });
+    return withRetry(async () => {
+      const hash = await this.walletClient.writeContract({
+        address: this.arenaAddress,
+        abi: hungernadsArenaAbi,
+        functionName: 'registerBattle',
+        args: [battleBytes, agentBigInts, entryFeeWei],
+      });
 
-    console.log(`[chain] registerBattleFast tx sent: ${hash}`);
-    return hash;
+      console.log(`[chain] registerBattleFast tx sent: ${hash}`);
+      await this.publicClient.waitForTransactionReceipt({ hash });
+      console.log(`[chain] registerBattleFast tx confirmed: ${hash}`);
+      return hash;
+    }, `registerBattleFast(${battleId})`);
   }
 
   /**

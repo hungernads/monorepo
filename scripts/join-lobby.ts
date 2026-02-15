@@ -6,14 +6,14 @@ import 'dotenv/config';
 import { createWalletClient, createPublicClient, http, parseEther, defineChain, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-const monadTestnet = defineChain({
-  id: 10143,
-  name: 'Monad Testnet',
+const monadMainnet = defineChain({
+  id: 143,
+  name: 'Monad',
   nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
   rpcUrls: { default: { http: [process.env.MONAD_RPC_URL!] } },
 });
 
-const ARENA_CONTRACT = '0x45B9151BD350F26eE0ad44395B5555cbA5364DC8';
+const ARENA_CONTRACT = '0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db';
 const BATTLE_ID = '20224b09-061e-4987-8e64-2d901f131020';
 const API = 'http://localhost:8787';
 const FEE = parseEther('1');

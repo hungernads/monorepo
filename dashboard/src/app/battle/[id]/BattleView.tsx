@@ -1167,6 +1167,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
     };
   }, [streamAgentPositions, gridTiles]);
 
+  const isLoading = !connected && agentStates.length === 0 && events.length === 0;
   const currentEpoch = latestEpoch || (isDev ? 3 : 0);
   const aliveCount = agents.filter((a) => a.alive).length;
 
@@ -1284,16 +1285,45 @@ export default function BattleView({ battleId }: BattleViewProps) {
         <div className="flex flex-col gap-4 md:sticky md:top-4">
           {/* Hex battle arena */}
           <div className="card flex-1">
-            <HexBattleArena
-              agents={agents}
-              currentEpoch={currentEpoch}
-              sponsorEventCount={sponsorEventCount}
-              agentPositions={hexAgentPositions}
-              tileItems={hexTileItems}
-              recentMoves={recentMoves}
-              stormTiles={stormTiles}
-              currentPhase={phaseState?.phase ?? null}
-            />
+            {isLoading && !isDev ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                {/* Skeleton hex grid placeholder */}
+                <div className="relative mb-6">
+                  <svg width="220" height="200" viewBox="0 0 220 200" className="opacity-20">
+                    {/* Center hex */}
+                    <polygon points="110,70 135,85 135,115 110,130 85,115 85,85" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    {/* Ring 1 hexes */}
+                    <polygon points="110,20 135,35 135,65 110,80 85,65 85,35" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    <polygon points="155,45 180,60 180,90 155,105 130,90 130,60" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    <polygon points="155,95 180,110 180,140 155,155 130,140 130,110" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    <polygon points="110,120 135,135 135,165 110,180 85,165 85,135" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    <polygon points="65,95 90,110 90,140 65,155 40,140 40,110" fill="#252540" stroke="#353555" strokeWidth="1" />
+                    <polygon points="65,45 90,60 90,90 65,105 40,90 40,60" fill="#252540" stroke="#353555" strokeWidth="1" />
+                  </svg>
+                  {/* Pulsing center dot */}
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                    <div className="h-3 w-3 animate-pulse rounded-full bg-gold/40" />
+                  </div>
+                </div>
+                <div className="text-sm font-bold uppercase tracking-wider text-gray-500 animate-pulse">
+                  Loading Arena...
+                </div>
+                <p className="mt-2 text-xs text-gray-700">
+                  Connecting to battle stream
+                </p>
+              </div>
+            ) : (
+              <HexBattleArena
+                agents={agents}
+                currentEpoch={currentEpoch}
+                sponsorEventCount={sponsorEventCount}
+                agentPositions={hexAgentPositions}
+                tileItems={hexTileItems}
+                recentMoves={recentMoves}
+                stormTiles={stormTiles}
+                currentPhase={phaseState?.phase ?? null}
+              />
+            )}
           </div>
 
           {/* Mobile-only agent cards -- visible below hex grid on small screens */}
@@ -1389,7 +1419,22 @@ export default function BattleView({ battleId }: BattleViewProps) {
                 className="max-h-[300px] md:max-h-[380px]"
                 style={{ display: "flex", flexDirection: "column" }}
               >
-                <ActionFeed entries={feed} />
+                {isLoading && !isDev ? (
+                  <div className="space-y-3 p-3">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex items-start gap-2 animate-pulse">
+                        <div className="h-2 w-2 mt-1 rounded-full bg-gray-700/60" />
+                        <div className="flex-1 space-y-1.5">
+                          <div className="h-3 rounded bg-gray-700/40" style={{ width: `${70 - i * 10}%` }} />
+                          <div className="h-2 rounded bg-gray-800/40" style={{ width: `${50 - i * 5}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-center text-[10px] text-gray-700">Waiting for battle events...</p>
+                  </div>
+                ) : (
+                  <ActionFeed entries={feed} />
+                )}
               </div>
             </CollapsiblePanel>
           </div>

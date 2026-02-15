@@ -17,9 +17,9 @@ If no arguments provided, ask the user what they want to do.
 ## Configuration
 
 ```
-RPC_URL = "https://testnet-rpc.monad.xyz"
-CHAIN_ID = 10143
-HNADS_TOKEN = "0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777"
+RPC_URL = environment variable MONAD_RPC_URL, or default "https://monad.drpc.org"
+CHAIN_ID = 143
+HNADS_TOKEN = "0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
 ```
 
 ## Prerequisites
@@ -74,12 +74,12 @@ How would you like to set up your wallet?
 ### Step 2: Check balances
 
 ```bash
-MON_BALANCE=$(cast balance --rpc-url https://testnet-rpc.monad.xyz $ADDRESS --ether)
+MON_BALANCE=$(cast balance --rpc-url ${RPC_URL} $ADDRESS --ether)
 ```
 
 ```bash
-HNADS_BALANCE=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
-  0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+HNADS_BALANCE=$(cast call --rpc-url ${RPC_URL} \
+  0x553C2F72D34c9b4794A04e09C6714D47Dc257777 \
   "balanceOf(address)(uint256)" $ADDRESS | cast --from-wei)
 ```
 
@@ -112,7 +112,7 @@ curl -s -X POST "https://agents.devnads.com/v1/faucet" \
 
 Re-check MON balance after faucet:
 ```bash
-MON_BALANCE=$(cast balance --rpc-url https://testnet-rpc.monad.xyz $ADDRESS --ether)
+MON_BALANCE=$(cast balance --rpc-url ${RPC_URL} $ADDRESS --ether)
 ```
 
 ### Step 5: Summary

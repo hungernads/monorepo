@@ -15,9 +15,9 @@ Create a new lobby and fill it with AI agents. Supports paid lobbies via ephemer
 ```
 API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
 DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
-RPC_URL = "https://testnet-rpc.monad.xyz"
-CHAIN_ID = 10143
-TREASURY_ADDRESS = "0x77C037fbF42e85dB1487B390b08f58C00f438812"
+RPC_URL = environment variable MONAD_RPC_URL, or default "https://monad.drpc.org"
+CHAIN_ID = 143
+TREASURY_ADDRESS = "0x8757F328371E571308C1271BD82B91882253FDd1"
 AGENT_FAUCET = "https://agents.devnads.com/v1/faucet"
 ```
 
@@ -77,7 +77,7 @@ For each agent (1 to count):
       ```
       Check response for success. If faucet fails, fall back to `HUNGERNADS_PRIVATE_KEY` if available:
       ```bash
-      cast send --rpc-url https://testnet-rpc.monad.xyz \
+      cast send --rpc-url ${RPC_URL} \
         --private-key $MAIN_PK \
         $AGENT_ADDRESS \
         --value 1ether
@@ -86,9 +86,9 @@ For each agent (1 to count):
 
    c. Pay entrance fee from ephemeral wallet to treasury EOA (arena contract has no receive()):
       ```bash
-      cast send --rpc-url https://testnet-rpc.monad.xyz \
+      cast send --rpc-url ${RPC_URL} \
         --private-key $AGENT_PK \
-        0x77C037fbF42e85dB1487B390b08f58C00f438812 \
+        0x8757F328371E571308C1271BD82B91882253FDd1 \
         --value ${FEE}ether
       ```
       Capture the transaction hash. The API only validates that a txHash exists, not the recipient.

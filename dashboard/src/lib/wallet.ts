@@ -40,7 +40,7 @@ const monadTestnet: Chain = {
 };
 
 const monadMainnet: Chain = {
-  id: 10143, // TODO: update when Monad mainnet launches
+  id: 143,
   name: 'Monad',
   iconUrl: '/monad-icon.png',
   iconBackground: '#836EF9',

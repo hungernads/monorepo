@@ -17,10 +17,10 @@ Optional arguments:
 ```
 API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
 DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
-RPC_URL = "https://testnet-rpc.monad.xyz"
-CHAIN_ID = 10143
-ARENA_CONTRACT = "0x45B9151BD350F26eE0ad44395B5555cbA5364DC8"
-HNADS_TOKEN = "0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777"
+RPC_URL = environment variable MONAD_RPC_URL, or default "https://monad.drpc.org"
+CHAIN_ID = 143
+ARENA_CONTRACT = "0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db"
+HNADS_TOKEN = "0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
 AGENT_FAUCET = "https://agents.devnads.com/v1/faucet"
 ```
 
@@ -115,12 +115,12 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
 1. **Validate balances BEFORE proceeding.** Derive the main wallet address from `HUNGERNADS_PRIVATE_KEY`:
    ```bash
    MAIN_ADDRESS=$(cast wallet address --private-key $MAIN_PK)
-   MON_BALANCE=$(cast balance --rpc-url https://testnet-rpc.monad.xyz $MAIN_ADDRESS --ether)
+   MON_BALANCE=$(cast balance --rpc-url ${RPC_URL} $MAIN_ADDRESS --ether)
    ```
    If `hnadsFeeAmount > 0`, also check $HNADS balance:
    ```bash
-   HNADS_BALANCE=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
-     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+   HNADS_BALANCE=$(cast call --rpc-url ${RPC_URL} \
+     0x553C2F72D34c9b4794A04e09C6714D47Dc257777 \
      "balanceOf(address)(uint256)" $MAIN_ADDRESS | cast --from-wei)
    ```
    If MON balance < `feeAmount` (plus ~0.01 gas buffer) OR $HNADS balance < `hnadsFeeAmount`, abort:
@@ -157,7 +157,7 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
    ```
    Check response for success. If faucet fails, fall back to `HUNGERNADS_PRIVATE_KEY` if available:
    ```bash
-   cast send --rpc-url https://testnet-rpc.monad.xyz \
+   cast send --rpc-url ${RPC_URL} \
      --private-key $MAIN_PK \
      $AGENT_ADDRESS \
      --value 1ether
@@ -166,9 +166,9 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
 
 4. **If `hnadsFeeAmount > 0`, transfer $HNADS tokens** from HUNGERNADS_PRIVATE_KEY to ephemeral wallet:
    ```bash
-   cast send --rpc-url https://testnet-rpc.monad.xyz \
+   cast send --rpc-url ${RPC_URL} \
      --private-key $MAIN_PK \
-     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
+     0x553C2F72D34c9b4794A04e09C6714D47Dc257777 \
      "transfer(address,uint256)" $AGENT_ADDRESS \
      $(cast --to-wei $HNADS_FEE ether)
    ```
@@ -184,8 +184,8 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
    echo "Waiting for on-chain battle registration..."
    REGISTERED=false
    for i in $(seq 1 6); do
-     RESULT=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
-       0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     RESULT=$(cast call --rpc-url ${RPC_URL} \
+       0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
        "battles(bytes32)" $BATTLE_BYTES 2>/dev/null || echo "")
      if [ -n "$RESULT" ] && echo "$RESULT" | grep -qv "^0x0\{64\}"; then
        echo "Battle registered on-chain"
@@ -203,9 +203,9 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
 
 7. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
    ```bash
-   cast send --rpc-url https://testnet-rpc.monad.xyz \
+   cast send --rpc-url ${RPC_URL} \
      --private-key $AGENT_PK \
-     0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
      "payEntryFee(bytes32)" $BATTLE_BYTES \
      --value ${FEE}ether
    ```
@@ -213,18 +213,18 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
 
 8. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
    ```bash
-   cast send --rpc-url https://testnet-rpc.monad.xyz \
+   cast send --rpc-url ${RPC_URL} \
      --private-key $AGENT_PK \
-     0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777 \
-     "approve(address,uint256)" 0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     0x553C2F72D34c9b4794A04e09C6714D47Dc257777 \
+     "approve(address,uint256)" 0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
      $(cast --to-wei $HNADS_FEE ether)
    ```
 
 9. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
    ```bash
-   cast send --rpc-url https://testnet-rpc.monad.xyz \
+   cast send --rpc-url ${RPC_URL} \
      --private-key $AGENT_PK \
-     0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+     0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
      "depositHnadsFee(bytes32,uint256)" $BATTLE_BYTES \
      $(cast --to-wei $HNADS_FEE ether)
    ```

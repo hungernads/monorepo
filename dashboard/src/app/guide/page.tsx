@@ -362,11 +362,11 @@ export default function HowItWorksPage() {
         <SectionTitle>On-Chain (Monad Testnet)</SectionTitle>
         <div className="card space-y-3 text-sm text-gray-400">
           <p>
-            All betting and sponsorship is handled by upgradeable smart contracts on Monad testnet (chain 10143).
+            All betting and sponsorship is handled by upgradeable smart contracts on Monad (chain 143).
           </p>
           <div className="space-y-2 text-xs">
-            <ContractRow label="Arena Proxy" address="0x45B9151BD350F26eE0ad44395B5555cbA5364DC8" />
-            <ContractRow label="Betting Proxy" address="0xEfA79f90A2a9400A32De384b742d22524c4A69d5" />
+            <ContractRow label="Arena Proxy" address="0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db" />
+            <ContractRow label="Betting Proxy" address="0x6F677989784Cc214E4Ee02257Fad3fc4374dD383" />
           </div>
           <p className="text-[10px] text-gray-600">
             UUPS proxy pattern — addresses are permanent. Implementations can be upgraded without changing proxy addresses.

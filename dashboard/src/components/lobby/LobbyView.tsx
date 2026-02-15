@@ -64,6 +64,15 @@ const TIER_SURVIVAL_BONUS: Record<LobbyTier, string | undefined> = {
   GOLD: '100',
 };
 
+/** Max epochs per tier. */
+const TIER_MAX_EPOCHS: Record<LobbyTier, number> = {
+  FREE: 20,
+  IRON: 30,
+  BRONZE: 50,
+  SILVER: 75,
+  GOLD: 100,
+};
+
 // Session key for tracking if user has joined this lobby
 function getJoinedKey(battleId: string): string {
   return `hnads_joined_${battleId}`;
@@ -248,7 +257,7 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
 
   // ---- Render: Main Lobby ----
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Header */}
       <div className="mb-8 text-center">
         <h1 className="mb-2 font-cinzel text-2xl font-black uppercase tracking-widest sm:text-3xl" style={{ color: tierColor }}>
@@ -326,8 +335,8 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
         </div>
       </div>
 
-      {/* Share — moved up between header and countdown */}
-      <div className="mt-4 mb-6 mx-auto max-w-md">
+      {/* Share */}
+      <div className="mb-6 mx-auto max-w-md">
         <div className="rounded-lg border border-colosseum-surface-light/50 bg-colosseum-surface/50 p-3">
           <div className="flex items-center gap-2">
             <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-600">Share</span>
@@ -352,110 +361,185 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
 
       {/* Countdown (when active) */}
       {status === "COUNTDOWN" && countdownEndsAt && (
-        <div className="mb-8 flex justify-center">
+        <div className="mb-6 flex justify-center">
           <LobbyCountdown countdownEndsAt={countdownEndsAt} />
         </div>
       )}
 
-      {/* Status banner */}
-      {status === "LOBBY" && (
-        <div className="mb-6 flex items-center justify-center">
-          <div className="flex items-center gap-2 rounded-lg border border-gold/20 bg-gold/5 px-4 py-2">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-gold" />
-            <span className="text-xs font-medium text-gold">
-              {agents.length < 4
-                ? `Need ${4 - agents.length} more gladiators to start countdown`
-                : "Waiting for more gladiators..."}
+      {/* Two-column layout: Slots left, Join form right */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        {/* LEFT — Agent Slots Grid */}
+        <div>
+          {/* Roster header + progress bar */}
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-widest text-gray-600">
+              Gladiator Roster
+            </span>
+            <span className="text-xs text-gray-500">
+              {agents.length}/{maxPlayers} joined
             </span>
           </div>
-        </div>
-      )}
+          <div className="mb-4 h-1.5 w-full rounded-full bg-colosseum-surface-light/50">
+            <div
+              className="h-1.5 rounded-full transition-all duration-500"
+              style={{
+                width: `${(agents.length / maxPlayers) * 100}%`,
+                backgroundColor: tierColor,
+              }}
+            />
+          </div>
 
-      {/* Agent Slots Grid — 2x4 */}
-      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-        {slots.map((slot) => (
-          <LobbyAgentSlot
-            key={slot.slotNumber}
-            agent={slot.agent}
-            slotNumber={slot.slotNumber}
-          />
-        ))}
-      </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+            {slots.map((slot) => (
+              <LobbyAgentSlot
+                key={slot.slotNumber}
+                agent={slot.agent}
+                slotNumber={slot.slotNumber}
+              />
+            ))}
+          </div>
 
-      {/* Arena Gate Divider */}
-      <div className="relative mb-8">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-colosseum-surface-light" />
+          {/* Status banner — below roster */}
+          {status === "LOBBY" && (
+            <div className="mt-4 flex items-center justify-center">
+              <div className="flex items-center gap-2 rounded-lg border border-gold/20 bg-gold/5 px-4 py-2">
+                <div className="h-2 w-2 animate-pulse rounded-full bg-gold" />
+                <span className="text-xs font-medium text-gold">
+                  {agents.length < 4
+                    ? `Need ${4 - agents.length} more gladiators to start countdown`
+                    : "Waiting for more gladiators..."}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="relative flex justify-center">
-          <span className="bg-colosseum-bg px-4 text-xs font-bold uppercase tracking-widest text-gray-600">
+
+        {/* RIGHT — Join Form / Status */}
+        <div>
+          <div className="mb-3 text-xs font-bold uppercase tracking-widest text-gray-600">
             {hasJoined
               ? "You have entered"
               : isFull
                 ? "Arena is full"
                 : "Enter the Arena"}
-          </span>
+          </div>
+
+          {showJoinForm ? (
+            <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-6">
+              <JoinForm
+                battleId={battleId}
+                onJoined={handleJoined}
+                disabled={false}
+                feeAmount={feeAmount}
+                hnadsFeeAmount={hnadsFeeAmount}
+              />
+
+              {/* OR divider */}
+              <div className="my-4 flex items-center justify-center">
+                <span className="text-xs text-gray-600">— OR —</span>
+              </div>
+
+              {/* Join as AI Agent button */}
+              <a
+                href="https://github.com/hungernads/skills"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-accent/40 bg-accent/5 px-4 py-3 text-center text-sm font-bold text-accent hover:bg-accent/10 transition-all block"
+              >
+                &rarr; Join as AI Agent
+              </a>
+            </div>
+          ) : hasJoined ? (
+            <div className="space-y-4">
+              {/* Confirmed banner */}
+              <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <svg
+                    className="h-5 w-5 text-green-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <span className="text-sm font-bold text-green-400">
+                    You&apos;re in! Waiting for battle to begin...
+                  </span>
+                </div>
+              </div>
+
+              {/* Arena info card */}
+              <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-5">
+                <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  Arena Details
+                </div>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">Tier</span>
+                    <span className="font-bold" style={{ color: tierColor }}>{tierLabel}</span>
+                  </div>
+                  {hasFee && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Entry Fee</span>
+                      <span className="font-bold text-gray-200">{feeAmount} MON</span>
+                    </div>
+                  )}
+                  {hasHnadsFee && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">$HNADS Fee</span>
+                      <span className="font-bold text-gray-200">{hnadsFeeAmount} $HNADS</span>
+                    </div>
+                  )}
+                  {prizePool > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Est. Prize Pool</span>
+                      <span className="font-bold" style={{ color: tierColor }}>~{prizePoolStr} MON</span>
+                    </div>
+                  )}
+                  {killBonus && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Kill Bonus</span>
+                      <span className="font-bold text-gray-200">{killBonus} $HNADS</span>
+                    </div>
+                  )}
+                  {survivalBonus && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Survival Bonus</span>
+                      <span className="font-bold text-gray-200">{survivalBonus} $HNADS</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">Max Epochs</span>
+                    <span className="font-bold text-gray-200">{TIER_MAX_EPOCHS[currentTier] ?? '—'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invite more */}
+              <div className="rounded-lg border border-colosseum-surface-light/50 bg-colosseum-surface/30 p-4 text-center">
+                <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">
+                  Invite more gladiators
+                </p>
+                <p className="text-[11px] text-gray-600">
+                  Share the lobby link so others can join before the gates close.
+                </p>
+              </div>
+            </div>
+          ) : isFull ? (
+            <div className="rounded-lg border border-blood/30 bg-blood/10 px-5 py-4">
+              <span className="text-sm font-bold text-blood-light">
+                Arena is full. Spectating only.
+              </span>
+            </div>
+          ) : null}
+
         </div>
       </div>
-
-      {/* Join Form or Status */}
-      {showJoinForm ? (
-        <div className="mx-auto max-w-lg">
-          <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-6">
-            <JoinForm
-              battleId={battleId}
-              onJoined={handleJoined}
-              disabled={false}
-              feeAmount={feeAmount}
-              hnadsFeeAmount={hnadsFeeAmount}
-            />
-
-            {/* OR divider */}
-            <div className="my-4 flex items-center justify-center">
-              <span className="text-xs text-gray-600">— OR —</span>
-            </div>
-
-            {/* Join as AI Agent button */}
-            <a
-              href="https://github.com/hungernads/skills"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-lg border border-accent/40 bg-accent/5 px-4 py-3 text-center text-sm font-bold text-accent hover:bg-accent/10 transition-all block"
-            >
-              &rarr; Join as AI Agent
-            </a>
-          </div>
-        </div>
-      ) : hasJoined ? (
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-5 py-3">
-            <svg
-              className="h-5 w-5 text-green-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-            <span className="text-sm font-bold text-green-400">
-              You&apos;re in! Waiting for battle to begin...
-            </span>
-          </div>
-        </div>
-      ) : isFull ? (
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 rounded-lg border border-blood/30 bg-blood/10 px-5 py-3">
-            <span className="text-sm font-bold text-blood-light">
-              Arena is full. Spectating only.
-            </span>
-          </div>
-        </div>
-      ) : null}
 
       {/* Footer */}
       <div className="mt-8 text-center text-[11px] text-gray-700">
