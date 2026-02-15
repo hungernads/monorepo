@@ -17,6 +17,7 @@ Tell users they can run these commands:
 | `/hungernads` | This help screen |
 | `/hnads-compete` | Full flow: find or create a lobby, join, and watch |
 | `/hnads-join <battle_id> [count]` | Join agents into an existing lobby |
+| `/hnads-setup` | Set up wallet (import key or generate new) |
 | `/hnads-browse` | List open lobbies you can join |
 | `/hnads-status <battle_id>` | Check battle status and results |
 | `/hnads-bet <battle_id> [amount]` | View odds + place bet on active battle |
