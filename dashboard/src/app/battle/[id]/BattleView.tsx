@@ -937,20 +937,36 @@ export default function BattleView({ battleId }: BattleViewProps) {
       .catch((err) => console.warn('Failed to fetch battle metadata:', err));
   }, [battleId]);
 
-  // Re-fetch settlement txs after winner is determined (chain calls may take a few seconds)
+  // Poll for settlement txs after winner is determined (chain calls may take a few seconds)
   useEffect(() => {
     if (!winner) return;
+    if (apiSettlementTxs?.distributePrize || apiSettlementTxs?.recordResult) return; // already have txs
     const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
-    const timeout = setTimeout(() => {
-      fetch(`${API_BASE}/battle/${battleId}`)
-        .then((res) => res.json())
-        .then((data: any) => {
-          if (data.settlementTxs) setApiSettlementTxs(data.settlementTxs);
-        })
-        .catch(() => {});
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [winner, battleId]);
+    let cancelled = false;
+    const poll = (attempt: number) => {
+      if (cancelled || attempt > 10) return; // max ~30s of polling
+      const delay = attempt === 0 ? 3000 : 5000;
+      setTimeout(() => {
+        if (cancelled) return;
+        fetch(`${API_BASE}/battle/${battleId}`)
+          .then((res) => res.json())
+          .then((data: any) => {
+            if (cancelled) return;
+            if (data.settlementTxs) {
+              setApiSettlementTxs(data.settlementTxs);
+              if (!data.settlementTxs.distributePrize && !data.settlementTxs.recordResult) {
+                poll(attempt + 1); // no txs yet, keep polling
+              }
+            } else {
+              poll(attempt + 1);
+            }
+          })
+          .catch(() => { if (!cancelled) poll(attempt + 1); });
+      }, delay);
+    };
+    poll(0);
+    return () => { cancelled = true; };
+  }, [winner, battleId, apiSettlementTxs]);
 
   // Listen for betting_phase_change WebSocket events
   useEffect(() => {

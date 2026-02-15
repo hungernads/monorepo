@@ -158,7 +158,7 @@ const COUNTDOWN_TRIGGER_THRESHOLD = 4;
 const COUNTDOWN_DURATION_MS = 60_000;
 
 // Epoch interval: configurable via EPOCH_INTERVAL_MS env var (default 5 min)
-// For demo: set EPOCH_INTERVAL_MS=15000 (15 seconds) in .dev.vars
+// For demo: set EPOCH_INTERVAL_MS=60000 (60 seconds) in wrangler.toml [vars]
 const DEFAULT_EPOCH_INTERVAL_MS = 300_000;
 
 // Safety cap: absolute maximum epochs before a battle is force-completed.

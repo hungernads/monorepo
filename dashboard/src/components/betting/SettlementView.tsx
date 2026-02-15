@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { formatEther } from "viem";
 import type { AgentState, AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
-import { EXPLORER_TX_URL } from "@/lib/wallet";
+import { EXPLORER_TX_URL, BETTING_ADDRESS } from "@/lib/wallet";
+import { useClaimable, useClaimed, battleIdToBytes32 } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +45,7 @@ export interface SettlementTxs {
 }
 
 interface SettlementViewProps {
+  battleId?: string;
   winner: WinnerInfo;
   agents: AgentState[];
   bets: SettledBet[];
@@ -73,12 +77,14 @@ function TxLink({ hash, label }: { hash: string; label: string }) {
 // ---------------------------------------------------------------------------
 
 export default function SettlementView({
+  battleId,
   winner,
   agents,
   bets,
   totalPool,
   settlementTxs,
 }: SettlementViewProps) {
+  const { address, isConnected } = useAccount();
   const winnerAgent = agents.find((a) => a.id === winner.winnerId);
   const winnerCfg = winnerAgent
     ? CLASS_CONFIG[winnerAgent.class]
@@ -293,6 +299,11 @@ export default function SettlementView({
         </div>
       )}
 
+      {/* Claim prize section */}
+      {battleId && hasWinningBets && (
+        <ClaimSection battleId={battleId} />
+      )}
+
       {/* Dramatic footer */}
       {hasWinningBets && (
         <div className="rounded-lg border border-gold/20 bg-gold/5 p-3 text-center">
@@ -305,6 +316,97 @@ export default function SettlementView({
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline claim section for the settlement sidebar
+// ---------------------------------------------------------------------------
+
+function ClaimSection({ battleId }: { battleId: string }) {
+  const { isConnected } = useAccount();
+  const { data: claimableRaw, refetch: refetchClaimable } = useClaimable(battleId);
+  const { data: alreadyClaimed, refetch: refetchClaimed } = useClaimed(battleId);
+
+  const claimable = claimableRaw ? Number(formatEther(claimableRaw)) : 0;
+  const claimed = alreadyClaimed === true;
+
+  const { writeContract, isPending, data: hash, error } = useWriteContract();
+  const { isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  useEffect(() => {
+    if (isSuccess) {
+      const t = setTimeout(() => { refetchClaimable(); refetchClaimed(); }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [isSuccess, refetchClaimable, refetchClaimed]);
+
+  if (!isConnected) return null;
+
+  if (claimed || isSuccess) {
+    return (
+      <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-center">
+        <div className="text-xs font-bold text-green-400">Prize Claimed</div>
+        {hash && (
+          <a
+            href={`${EXPLORER_TX_URL}${hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-block text-[10px] text-gold/80 underline decoration-gold/30 hover:text-gold"
+          >
+            View transaction
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (claimable <= 0) return null;
+
+  function handleClaim() {
+    const battleBytes = battleIdToBytes32(battleId);
+    writeContract({
+      address: BETTING_ADDRESS,
+      abi: [{
+        name: 'claimPrize',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'battleId', type: 'bytes32' }],
+        outputs: [],
+      }],
+      functionName: 'claimPrize',
+      args: [battleBytes],
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-gold/30 bg-colosseum-surface p-3 text-center">
+      <div className="text-[10px] uppercase tracking-wider text-gray-600">
+        Claimable Prize
+      </div>
+      <div className="mt-1 text-xl font-bold text-gold">
+        {claimable.toFixed(4)} MON
+      </div>
+      <button
+        onClick={handleClaim}
+        disabled={isPending}
+        className="mt-2 w-full rounded border border-gold/40 bg-gold/15 py-2 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isPending ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
+            Claiming...
+          </span>
+        ) : (
+          "Claim Prize"
+        )}
+      </button>
+      {error && (
+        <div className="mt-1.5 text-[9px] text-blood">
+          {error.message?.includes('AlreadyClaimed') ? 'Already claimed' : 'Claim failed'}
+        </div>
+      )}
     </div>
   );
 }

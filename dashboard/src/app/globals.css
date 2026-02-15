@@ -77,6 +77,12 @@
     to { opacity: 1; }
   }
 
+  /* Hero fade + slide up entrance */
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   /* Thin scrollbar for action feed */
   .scrollbar-thin {
     scrollbar-width: thin;

@@ -7,7 +7,7 @@ import { parseEther } from "viem";
 import type { AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
-import { ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadChain } from "@/lib/wallet";
+import { ARENA_ADDRESS, HNADS_TOKEN_ADDRESS, monadChain, EXPLORER_TX_URL } from "@/lib/wallet";
 import { battleIdToBytes32, useFeePaid, useHnadsFeePaid } from "@/lib/contracts";
 
 // ---------------------------------------------------------------------------
@@ -607,7 +607,7 @@ export default function JoinForm({
                         Paid on-chain
                         {savedMonHash && (
                           <> — <a
-                            href={`https://testnet.monadexplorer.com/tx/${savedMonHash}`}
+                            href={`${EXPLORER_TX_URL}${savedMonHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-gold hover:underline"
@@ -689,7 +689,7 @@ export default function JoinForm({
                         Approved
                         {savedApproveHash && (
                           <> — <a
-                            href={`https://testnet.monadexplorer.com/tx/${savedApproveHash}`}
+                            href={`${EXPLORER_TX_URL}${savedApproveHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-gold hover:underline"
@@ -773,7 +773,7 @@ export default function JoinForm({
                         Deposited
                         {savedDepositHash && (
                           <> — <a
-                            href={`https://testnet.monadexplorer.com/tx/${savedDepositHash}`}
+                            href={`${EXPLORER_TX_URL}${savedDepositHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-gold hover:underline"

@@ -1031,14 +1031,15 @@ function HexTile({
             </motion.g>
           );
         } else {
-          // Normal alive agent: static class-colored glow
+          // Normal alive agent: floating glow to distinguish from empty tiles
           agentVisual = (
-            <g
-              opacity={1}
+            <motion.g
               style={{ filter: glowFilter }}
+              animate={{ y: [0, -3, 0] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
             >
               {agentContent}
-            </g>
+            </motion.g>
           );
         }
 

@@ -268,6 +268,7 @@ export default function BettingPanel({
   if (winner) {
     return (
       <SettlementView
+        battleId={battleId}
         winner={winner}
         agents={agents}
         bets={myBets.map((b) => ({

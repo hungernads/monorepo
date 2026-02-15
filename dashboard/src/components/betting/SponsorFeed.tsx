@@ -5,6 +5,7 @@ import type { AgentClass } from "@/types";
 import { CLASS_CONFIG } from "@/components/battle/mock-data";
 import AgentPortrait from "@/components/battle/AgentPortrait";
 import type { BattleEvent, SponsorBoostEvent } from "@/lib/websocket";
+import { EXPLORER_TX_URL } from "@/lib/wallet";
 
 // ---------------------------------------------------------------------------
 // Tier visual config (mirrors backend TIER_CONFIGS)
@@ -197,9 +198,9 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
   }, [entries.length]);
 
   return (
-    <div>
+    <div className="p-3">
       {entries.length === 0 ? (
-        <p className="px-3 py-2 text-center text-xs text-gray-600">
+        <p className="py-2 text-center text-xs text-gray-600">
           No sponsorships yet. Be the first to send a parachute drop!
         </p>
       ) : (
@@ -271,7 +272,7 @@ export default function SponsorFeed({ events, agentMeta }: SponsorFeedProps) {
                     from {entry.sponsor}
                     {entry.txHash && (
                       <> — <a
-                        href={`https://testnet.monadexplorer.com/tx/${entry.txHash}`}
+                        href={`${EXPLORER_TX_URL}${entry.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-gold hover:underline"

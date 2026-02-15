@@ -1,13 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useAccount } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { Coins, ExternalLink } from 'lucide-react';
 import useFetch from '@/hooks/useFetch';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CLASS_CONFIG } from '@/components/battle/mock-data';
 import AgentPortrait from '@/components/battle/AgentPortrait';
+import { useClaimable, useClaimed, battleIdToBytes32 } from '@/lib/contracts';
+import { BETTING_ADDRESS, EXPLORER_TX_URL } from '@/lib/wallet';
 import type { AgentClass } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +32,91 @@ interface UserBetsResponse {
   userAddress: string;
   bets: UserBet[];
   count: number;
+}
+
+// ---------------------------------------------------------------------------
+// Claim button for a specific battle
+// ---------------------------------------------------------------------------
+
+function ClaimButton({ battleId }: { battleId: string }) {
+  const { data: claimableRaw, refetch: refetchClaimable } = useClaimable(battleId);
+  const { data: alreadyClaimed, refetch: refetchClaimed } = useClaimed(battleId);
+
+  const claimable = claimableRaw ? Number(claimableRaw) / 1e18 : 0;
+  const claimed = alreadyClaimed === true;
+
+  const { writeContract, isPending, data: hash, error } = useWriteContract();
+  const { isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  // Refresh after claim tx confirms
+  useEffect(() => {
+    if (isSuccess) {
+      const t = setTimeout(() => { refetchClaimable(); refetchClaimed(); }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [isSuccess, refetchClaimable, refetchClaimed]);
+
+  if (claimed || isSuccess) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="rounded bg-green-500/20 px-2 py-0.5 text-[10px] font-bold text-green-400">
+          Claimed
+        </span>
+        {hash && (
+          <a
+            href={`${EXPLORER_TX_URL}${hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-gold/70 hover:text-gold hover:underline"
+          >
+            TX
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (claimable <= 0) return null;
+
+  function handleClaim() {
+    const battleBytes = battleIdToBytes32(battleId);
+    writeContract({
+      address: BETTING_ADDRESS,
+      abi: [{
+        name: 'claimPrize',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'battleId', type: 'bytes32' }],
+        outputs: [],
+      }],
+      functionName: 'claimPrize',
+      args: [battleBytes],
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleClaim}
+        disabled={isPending}
+        className="rounded border border-gold/40 bg-gold/15 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/25 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isPending ? (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
+            Claiming...
+          </span>
+        ) : (
+          `Claim ${claimable.toFixed(2)} MON`
+        )}
+      </button>
+      {error && (
+        <span className="text-[9px] text-blood">
+          {error.message?.includes('AlreadyClaimed') ? 'Already claimed' : 'Claim failed'}
+        </span>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +147,15 @@ export default function BetsPage() {
       wins,
       winRate: settled > 0 ? wins / settled : 0,
       pending: bets.filter((b) => !b.settled).length,
+      claimable: bets.filter((b) => b.settled && b.payout > 0).length,
     };
+  }, [bets]);
+
+  // Group won bets that may need claiming
+  const claimableBattleIds = useMemo(() => {
+    const ids = new Set<string>();
+    bets.filter((b) => b.settled && b.payout > 0).forEach((b) => ids.add(b.battle_id));
+    return Array.from(ids);
   }, [bets]);
 
   // ── Not connected ──
@@ -204,17 +299,21 @@ export default function BetsPage() {
                       </div>
                     )}
                   </div>
-                  <span
-                    className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      !bet.settled
-                        ? 'bg-gold/20 text-gold'
-                        : won
-                          ? 'bg-green-500/20 text-green-400'
+
+                  {/* Status badge or claim button */}
+                  {won ? (
+                    <ClaimButton battleId={bet.battle_id} />
+                  ) : (
+                    <span
+                      className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        !bet.settled
+                          ? 'bg-gold/20 text-gold'
                           : 'bg-blood/20 text-blood'
-                    }`}
-                  >
-                    {!bet.settled ? 'Active' : won ? 'Won' : 'Lost'}
-                  </span>
+                      }`}
+                    >
+                      {!bet.settled ? 'Active' : 'Lost'}
+                    </span>
+                  )}
                 </div>
               </div>
             );

@@ -252,7 +252,13 @@ export default function PrizeClaim({ battleId, winner, agents, settlementTxs, sh
           </div>
         )}
 
-        {/* Action row: tx proofs + share — all as aligned pill buttons */}
+        {/* Settlement status / tx proofs */}
+        {!distributeTxHash && !recordTxHash && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-gold/70">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
+            <span>Finalizing on-chain settlement...</span>
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           {distributeTxHash && (
             <TxProofLink hash={distributeTxHash} label="Payout" />
