@@ -33,34 +33,20 @@ Treasury: `0x8757F328371E571308C1271BD82B91882253FDd1`
 
 - [x] Fund oracle wallet with MON for gas
 
-## 3. Configure Arena Contract
+## 3. Configure Arena Contract — ✅ DONE
 
-```bash
-# Set $HNADS token on Arena
-cast send 0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
-  "setHnadsToken(address)" 0x553C2F72D34c9b4794A04e09C6714D47Dc257777 \
-  --rpc-url https://monad.drpc.org --private-key $PRIVATE_KEY
+- [x] `setHnadsToken(0x553C2F72D34c9b4794A04e09C6714D47Dc257777)` — tx `0x104028f0396a62d8217a7121e82221e7f81be1cfdb481035213549808f841dd3`
+- [x] `setTreasury(0x8757F328371E571308C1271BD82B91882253FDd1)` — tx `0x6a019f91c69d7131bcdfbb6738f6bc1ce38961cb436a810fd14e93fa3529a6a6`
+- [x] Betting contract oracle + treasury already set from deploy script
 
-# Set treasury on Arena
-cast send 0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db \
-  "setTreasury(address)" 0x8757F328371E571308C1271BD82B91882253FDd1 \
-  --rpc-url https://monad.drpc.org --private-key $PRIVATE_KEY
-```
+## 4. Wrangler Secrets — ✅ DONE
 
-- [ ] `setHnadsToken()` called on Arena
-- [ ] `setTreasury()` called on Arena
-
-## 4. Wrangler Secrets
-
-```bash
-echo "https://monad-mainnet.g.alchemy.com/v2/<YOUR_KEY>" | npx wrangler secret put MONAD_RPC_URL
-echo "<oracle-private-key>" | npx wrangler secret put PRIVATE_KEY
-echo "0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db" | npx wrangler secret put ARENA_CONTRACT_ADDRESS
-echo "0x6F677989784Cc214E4Ee02257Fad3fc4374dD383" | npx wrangler secret put BETTING_CONTRACT_ADDRESS
-echo "0x553C2F72D34c9b4794A04e09C6714D47Dc257777" | npx wrangler secret put HNADS_TOKEN_ADDRESS
-```
-
-- [ ] All secrets updated
+- [x] `MONAD_RPC_URL` — Alchemy mainnet
+- [x] `PRIVATE_KEY` — oracle wallet
+- [x] `ARENA_CONTRACT_ADDRESS` — `0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db`
+- [x] `BETTING_CONTRACT_ADDRESS` — `0x6F677989784Cc214E4Ee02257Fad3fc4374dD383`
+- [x] `HNADS_TOKEN_ADDRESS` — `0x553C2F72D34c9b4794A04e09C6714D47Dc257777`
+- [x] `NADFUN_TOKEN_ADDRESS` — `0x553C2F72D34c9b4794A04e09C6714D47Dc257777`
 
 ## 5. Backend Code Changes — ✅ DONE
 
@@ -85,18 +71,10 @@ All skills updated with:
 - [x] `CLAUDE.md` — mainnet addresses, chain 143, $HNADS token marked launched
 - [x] Skills files — addresses + RPC updated
 
-## 9. Deploy
+## 9. Deploy — ✅ DONE
 
-```bash
-# Deploy worker
-npx wrangler deploy
-
-# Deploy dashboard (Vercel)
-cd dashboard && npm run build
-```
-
-- [ ] Worker deployed with mainnet secrets
-- [ ] Dashboard deployed with mainnet env vars
+- [x] Worker deployed — `https://hungernads.amr-robb.workers.dev` (version `cb4a00b7`)
+- [x] Dashboard deployed — Vercel production
 
 ## 10. Post-Deploy Verification
 
