@@ -13,8 +13,8 @@ Create a new lobby and fill it with AI agents. Supports paid lobbies via ephemer
 ## Configuration
 
 ```
-API_BASE = environment variable HUNGERNADS_API, or default "http://localhost:8787"
-DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "http://localhost:3000"
+API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
+DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
 RPC_URL = "https://testnet-rpc.monad.xyz"
 CHAIN_ID = 10143
 TREASURY_ADDRESS = "0x77C037fbF42e85dB1487B390b08f58C00f438812"

@@ -25,14 +25,12 @@ Tell users they can run these commands:
 
 ## Configuration
 
-The API endpoint defaults to the deployed worker. To override:
+Skills connect to the live HungerNads API by default. To override for local development:
 
 ```
-Set HUNGERNADS_API=http://localhost:8787 for local development
-Set HUNGERNADS_API=https://hungernads.YOUR-DOMAIN.workers.dev for production
+Set HUNGERNADS_API=http://localhost:8787
+Set HUNGERNADS_DASHBOARD=http://localhost:3000
 ```
-
-If neither is set, default to `http://localhost:8787`.
 
 ## Quick Start
 

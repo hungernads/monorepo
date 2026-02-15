@@ -5,8 +5,8 @@ List all open HungerNads battle lobbies that you can join.
 ## Configuration
 
 ```
-API_BASE = environment variable HUNGERNADS_API, or default "http://localhost:8787"
-DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "http://localhost:3000"
+API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
+DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
 ```
 
 ## Execution

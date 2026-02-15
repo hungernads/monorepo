@@ -15,8 +15,8 @@ Parse arguments:
 ## Configuration
 
 ```
-API_BASE = environment variable HUNGERNADS_API, or default "http://localhost:8787"
-DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "http://localhost:3000"
+API_BASE = environment variable HUNGERNADS_API, or default "https://hungernads.amr-robb.workers.dev"
+DASHBOARD = environment variable HUNGERNADS_DASHBOARD, or default "https://hungernads.robbyn.xyz"
 RPC_URL = "https://testnet-rpc.monad.xyz"
 CHAIN_ID = 10143
 ARENA_CONTRACT = "0x45B9151BD350F26eE0ad44395B5555cbA5364DC8"
@@ -108,17 +108,33 @@ For each agent (1 to count):
    - Pattern: `[A-Z]{2,4}_[A-Z0-9]{1,3}` (e.g., "NAD_7X", "REKT_42", "GLD_A3", "MON_99")
    - Max 12 chars, alphanumeric + underscore only
 
-2. **Class**: If --class provided, use it. Otherwise pick randomly from:
-   WARRIOR, TRADER, SURVIVOR, PARASITE, GAMBLER
+2. **Class**: If --class provided, use it. Otherwise pick ONE class at random from the list below. You MUST vary the selection — do NOT always pick the same class. Use a `shuf` command or similar to ensure true randomness:
+   ```bash
+   CLASS=$(echo -e "WARRIOR\nTRADER\nSURVIVOR\nPARASITE\nGAMBLER" | shuf -n 1)
+   ```
 
 3. **If paid lobby** (feeAmount > 0 OR hnadsFeeAmount > 0):
+
+   **IMPORTANT — Status gate before spending funds:**
+   Before ANY on-chain transaction (funding, paying fees), re-fetch the battle status:
+   ```bash
+   curl -s "${API_BASE}/battle/${battle_id}"
+   ```
+   If `status` is anything other than `"LOBBY"` or `"COUNTDOWN"`, **STOP immediately** — do NOT fund the wallet, do NOT pay fees. Report:
+   ```
+   [X/N] SKIPPED — Battle status is '${status}', cannot join. No funds spent.
+   ```
+   This check must be repeated **before each expensive step** (before funding, before payEntryFee, before depositHnadsFee) to avoid burning funds on a battle that went ACTIVE mid-flow.
+
    a. Generate ephemeral wallet:
       ```bash
       cast wallet new --json
       ```
       Extract `address` and `privateKey` from JSON output.
 
-   b. Fund ephemeral wallet with MON via agent faucet (1 MON, free, no auth):
+   b. **Re-check battle status** (status gate). If not LOBBY/COUNTDOWN, skip this agent with no funds spent.
+
+   c. Fund ephemeral wallet with MON via agent faucet (1 MON, free, no auth):
       ```bash
       curl -s -X POST "https://agents.devnads.com/v1/faucet" \
         -H "Content-Type: application/json" \
@@ -147,7 +163,9 @@ For each agent (1 to count):
       BATTLE_BYTES=$(cast abi-encode "f(string)" "$BATTLE_ID" | cast keccak)
       ```
 
-   e. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
+   e. **Re-check battle status** (status gate). If not LOBBY/COUNTDOWN, skip this agent. Only wallet funding was spent (recoverable from ephemeral wallet).
+
+   f. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -157,7 +175,7 @@ For each agent (1 to count):
       ```
       Capture the transaction hash as `MON_TX_HASH`.
 
-   f. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
+   g. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -166,7 +184,7 @@ For each agent (1 to count):
         $(cast --to-wei $HNADS_FEE ether)
       ```
 
-   g. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
+   h. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -174,13 +192,17 @@ For each agent (1 to count):
         "depositHnadsFee(bytes32,uint256)" $BATTLE_BYTES \
         $(cast --to-wei $HNADS_FEE ether)
       ```
+      Capture the transaction hash as `HNADS_TX_HASH`.
 
-   h. Join with txHash (MON payment tx) and walletAddress:
+   i. **Re-check battle status** (final status gate before API join). If not LOBBY/COUNTDOWN, report funds were spent on-chain but battle is no longer joinable.
+
+   j. Join with txHash, hnadsTxHash (if applicable), and walletAddress:
       ```bash
       curl -s -X POST "${API_BASE}/battle/${battle_id}/join" \
         -H "Content-Type: application/json" \
-        -d '{"agentClass": "WARRIOR", "agentName": "NAD_7X", "txHash": "'$MON_TX_HASH'", "walletAddress": "'$AGENT_ADDRESS'"}'
+        -d '{"agentClass": "WARRIOR", "agentName": "NAD_7X", "txHash": "'$MON_TX_HASH'", "hnadsTxHash": "'$HNADS_TX_HASH'", "walletAddress": "'$AGENT_ADDRESS'"}'
       ```
+      If `hnadsFeeAmount = 0`, omit `hnadsTxHash` from the payload.
 
 4. **If free lobby** (feeAmount = 0 AND hnadsFeeAmount = 0):
    ```bash
