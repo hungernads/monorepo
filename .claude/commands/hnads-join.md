@@ -163,9 +163,32 @@ For each agent (1 to count):
       BATTLE_BYTES=$(cast abi-encode "f(string)" "$BATTLE_ID" | cast keccak)
       ```
 
-   e. **Re-check battle status** (status gate). If not LOBBY/COUNTDOWN, skip this agent. Only wallet funding was spent (recoverable from ephemeral wallet).
+   e. **Wait for on-chain battle registration** (only for paid lobbies):
+      The backend registers battles on-chain asynchronously (non-blocking). Poll until it confirms:
+      ```bash
+      echo "Waiting for on-chain battle registration..."
+      REGISTERED=false
+      for i in $(seq 1 6); do
+        RESULT=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
+          0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+          "battles(bytes32)" $BATTLE_BYTES 2>/dev/null || echo "")
+        if [ -n "$RESULT" ] && echo "$RESULT" | grep -qv "^0x0\{64\}"; then
+          echo "Battle registered on-chain"
+          REGISTERED=true
+          break
+        fi
+        echo "  ...not yet registered, retrying in 5s ($i/6)"
+        sleep 5
+      done
+      if [ "$REGISTERED" = "false" ]; then
+        echo "ERROR: Battle not registered on-chain after 30s."
+        # STOP — do not spend funds on this agent
+      fi
+      ```
 
-   f. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
+   f. **Re-check battle status** (status gate). If not LOBBY/COUNTDOWN, skip this agent. Only wallet funding was spent (recoverable from ephemeral wallet).
+
+   g. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -175,7 +198,7 @@ For each agent (1 to count):
       ```
       Capture the transaction hash as `MON_TX_HASH`.
 
-   g. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
+   h. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -184,7 +207,7 @@ For each agent (1 to count):
         $(cast --to-wei $HNADS_FEE ether)
       ```
 
-   h. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
+   i. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
       ```bash
       cast send --rpc-url https://testnet-rpc.monad.xyz \
         --private-key $AGENT_PK \
@@ -194,9 +217,9 @@ For each agent (1 to count):
       ```
       Capture the transaction hash as `HNADS_TX_HASH`.
 
-   i. **Re-check battle status** (final status gate before API join). If not LOBBY/COUNTDOWN, report funds were spent on-chain but battle is no longer joinable.
+   j. **Re-check battle status** (final status gate before API join). If not LOBBY/COUNTDOWN, report funds were spent on-chain but battle is no longer joinable.
 
-   j. Join with txHash, hnadsTxHash (if applicable), and walletAddress:
+   k. Join with txHash, hnadsTxHash (if applicable), and walletAddress:
       ```bash
       curl -s -X POST "${API_BASE}/battle/${battle_id}/join" \
         -H "Content-Type: application/json" \

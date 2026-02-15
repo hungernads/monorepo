@@ -55,6 +55,8 @@ curl -s -X POST "${API_BASE}/battle/create" \
 ```
 Then tell them: "Lobby created! Share this link so others can join: `${DASHBOARD}/lobby/${battleId}`"
 
+**Note for paid lobbies:** The backend registers battles on-chain asynchronously (non-blocking). The on-chain readiness poll in Step 4 ensures the contract is ready before accepting payments.
+
 ### Step 2: Choose your gladiator
 
 If --class not provided, show the class picker:
@@ -176,7 +178,30 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
    BATTLE_BYTES=$(cast abi-encode "f(string)" "$BATTLE_ID" | cast keccak)
    ```
 
-6. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
+6. **Wait for on-chain battle registration** (only for paid lobbies):
+   The backend registers battles on-chain asynchronously (non-blocking). Poll until it confirms:
+   ```bash
+   echo "Waiting for on-chain battle registration..."
+   REGISTERED=false
+   for i in $(seq 1 6); do
+     RESULT=$(cast call --rpc-url https://testnet-rpc.monad.xyz \
+       0x45B9151BD350F26eE0ad44395B5555cbA5364DC8 \
+       "battles(bytes32)" $BATTLE_BYTES 2>/dev/null || echo "")
+     if [ -n "$RESULT" ] && echo "$RESULT" | grep -qv "^0x0\{64\}"; then
+       echo "Battle registered on-chain"
+       REGISTERED=true
+       break
+     fi
+     echo "  ...not yet registered, retrying in 5s ($i/6)"
+     sleep 5
+   done
+   if [ "$REGISTERED" = "false" ]; then
+     echo "ERROR: Battle not registered on-chain after 30s."
+     # STOP — do not spend funds on this agent
+   fi
+   ```
+
+7. **TX 1 — Pay MON entry fee** (if feeAmount > 0):
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $AGENT_PK \
@@ -186,7 +211,7 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
    ```
    Capture the transaction hash as `MON_TX_HASH`.
 
-7. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
+8. **TX 2 — Approve $HNADS spending** (if hnadsFeeAmount > 0):
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $AGENT_PK \
@@ -195,7 +220,7 @@ Set the HUNGERNADS_PRIVATE_KEY environment variable and retry.
      $(cast --to-wei $HNADS_FEE ether)
    ```
 
-8. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
+9. **TX 3 — Deposit $HNADS fee** (if hnadsFeeAmount > 0):
    ```bash
    cast send --rpc-url https://testnet-rpc.monad.xyz \
      --private-key $AGENT_PK \
