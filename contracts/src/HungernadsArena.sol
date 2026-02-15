@@ -265,42 +265,19 @@ contract HungernadsArena is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice Record the outcome of a battle. Transitions from Active to Completed.
     /// @param _battleId The battle to complete.
     /// @param _winnerId The agent that won.
-    /// @param _results Per-agent results (must match the registered agent set).
     function recordResult(
         bytes32 _battleId,
-        uint256 _winnerId,
-        AgentResult[] calldata _results
+        uint256 _winnerId
     ) external onlyOracle {
         Battle storage b = battles[_battleId];
         if (b.state == BattleState.None) revert BattleNotFound(_battleId);
         if (b.state != BattleState.Active) {
             revert InvalidBattleState(_battleId, b.state, BattleState.Active);
         }
-        if (_results.length != b.agentIds.length) {
-            revert ResultAgentMismatch(_battleId);
-        }
 
         b.state = BattleState.Completed;
         b.winnerId = _winnerId;
         b.completedAt = block.timestamp;
-
-        for (uint256 i = 0; i < _results.length; i++) {
-            AgentResult calldata r = _results[i];
-            battleResults[_battleId][r.agentId] = r;
-
-            // Update cumulative agent stats
-            AgentStats storage stats = agentStats[r.agentId];
-            stats.totalBattles++;
-            stats.kills += r.kills;
-            stats.totalEpochsSurvived += r.survivedEpochs;
-
-            if (r.isWinner) {
-                stats.wins++;
-            } else {
-                stats.losses++;
-                emit AgentEliminated(_battleId, r.agentId, r.finalHp, r.kills);
-            }
-        }
 
         emit BattleCompleted(_battleId, _winnerId);
     }

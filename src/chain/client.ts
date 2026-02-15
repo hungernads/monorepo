@@ -57,14 +57,6 @@ export interface ChainConfig {
   bettingAddress: Address;
 }
 
-export interface AgentResult {
-  agentId: bigint;
-  finalHp: bigint;
-  kills: bigint;
-  survivedEpochs: bigint;
-  isWinner: boolean;
-}
-
 export interface OnChainBattle {
   battleId: Hex;
   state: number; // 0=None, 1=Created, 2=Active, 3=Completed
@@ -244,18 +236,16 @@ export class HungernadsChainClient {
   }
 
   /**
-   * Record battle results on-chain.
-   * Calls HungernadsArena.recordResult(bytes32, uint256, AgentResult[]).
+   * Record battle result on-chain (winner only).
+   * Calls HungernadsArena.recordResult(bytes32, uint256).
    *
    * @param battleId - Human-readable battle ID
    * @param winnerId - Numeric ID of the winning agent
-   * @param results  - Per-agent results array
    * @returns Transaction hash
    */
   async recordResult(
     battleId: string,
     winnerId: number,
-    results: AgentResult[],
   ): Promise<Hash> {
     const battleBytes = battleIdToBytes32(battleId);
 
@@ -264,7 +254,7 @@ export class HungernadsChainClient {
         address: this.arenaAddress,
         abi: hungernadsArenaAbi,
         functionName: 'recordResult',
-        args: [battleBytes, BigInt(winnerId), results],
+        args: [battleBytes, BigInt(winnerId)],
       });
 
       console.log(`[chain] recordResult tx: ${hash}`);

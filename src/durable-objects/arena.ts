@@ -25,8 +25,7 @@ import {
   gridStateToEvent,
 } from '../api/websocket';
 import { createNadFunClient, NadFunClient, type CurveStream } from '../chain/nadfun';
-import { type Address, createWalletClient, http, parseEther } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { type Address } from 'viem';
 import { ArenaManager, computePhaseConfig, type PhaseConfig } from '../arena/arena';
 import { processEpoch as runEpoch, type EpochResult, type BonusReward } from '../arena/epoch';
 import type { LobbyTier } from '../arena/tiers';
@@ -44,7 +43,7 @@ import { BettingPool, DEFAULT_BETTING_LOCK_AFTER_EPOCH } from '../betting/pool';
 import type { BettingPhase } from '../betting/pool';
 import { SponsorshipManager } from '../betting/sponsorship';
 import { updateBattle, insertBattleEvents, getAgentsByBattle, getBattle } from '../db/schema';
-import { createChainClient, monadTestnet, type AgentResult as ChainAgentResult } from '../chain/client';
+import { createChainClient } from '../chain/client';
 import { distributePrizes, type PayoutAgent, type PrizeDistribution } from '../arena/payouts';
 import { createMoltbookPoster } from '../moltbook';
 import { RatingManager, extractBattlePerformances } from '../ranking';
@@ -71,10 +70,6 @@ export interface BattleAgent {
   thoughts: string[];
   /** Agent's hex position on the grid (null if not yet placed). */
   position: { q: number; r: number } | null;
-  /** Ephemeral private key for on-chain token trades (0x-prefixed hex). */
-  privateKey?: string;
-  /** Derived wallet address for on-chain trades (cached from privateKey). */
-  walletAddress?: string;
 }
 
 /** Per-battle configuration passed from POST /battle/create. */
@@ -350,7 +345,6 @@ export class ArenaDO implements DurableObject {
       const agentId = agentIds[i];
       const agentClass = (agentClasses?.[i] ?? 'WARRIOR') as AgentClass;
       const agentName = agentNames?.[i] ?? `${agentClass}-${agentId.slice(0, 6)}`;
-      const pk = generatePrivateKey();
       agents[agentId] = {
         id: agentId,
         name: agentName,
@@ -362,8 +356,6 @@ export class ArenaDO implements DurableObject {
         epochsSurvived: 0,
         thoughts: [],
         position: null,
-        privateKey: pk,
-        walletAddress: privateKeyToAccount(pk).address,
       };
     }
 
@@ -448,9 +440,6 @@ export class ArenaDO implements DurableObject {
 
     // Start streaming $HNADS curve events to spectators
     this.startCurveStream();
-
-    // Fund agent wallets from oracle (fire-and-forget)
-    this.fundAgentWallets(battleState);
 
     return battleState;
   }
@@ -730,18 +719,9 @@ export class ArenaDO implements DurableObject {
         if (chainAgentMap) {
           const numericWinnerId = chainAgentMap[winnerId] ?? 0;
 
-          // Build per-agent results for the arena contract
-          const chainResults: ChainAgentResult[] = Object.values(battleState.agents).map((agent) => ({
-            agentId: BigInt(chainAgentMap[agent.id] ?? 0),
-            finalHp: BigInt(Math.max(0, Math.round(agent.hp))),
-            kills: BigInt(agent.kills),
-            survivedEpochs: BigInt(agent.epochsSurvived),
-            isWinner: agent.id === winnerId,
-          }));
-
-          // Record result on HungernadsArena
+          // Record result on HungernadsArena (winner-only)
           try {
-            recordResultTxHash = await chainClient.recordResult(battleState.battleId, numericWinnerId, chainResults);
+            recordResultTxHash = await chainClient.recordResult(battleState.battleId, numericWinnerId);
             console.log(`[ArenaDO] Battle ${battleState.battleId} result recorded on-chain: ${recordResultTxHash}`);
           } catch (err) {
             console.error(`[ArenaDO] On-chain recordResult failed for ${battleState.battleId}:`, err);
@@ -778,8 +758,8 @@ export class ArenaDO implements DurableObject {
             epochsSurvived: agent.epochsSurvived,
             isAlive: agent.isAlive,
             isWinner: agent.id === winnerId,
-            // Use player's actual wallet from D1, fallback to ephemeral wallet
-            walletAddress: walletMap.get(agent.id) ?? agent.walletAddress,
+            // Use player's actual wallet from D1
+            walletAddress: walletMap.get(agent.id) ?? undefined,
           }));
 
           prizeDistribution = await distributePrizes(
@@ -1020,35 +1000,6 @@ export class ArenaDO implements DurableObject {
     broadcastEvents(sockets, events);
 
     return events;
-  }
-
-  /**
-   * Fund each agent's ephemeral wallet from the oracle account.
-   * Each agent receives 0.05 MON for on-chain token trades.
-   * Fire-and-forget: failures are logged but never block the battle.
-   */
-  private fundAgentWallets(battleState: BattleState): void {
-    if (!this.env.MONAD_RPC_URL || !this.env.PRIVATE_KEY) return;
-
-    const FUND_AMOUNT = parseEther('0.05');
-    const oracleAccount = privateKeyToAccount(this.env.PRIVATE_KEY as `0x${string}`);
-    const walletClient = createWalletClient({
-      account: oracleAccount,
-      chain: monadTestnet,
-      transport: http(this.env.MONAD_RPC_URL),
-    });
-
-    for (const agent of Object.values(battleState.agents)) {
-      if (!agent.walletAddress) continue;
-      walletClient.sendTransaction({
-        to: agent.walletAddress as Address,
-        value: FUND_AMOUNT,
-      }).then((tx) => {
-        console.log(`[Wallet] Funded ${agent.name} (${agent.walletAddress}): ${tx}`);
-      }).catch((err) => {
-        console.error(`[Wallet] Fund failed for ${agent.name} (${agent.walletAddress}):`, err);
-      });
-    }
   }
 
   /**
@@ -1420,10 +1371,9 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
 
     // ── Convert spawned agents to BattleAgent records with positions ──
     const agents: Record<string, BattleAgent> = {};
-    const agentPositionData: Array<{ id: string; name: string; class: string; position: { q: number; r: number }; walletAddress?: string }> = [];
+    const agentPositionData: Array<{ id: string; name: string; class: string; position: { q: number; r: number } }> = [];
 
     for (const agent of arena.getAllAgents()) {
-      const pk = generatePrivateKey();
       agents[agent.id] = {
         id: agent.id,
         name: agent.name,
@@ -1435,8 +1385,6 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
         epochsSurvived: agent.epochsSurvived,
         thoughts: [],
         position: agent.position,
-        privateKey: pk,
-        walletAddress: privateKeyToAccount(pk).address,
       };
 
       if (agent.position) {
@@ -1445,7 +1393,6 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
           name: agent.name,
           class: agent.agentClass,
           position: { q: agent.position.q, r: agent.position.r },
-          walletAddress: agents[agent.id].walletAddress,
         });
       }
     }
@@ -1559,9 +1506,6 @@ Generate 2-3 specific, actionable lessons for ${agent.name}.`,
 
     // Start streaming $HNADS curve events to spectators
     this.startCurveStream();
-
-    // Fund agent wallets from oracle (fire-and-forget)
-    this.fundAgentWallets(battleState);
   }
 
   // ─── HTTP + WebSocket Handler ─────────────────────────────────

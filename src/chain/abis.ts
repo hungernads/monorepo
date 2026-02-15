@@ -135,17 +135,6 @@ export const hungernadsArenaAbi = [
     inputs: [
       { name: '_battleId', type: 'bytes32' },
       { name: '_winnerId', type: 'uint256' },
-      {
-        name: '_results',
-        type: 'tuple[]',
-        components: [
-          { name: 'agentId', type: 'uint256' },
-          { name: 'finalHp', type: 'uint256' },
-          { name: 'kills', type: 'uint256' },
-          { name: 'survivedEpochs', type: 'uint256' },
-          { name: 'isWinner', type: 'bool' },
-        ],
-      },
     ],
     outputs: [],
   },

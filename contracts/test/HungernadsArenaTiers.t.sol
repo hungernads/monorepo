@@ -144,11 +144,7 @@ contract HungernadsArenaTiersTest is Test {
         vm.startPrank(oracle);
         arena.activateBattle(BATTLE_ID);
 
-        HungernadsArena.AgentResult[] memory results = new HungernadsArena.AgentResult[](3);
-        results[0] = HungernadsArena.AgentResult({agentId: 1, finalHp: 100, kills: 2, survivedEpochs: 10, isWinner: true});
-        results[1] = HungernadsArena.AgentResult({agentId: 2, finalHp: 0, kills: 0, survivedEpochs: 5, isWinner: false});
-        results[2] = HungernadsArena.AgentResult({agentId: 3, finalHp: 0, kills: 1, survivedEpochs: 8, isWinner: false});
-        arena.recordResult(BATTLE_ID, 1, results);
+        arena.recordResult(BATTLE_ID, 1);
 
         // Burn 50% (100 HNADS)
         vm.expectEmit(true, false, false, true);
@@ -182,11 +178,7 @@ contract HungernadsArenaTiersTest is Test {
         vm.startPrank(oracle);
         arena.activateBattle(BATTLE_ID);
 
-        HungernadsArena.AgentResult[] memory results = new HungernadsArena.AgentResult[](3);
-        results[0] = HungernadsArena.AgentResult({agentId: 1, finalHp: 100, kills: 2, survivedEpochs: 10, isWinner: true});
-        results[1] = HungernadsArena.AgentResult({agentId: 2, finalHp: 0, kills: 0, survivedEpochs: 5, isWinner: false});
-        results[2] = HungernadsArena.AgentResult({agentId: 3, finalHp: 0, kills: 1, survivedEpochs: 8, isWinner: false});
-        arena.recordResult(BATTLE_ID, 1, results);
+        arena.recordResult(BATTLE_ID, 1);
 
         // Transfer 50% to treasury (100 HNADS)
         vm.expectEmit(true, false, false, true);
@@ -256,11 +248,7 @@ contract HungernadsArenaTiersTest is Test {
         vm.startPrank(oracle);
         arena.activateBattle(BATTLE_ID);
 
-        HungernadsArena.AgentResult[] memory results = new HungernadsArena.AgentResult[](3);
-        results[0] = HungernadsArena.AgentResult({agentId: 1, finalHp: 50, kills: 2, survivedEpochs: 20, isWinner: true});
-        results[1] = HungernadsArena.AgentResult({agentId: 2, finalHp: 0, kills: 0, survivedEpochs: 10, isWinner: false});
-        results[2] = HungernadsArena.AgentResult({agentId: 3, finalHp: 0, kills: 0, survivedEpochs: 15, isWinner: false});
-        arena.recordResult(BATTLE_ID, 1, results);
+        arena.recordResult(BATTLE_ID, 1);
 
         // Burn and transfer
         arena.burnHnads(BATTLE_ID);

@@ -255,28 +255,11 @@ contract HungernadsArenaTest is Test {
         vm.stopPrank();
     }
 
-    function _buildResults(uint256 winnerId) internal view returns (HungernadsArena.AgentResult[] memory) {
-        HungernadsArena.AgentResult[] memory results = new HungernadsArena.AgentResult[](agentIds.length);
-        for (uint256 i = 0; i < agentIds.length; i++) {
-            bool isWinner = agentIds[i] == winnerId;
-            results[i] = HungernadsArena.AgentResult({
-                agentId: agentIds[i],
-                finalHp: isWinner ? 420 : 0,
-                kills: isWinner ? 2 : (i == 1 ? 1 : 0),
-                survivedEpochs: isWinner ? 20 : uint256(5 + i),
-                isWinner: isWinner
-            });
-        }
-        return results;
-    }
-
     function test_recordResult_completeBattle() public {
         _registerAndActivate(battleId1);
 
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
-
         vm.prank(oracle);
-        arena.recordResult(battleId1, 1, results);
+        arena.recordResult(battleId1, 1);
 
         HungernadsArena.Battle memory b = arena.getBattle(battleId1);
         assertTrue(b.state == HungernadsArena.BattleState.Completed);
@@ -284,120 +267,27 @@ contract HungernadsArenaTest is Test {
         assertGt(b.completedAt, 0);
     }
 
-    function test_recordResult_storesPerAgentResults() public {
-        _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
-
-        vm.prank(oracle);
-        arena.recordResult(battleId1, 1, results);
-
-        // Check winner result
-        HungernadsArena.AgentResult memory r1 = arena.getBattleResult(battleId1, 1);
-        assertEq(r1.agentId, 1);
-        assertEq(r1.finalHp, 420);
-        assertTrue(r1.isWinner);
-        assertEq(r1.kills, 2);
-        assertEq(r1.survivedEpochs, 20);
-
-        // Check a loser result
-        HungernadsArena.AgentResult memory r3 = arena.getBattleResult(battleId1, 3);
-        assertEq(r3.agentId, 3);
-        assertEq(r3.finalHp, 0);
-        assertFalse(r3.isWinner);
-    }
-
-    function test_recordResult_updatesAgentStats() public {
-        _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
-
-        vm.prank(oracle);
-        arena.recordResult(battleId1, 1, results);
-
-        // Winner stats
-        HungernadsArena.AgentStats memory s1 = arena.getAgentStats(1);
-        assertEq(s1.wins, 1);
-        assertEq(s1.losses, 0);
-        assertEq(s1.kills, 2);
-        assertEq(s1.totalBattles, 1);
-        assertEq(s1.totalEpochsSurvived, 20);
-
-        // Loser stats (agent 3 = index 2, kills=0, epochs=5+2=7)
-        HungernadsArena.AgentStats memory s3 = arena.getAgentStats(3);
-        assertEq(s3.wins, 0);
-        assertEq(s3.losses, 1);
-        assertEq(s3.kills, 0);
-        assertEq(s3.totalBattles, 1);
-        assertEq(s3.totalEpochsSurvived, 7);
-    }
-
-    function test_recordResult_accumulatesStatsAcrossBattles() public {
-        // Battle 1: agent 1 wins
-        _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results1 = _buildResults(1);
-        vm.prank(oracle);
-        arena.recordResult(battleId1, 1, results1);
-
-        // Battle 2: agent 2 wins
-        _registerAndActivate(battleId2);
-        HungernadsArena.AgentResult[] memory results2 = _buildResults(2);
-        vm.prank(oracle);
-        arena.recordResult(battleId2, 2, results2);
-
-        // Agent 1: 1 win + 1 loss = 2 battles
-        HungernadsArena.AgentStats memory s1 = arena.getAgentStats(1);
-        assertEq(s1.wins, 1);
-        assertEq(s1.losses, 1);
-        assertEq(s1.totalBattles, 2);
-
-        // Agent 2: 0 wins first battle (loser), 1 win second battle
-        HungernadsArena.AgentStats memory s2 = arena.getAgentStats(2);
-        assertEq(s2.wins, 1);
-        assertEq(s2.losses, 1);
-        assertEq(s2.totalBattles, 2);
-
-        // Agent 3: 0 wins, 2 losses
-        HungernadsArena.AgentStats memory s3 = arena.getAgentStats(3);
-        assertEq(s3.wins, 0);
-        assertEq(s3.losses, 2);
-        assertEq(s3.totalBattles, 2);
-    }
-
     function test_recordResult_emitsBattleCompleted() public {
         _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
 
         vm.prank(oracle);
         vm.expectEmit(true, true, false, false);
         emit HungernadsArena.BattleCompleted(battleId1, 1);
-        arena.recordResult(battleId1, 1, results);
-    }
-
-    function test_recordResult_emitsAgentEliminated() public {
-        _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
-
-        vm.prank(oracle);
-        // 4 losers should each emit AgentEliminated
-        vm.expectEmit(true, true, false, true);
-        emit HungernadsArena.AgentEliminated(battleId1, 2, 0, 1);
-        arena.recordResult(battleId1, 1, results);
+        arena.recordResult(battleId1, 1);
     }
 
     function test_recordResult_revertsForNonOracle() public {
         _registerAndActivate(battleId1);
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
 
         vm.prank(rando);
         vm.expectRevert(HungernadsArena.OnlyOracle.selector);
-        arena.recordResult(battleId1, 1, results);
+        arena.recordResult(battleId1, 1);
     }
 
     function test_recordResult_revertsIfNotActive() public {
         vm.prank(oracle);
         arena.registerBattle(battleId1, agentIds, 0);
         // Still in Created state, not Active
-
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
 
         vm.prank(oracle);
         vm.expectRevert(
@@ -408,35 +298,13 @@ contract HungernadsArenaTest is Test {
                 HungernadsArena.BattleState.Active
             )
         );
-        arena.recordResult(battleId1, 1, results);
-    }
-
-    function test_recordResult_revertsOnResultCountMismatch() public {
-        _registerAndActivate(battleId1);
-
-        // Only provide 3 results for a 5-agent battle
-        HungernadsArena.AgentResult[] memory badResults = new HungernadsArena.AgentResult[](3);
-        for (uint256 i = 0; i < 3; i++) {
-            badResults[i] = HungernadsArena.AgentResult({
-                agentId: agentIds[i],
-                finalHp: 0,
-                kills: 0,
-                survivedEpochs: 5,
-                isWinner: false
-            });
-        }
-
-        vm.prank(oracle);
-        vm.expectRevert(abi.encodeWithSelector(HungernadsArena.ResultAgentMismatch.selector, battleId1));
-        arena.recordResult(battleId1, 1, badResults);
+        arena.recordResult(battleId1, 1);
     }
 
     function test_recordResult_revertsOnNonExistentBattle() public {
-        HungernadsArena.AgentResult[] memory results = _buildResults(1);
-
         vm.prank(oracle);
         vm.expectRevert(abi.encodeWithSelector(HungernadsArena.BattleNotFound.selector, battleId1));
-        arena.recordResult(battleId1, 1, results);
+        arena.recordResult(battleId1, 1);
     }
 
     // -----------------------------------------------------------------------
@@ -508,24 +376,12 @@ contract HungernadsArenaTest is Test {
         assertTrue(b.state == HungernadsArena.BattleState.Active);
 
         // 3. Record result — agent 3 (Survivor) wins
-        HungernadsArena.AgentResult[] memory results = _buildResults(3);
         vm.prank(oracle);
-        arena.recordResult(battleId1, 3, results);
+        arena.recordResult(battleId1, 3);
 
         b = arena.getBattle(battleId1);
         assertTrue(b.state == HungernadsArena.BattleState.Completed);
         assertEq(b.winnerId, 3);
-
-        // 4. Verify winner stats
-        HungernadsArena.AgentStats memory s3 = arena.getAgentStats(3);
-        assertEq(s3.wins, 1);
-        assertEq(s3.losses, 0);
-        assertTrue(s3.exists);
-
-        // 5. Verify loser stats
-        HungernadsArena.AgentStats memory s1 = arena.getAgentStats(1);
-        assertEq(s1.wins, 0);
-        assertEq(s1.losses, 1);
     }
 
     // -----------------------------------------------------------------------
@@ -608,7 +464,7 @@ contract HungernadsArenaTest is Test {
         // Complete the battle
         vm.startPrank(oracle);
         arena.activateBattle(battleId1);
-        arena.recordResult(battleId1, 1, _buildResults(1));
+        arena.recordResult(battleId1, 1);
         vm.stopPrank();
 
         uint256 ownerBalBefore = owner.balance;
@@ -626,7 +482,7 @@ contract HungernadsArenaTest is Test {
         // Complete battle
         vm.startPrank(oracle);
         arena.activateBattle(battleId1);
-        arena.recordResult(battleId1, 1, _buildResults(1));
+        arena.recordResult(battleId1, 1);
         vm.stopPrank();
 
         vm.prank(rando);
@@ -680,7 +536,7 @@ contract HungernadsArenaTest is Test {
 
         vm.startPrank(oracle);
         arena.activateBattle(_bid);
-        arena.recordResult(_bid, 1, _buildResults(1));
+        arena.recordResult(_bid, 1);
         vm.stopPrank();
 
         // Set treasury
@@ -739,7 +595,7 @@ contract HungernadsArenaTest is Test {
         arena.registerBattle(battleId1, agentIds, 0.1 ether);
         vm.startPrank(oracle);
         arena.activateBattle(battleId1);
-        arena.recordResult(battleId1, 1, _buildResults(1));
+        arena.recordResult(battleId1, 1);
         vm.stopPrank();
         arena.setTreasury(treasuryAddr);
 
@@ -781,7 +637,7 @@ contract HungernadsArenaTest is Test {
 
         vm.startPrank(oracle);
         arena.activateBattle(battleId1);
-        arena.recordResult(battleId1, 1, _buildResults(1));
+        arena.recordResult(battleId1, 1);
         vm.stopPrank();
         // Treasury not set
 

@@ -11,7 +11,6 @@ export {
   battleIdToBytes32,
   monadTestnet,
   type ChainConfig,
-  type AgentResult,
   type OnChainBattle,
   type OnChainAgentStats,
 } from './client';
