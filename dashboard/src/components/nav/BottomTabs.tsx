@@ -16,7 +16,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Swords, Coins, BookOpen, TrendingUp } from 'lucide-react';
+import { Swords, Coins, BookOpen } from 'lucide-react';
 
 interface Tab {
   label: string;
@@ -44,12 +44,6 @@ const tabs: Tab[] = [
     href: '/guide',
     icon: BookOpen,
     matchPrefixes: ['/guide'],
-  },
-  {
-    label: 'TOKEN',
-    href: '/token',
-    icon: TrendingUp,
-    matchPrefixes: ['/token'],
   },
 ];
 

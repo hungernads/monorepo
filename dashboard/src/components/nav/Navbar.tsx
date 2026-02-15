@@ -22,17 +22,12 @@ import {
   Swords,
   Coins,
   BookOpen,
-  TrendingUp,
-  Bell,
   LogOut,
   History,
   Trophy,
-  Volume2,
-  VolumeX,
+  ExternalLink,
 } from 'lucide-react';
 import TokenInfo from '@/components/TokenInfo';
-import BurnCounterBadge from '@/components/nav/BurnCounterBadge';
-import { useSoundEffects } from '@/hooks/useSoundEffects';
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -63,12 +58,6 @@ const navTabs: NavTab[] = [
     href: '/guide',
     icon: BookOpen,
     matchPrefixes: ['/guide'],
-  },
-  {
-    label: 'TOKEN',
-    href: '/token',
-    icon: TrendingUp,
-    matchPrefixes: ['/token'],
   },
 ];
 
@@ -177,53 +166,6 @@ function ProfileMenu({ address }: { address: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Sound Toggle
-// ---------------------------------------------------------------------------
-
-function SoundToggle({
-  isMuted,
-  toggleMute,
-}: {
-  isMuted: boolean;
-  toggleMute: () => void;
-}) {
-  return (
-    <button
-      onClick={toggleMute}
-      className={`relative rounded-lg p-2 transition-colors ${
-        isMuted
-          ? 'text-gray-500 hover:bg-colosseum-surface hover:text-gray-300'
-          : 'text-gold hover:bg-gold/10'
-      }`}
-      title={isMuted ? 'Unmute sound effects' : 'Mute sound effects'}
-    >
-      {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Notification Bell
-// ---------------------------------------------------------------------------
-
-function NotificationBell() {
-  // Placeholder: no real notification count yet
-  const hasNotifications = false;
-
-  return (
-    <button
-      className="relative rounded-lg p-2 text-gray-500 transition-colors hover:bg-colosseum-surface hover:text-gray-300"
-      title="Notifications"
-    >
-      <Bell size={18} />
-      {hasNotifications && (
-        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-blood shadow-[0_0_6px_rgba(220,38,38,0.5)]" />
-      )}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main Navbar
 // ---------------------------------------------------------------------------
 
@@ -231,8 +173,6 @@ export default function Navbar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const { address, isConnected } = useAccount();
-  const { isMuted, toggleMute } = useSoundEffects();
-
   useEffect(() => setMounted(true), []);
 
   return (
@@ -292,13 +232,15 @@ export default function Navbar() {
 
         {/* ── Right: Burn Counter + Notification + Token + Wallet/Profile ── */}
         <div className="flex items-center gap-2">
-          <div className="hidden lg:block">
-            <BurnCounterBadge />
-          </div>
-
-          <SoundToggle isMuted={isMuted} toggleMute={toggleMute} />
-
-          <NotificationBell />
+          <a
+            href="https://nad.fun/tokens/0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 lg:flex"
+          >
+            Buy $HNADS
+            <ExternalLink size={12} />
+          </a>
 
           <div className="hidden border-l border-colosseum-surface-light pl-3 xl:block">
             <TokenInfo />

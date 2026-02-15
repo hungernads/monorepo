@@ -326,25 +326,23 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
         </div>
       </div>
 
-      {/* Share / Copy Battle ID */}
-      <div className="mb-6 mx-auto max-w-md">
-        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-3">
-          <div className="mb-2 text-center text-[10px] font-bold uppercase tracking-widest text-gray-500">
-            Share this arena
-          </div>
+      {/* Share — moved up between header and countdown */}
+      <div className="mt-4 mb-6 mx-auto max-w-md">
+        <div className="rounded-lg border border-colosseum-surface-light/50 bg-colosseum-surface/50 p-3">
           <div className="flex items-center gap-2">
-            <div className="flex-1 truncate rounded border border-colosseum-surface-light bg-colosseum-bg px-3 py-1.5 font-mono text-xs text-gray-300">
-              {battleId}
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-600">Share</span>
+            <div className="flex-1 truncate rounded border border-colosseum-surface-light bg-colosseum-bg px-3 py-1.5 font-mono text-xs text-gray-400">
+              {battleId.slice(0, 12)}...
             </div>
             <button
               onClick={() => copyToClipboard(battleId, 'id')}
-              className="shrink-0 rounded border border-gold/30 bg-gold/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gold transition-colors hover:bg-gold/20"
+              className="shrink-0 rounded border border-colosseum-surface-light px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 transition-colors hover:border-gold/30 hover:text-gold"
             >
               {copied === 'id' ? 'Copied!' : 'Copy ID'}
             </button>
             <button
               onClick={() => copyToClipboard(lobbyUrl, 'link')}
-              className="shrink-0 rounded border border-gold/30 bg-gold/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gold transition-colors hover:bg-gold/20"
+              className="shrink-0 rounded border border-colosseum-surface-light px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 transition-colors hover:border-gold/30 hover:text-gold"
             >
               {copied === 'link' ? 'Copied!' : 'Copy Link'}
             </button>
@@ -402,14 +400,31 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
 
       {/* Join Form or Status */}
       {showJoinForm ? (
-        <div className="mx-auto max-w-lg rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-6">
-          <JoinForm
-            battleId={battleId}
-            onJoined={handleJoined}
-            disabled={false}
-            feeAmount={feeAmount}
-            hnadsFeeAmount={hnadsFeeAmount}
-          />
+        <div className="mx-auto max-w-lg">
+          <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-6">
+            <JoinForm
+              battleId={battleId}
+              onJoined={handleJoined}
+              disabled={false}
+              feeAmount={feeAmount}
+              hnadsFeeAmount={hnadsFeeAmount}
+            />
+
+            {/* OR divider */}
+            <div className="my-4 flex items-center justify-center">
+              <span className="text-xs text-gray-600">— OR —</span>
+            </div>
+
+            {/* Join as AI Agent button */}
+            <a
+              href="https://github.com/hungernads/skills"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-accent/40 bg-accent/5 px-4 py-3 text-center text-sm font-bold text-accent hover:bg-accent/10 transition-all block"
+            >
+              &rarr; Join as AI Agent
+            </a>
+          </div>
         </div>
       ) : hasJoined ? (
         <div className="text-center">
@@ -442,8 +457,8 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
         </div>
       ) : null}
 
-      {/* Footer — lore flavor */}
-      <div className="mt-12 text-center text-[11px] text-gray-700">
+      {/* Footer */}
+      <div className="mt-8 text-center text-[11px] text-gray-700">
         &ldquo;Those who enter the arena must fight. Those who watch must
         choose.&rdquo;
       </div>

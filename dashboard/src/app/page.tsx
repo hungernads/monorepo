@@ -313,16 +313,17 @@ function EmptyState({ message }: { message: string }) {
 // How It Works (collapsible)
 // ---------------------------------------------------------------------------
 
-function HowItWorks() {
+function BuyHnadsButton() {
   return (
-    <Link
-      href="/guide"
-      className="mt-10 flex items-center justify-between rounded-lg border px-4 py-3 text-xs font-bold uppercase tracking-widest transition-colors hover:border-[#f59e0b]/40 sm:text-sm"
-      style={{ backgroundColor: '#12121f', borderColor: '#252540', color: '#a89870' }}
+    <a
+      href="https://nad.fun/tokens/0x553C2F72D34c9b4794A04e09C6714D47Dc257777"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-10 flex items-center justify-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-6 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_20px_rgba(245,158,11,0.2)] active:scale-[0.98]"
     >
-      <span className="font-cinzel">How It Works</span>
-      <span style={{ color: '#f59e0b' }}>&rarr;</span>
-    </Link>
+      Buy $HNADS on nad.fun
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+    </a>
   );
 }
 
@@ -578,21 +579,56 @@ export default function HomePage() {
             <span className="h-1.5 w-1.5 rounded-full bg-gold" />
             Open Arenas
           </h2>
+        </div>
+
+        {lobbiesLoading ? (
+          <LobbySkeleton />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {lobbies.map((lobby) => (
+              <LobbyCard key={lobby.battleId} lobby={lobby} />
+            ))}
+            <button
+              onClick={() => setShowCreateForm((prev) => !prev)}
+              className="card flex flex-col items-center justify-center gap-3 border-dashed border-colosseum-surface-light hover:border-gold/40 transition-colors min-h-[140px]"
+            >
+              <span className="text-3xl text-gray-600">+</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Create New Arena</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Tier Selection Section */}
+      <div className="mt-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-500">
+            Choose Arena Tier
+          </h2>
           <button
             onClick={() => setShowCreateForm((prev) => !prev)}
-            disabled={creatingLobby}
-            className="rounded-lg border border-gold/40 bg-gold/10 px-5 py-2 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.97] disabled:opacity-60"
+            className="transition-transform"
+            style={{ transform: showCreateForm ? 'rotate(180deg)' : 'rotate(0deg)' }}
           >
-            {creatingLobby ? 'Creating...' : showCreateForm ? 'Cancel' : 'Create Lobby'}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-gray-500"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
         </div>
 
-        {/* Tier Selection Cards */}
         {showCreateForm && (
-          <div className="mb-4 rounded-lg border border-gold/20 bg-colosseum-surface p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">
-              Choose Arena Tier
-            </p>
+          <div className="rounded-lg border border-gold/20 bg-colosseum-surface p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {LOBBY_TIERS.map((t) => {
                 const isSelected = selectedTier === t.tier;
@@ -678,29 +714,6 @@ export default function HomePage() {
             </div>
           </div>
         )}
-
-        {lobbiesLoading ? (
-          <LobbySkeleton />
-        ) : lobbies.length === 0 ? (
-          <div className="card flex flex-col items-center justify-center gap-3 py-8">
-            <p className="text-sm text-gray-500">
-              No open arenas. Create one and fight!
-            </p>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              disabled={creatingLobby}
-              className="rounded-lg border border-gold/40 bg-gold/10 px-8 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98] disabled:opacity-60"
-            >
-              {creatingLobby ? 'Creating...' : 'Create Lobby'}
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {lobbies.map((lobby) => (
-              <LobbyCard key={lobby.battleId} lobby={lobby} />
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-5">
@@ -776,7 +789,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <HowItWorks />
+      <BuyHnadsButton />
 
       <div className="mt-12 text-center text-xs text-gray-700">
         <p>$HNADS on nad.fun // Monad Hackathon - Moltiverse</p>
