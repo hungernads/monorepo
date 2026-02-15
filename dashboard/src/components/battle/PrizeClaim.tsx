@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * HUNGERNADS - Prize Claim Component
+ * HUNGERNADS - Prize Claim / Victory Component
  *
- * Displayed after a battle completes. Shows:
- *   - Winner announcement with portrait
- *   - Total pool and winner share breakdown
- *   - Claim button for users with claimable prizes (calls HungernadsBetting.claimPrize)
+ * Unified post-battle display:
+ *   - VICTORY header with winner portrait
+ *   - Prize amount and on-chain tx proof links
+ *   - Claim button for users with claimable betting prizes
  *   - Final standings for all agents
- *   - "Already claimed" state when prize has been collected
- *   - Wallet connect prompt if not connected
+ *   - Share button
  */
 
 import { useEffect } from "react";
@@ -36,21 +35,59 @@ interface WinnerInfo {
   winnerId: string;
   winnerName: string;
   totalEpochs: number;
+  reason?: string;
+  settlementTxs?: {
+    recordResult?: string;
+    settleBets?: string;
+    distributePrize?: string;
+  };
+}
+
+export interface SettlementTxs {
+  recordResult?: string;
+  settleBets?: string;
+  distributePrize?: string;
+  prizes?: Array<{
+    type: string;
+    recipient: string;
+    amount: string;
+    txHash: string;
+    success: boolean;
+  }>;
 }
 
 interface PrizeClaimProps {
   battleId: string;
   winner: WinnerInfo;
   agents: BattleAgent[];
+  settlementTxs?: SettlementTxs;
+  shareButton?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
+function TxProofLink({ hash, label }: { hash: string; label: string }) {
+  const short = `${hash.slice(0, 6)}...${hash.slice(-4)}`;
+  return (
+    <a
+      href={`${EXPLORER_TX_URL}${hash}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 rounded border border-gold/30 bg-gold/10 px-3 py-1.5 font-mono text-[10px] text-gold transition-colors hover:bg-gold/20 hover:text-gold"
+    >
+      <span className="text-gold/60">{label}</span>
+      <span>{short}</span>
+      <svg className="h-3 w-3 text-gold/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
+  );
+}
+
 /** Compact final standings table sorted by placement */
 function FinalStandings({ agents, winnerId }: { agents: BattleAgent[]; winnerId: string }) {
-  // Sort: winner first, then alive agents by HP desc, then dead agents by kill count desc
   const sorted = [...agents].sort((a, b) => {
     if (a.id === winnerId) return -1;
     if (b.id === winnerId) return 1;
@@ -127,10 +164,10 @@ function FinalStandings({ agents, winnerId }: { agents: BattleAgent[]; winnerId:
 // Main Component
 // ---------------------------------------------------------------------------
 
-export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps) {
+export default function PrizeClaim({ battleId, winner, agents, settlementTxs, shareButton }: PrizeClaimProps) {
   const { address, isConnected } = useAccount();
 
-  // On-chain reads
+  // On-chain reads (for betting prize claims)
   const { data: totalPoolRaw } = useBattlePool(battleId);
   const { data: claimableRaw, refetch: refetchClaimable } = useClaimable(battleId);
   const { data: alreadyClaimed, refetch: refetchClaimed } = useClaimed(battleId);
@@ -141,7 +178,6 @@ export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps
   // Refresh claimed status after successful claim
   useEffect(() => {
     if (claimSuccess) {
-      // Small delay for chain confirmation
       const timer = setTimeout(() => {
         refetchClaimable();
         refetchClaimed();
@@ -150,160 +186,152 @@ export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps
     }
   }, [claimSuccess, refetchClaimable, refetchClaimed]);
 
-  // Format amounts from wei to human-readable
+  // Format amounts
   const totalPool = totalPoolRaw ? Number(formatEther(totalPoolRaw)) : 0;
   const claimableAmount = claimableRaw ? Number(formatEther(claimableRaw)) : 0;
   const hasClaimable = claimableAmount > 0;
   const hasClaimed = alreadyClaimed === true || claimSuccess;
 
-  // Winner agent config for portrait
+  // Winner agent config
   const winnerAgent = agents.find((a) => a.id === winner.winnerId);
   const winnerCfg = winnerAgent
     ? CLASS_CONFIG[winnerAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
     : CLASS_CONFIG.WARRIOR;
 
-  // Explorer link for claim tx
-  const explorerTxUrl = hash
-    ? `${EXPLORER_TX_URL}${hash}`
-    : null;
+  const isMutualRekt = winner.reason?.toLowerCase().includes("mutual rekt");
+
+  // Merge settlement txs from props and winner event
+  const txs = settlementTxs ?? winner.settlementTxs;
+  const distributeTxHash = txs?.distributePrize;
+  const recordTxHash = txs?.recordResult;
+
+  // Claim tx explorer link
+  const claimExplorerUrl = hash ? `${EXPLORER_TX_URL}${hash}` : null;
 
   return (
-    <div className="space-y-4">
-      {/* Winner spotlight */}
-      <div className="relative overflow-hidden rounded-lg border border-gold/30 bg-gradient-to-br from-gold/10 via-colosseum-surface to-gold/5 p-4 text-center">
-        {/* Background glow */}
-        <div className="absolute inset-0 bg-gradient-to-t from-gold/5 to-transparent" />
+    <div className="mb-3 space-y-4 sm:mb-4">
+      {/* ── Victory Banner ── */}
+      <div className="rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:p-4">
+        <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
+          {isMutualRekt ? "ALL REKT" : "VICTORY"}
+        </div>
 
-        <div className="relative">
-          <div className="text-[10px] uppercase tracking-[0.3em] text-gold/60">
-            The Arena Has Spoken
-          </div>
-          <div className="mt-2 flex items-center justify-center gap-3">
-            <AgentPortrait
-              image={winnerCfg.image}
-              emoji={winnerCfg.emoji}
-              alt={winner.winnerName}
-              size="w-12 h-12"
-              className="text-3xl"
-            />
-            <div className="text-left">
-              <div className="font-cinzel text-xl font-black tracking-wider text-gold">
-                {winner.winnerName}
-              </div>
-              <div className="text-[10px] text-gray-500">
-                Last nad standing after {winner.totalEpochs} epoch{winner.totalEpochs !== 1 ? "s" : ""}
-              </div>
+        <div className="mt-3 flex items-center justify-center gap-3">
+          <AgentPortrait
+            image={winnerCfg.image}
+            emoji={winnerCfg.emoji}
+            alt={winner.winnerName}
+            size="w-14 h-14 sm:w-16 sm:h-16"
+            className="text-4xl ring-2 ring-gold/40"
+          />
+          <div className="text-left">
+            <div className="text-sm font-bold text-white sm:text-base">
+              {winner.winnerName}
+            </div>
+            <div className="text-[10px] text-gray-400 sm:text-xs">
+              {isMutualRekt
+                ? `Wins by tiebreak after ${winner.totalEpochs} epochs!`
+                : `Last nad standing after ${winner.totalEpochs} epoch${winner.totalEpochs !== 1 ? "s" : ""}`}
             </div>
           </div>
+        </div>
 
-          {/* Pool breakdown */}
-          {totalPool > 0 && (
-            <div className="mt-4 flex justify-center gap-6 text-xs">
-              <div>
-                <div className="text-[9px] uppercase tracking-wider text-gray-600">
-                  Total Pool
-                </div>
-                <div className="font-bold text-white">
-                  {totalPool.toFixed(4)} MON
-                </div>
-              </div>
-              <div>
-                <div className="text-[9px] uppercase tracking-wider text-gray-600">
-                  Winner Share (85%)
-                </div>
-                <div className="font-bold text-gold">
-                  {(totalPool * 0.85).toFixed(4)} MON
-                </div>
-              </div>
-            </div>
+        {winner.reason && (
+          <div className="mt-1.5 text-[10px] uppercase tracking-wider text-gold/70 sm:text-xs">
+            {winner.reason}
+          </div>
+        )}
+
+        {/* Prize amount */}
+        {totalPool > 0 && (
+          <div className="mt-3 text-xs text-gray-400">
+            Prize Pool: <span className="font-bold text-gold">{totalPool.toFixed(4)} MON</span>
+            <span className="ml-2 text-gray-600">
+              (Winner: {(totalPool * 0.8).toFixed(4)} MON)
+            </span>
+          </div>
+        )}
+
+        {/* Action row: tx proofs + share — all as aligned pill buttons */}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {distributeTxHash && (
+            <TxProofLink hash={distributeTxHash} label="Payout" />
           )}
+          {recordTxHash && (
+            <TxProofLink hash={recordTxHash} label="Result" />
+          )}
+          {shareButton}
         </div>
       </div>
 
-      {/* Claim section */}
-      {isConnected ? (
-        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-4">
-          {hasClaimed ? (
-            /* Already claimed */
-            <div className="text-center">
-              <div className="text-sm font-bold text-green-400">
-                Prize Claimed
-              </div>
-              <div className="mt-1 text-[10px] text-gray-500">
-                Your winnings have been sent to your wallet.
-              </div>
-              {explorerTxUrl && (
-                <a
-                  href={explorerTxUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-block text-[10px] text-gold/80 underline decoration-gold/30 transition-colors hover:text-gold"
-                >
-                  View transaction on explorer
-                </a>
-              )}
-            </div>
-          ) : hasClaimable ? (
-            /* Has unclaimed prize */
-            <div className="text-center">
-              <div className="text-[10px] uppercase tracking-wider text-gray-600">
-                Your Claimable Prize
-              </div>
-              <div className="mt-1 text-2xl font-bold text-gold">
-                {claimableAmount.toFixed(4)} MON
-              </div>
-              <button
-                onClick={() => claim({ battleId })}
-                disabled={isClaiming}
-                className="mt-3 w-full rounded border border-gold/40 bg-gold/15 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isClaiming ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
-                    Claiming...
-                  </span>
-                ) : (
-                  "Claim Prize"
-                )}
-              </button>
-              {claimError && (
-                <div className="mt-2 rounded border border-blood/30 bg-blood/10 px-3 py-2 text-[10px] text-blood">
-                  {claimError.message?.includes("AlreadyClaimed")
-                    ? "Prize already claimed."
-                    : claimError.message?.includes("NothingToClaim")
-                      ? "No claimable prize found."
-                      : `Error: ${claimError.message?.slice(0, 100) ?? "Transaction failed"}`}
-                </div>
-              )}
-              <div className="mt-2 text-[9px] text-gray-700">
-                Contract:{" "}
-                <a
-                  href={`${EXPLORER_ADDRESS_URL}${BETTING_ADDRESS}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-gray-600 underline decoration-gray-700 hover:text-gray-400"
-                >
-                  {BETTING_ADDRESS.slice(0, 8)}...{BETTING_ADDRESS.slice(-6)}
-                </a>
-              </div>
-            </div>
-          ) : (
-            /* No claimable prize (spectator or losing bettor) */
-            <div className="text-center">
-              <div className="text-xs text-gray-500">
-                No claimable prizes for this battle.
-              </div>
-              <div className="mt-1 text-[10px] text-gray-700">
-                Better luck next time, nad.
-              </div>
+      {/* ── Betting Prize Claim ── */}
+      {isConnected && hasClaimable && !hasClaimed && (
+        <div className="rounded-lg border border-gold/30 bg-colosseum-surface p-4 text-center">
+          <div className="text-[10px] uppercase tracking-wider text-gray-600">
+            Your Claimable Bet Prize
+          </div>
+          <div className="mt-1 text-2xl font-bold text-gold">
+            {claimableAmount.toFixed(4)} MON
+          </div>
+          <button
+            onClick={() => claim({ battleId })}
+            disabled={isClaiming}
+            className="mt-3 w-full rounded border border-gold/40 bg-gold/15 py-3 text-sm font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isClaiming ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
+                Claiming...
+              </span>
+            ) : (
+              "Claim Prize"
+            )}
+          </button>
+          {claimError && (
+            <div className="mt-2 rounded border border-blood/30 bg-blood/10 px-3 py-2 text-[10px] text-blood">
+              {claimError.message?.includes("AlreadyClaimed")
+                ? "Prize already claimed."
+                : claimError.message?.includes("NothingToClaim")
+                  ? "No claimable prize found."
+                  : `Error: ${claimError.message?.slice(0, 100) ?? "Transaction failed"}`}
             </div>
           )}
+          <div className="mt-2 text-[9px] text-gray-700">
+            Contract:{" "}
+            <a
+              href={`${EXPLORER_ADDRESS_URL}${BETTING_ADDRESS}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-gray-600 underline decoration-gray-700 hover:text-gray-400"
+            >
+              {BETTING_ADDRESS.slice(0, 8)}...{BETTING_ADDRESS.slice(-6)}
+            </a>
+          </div>
         </div>
-      ) : (
-        /* Wallet not connected */
-        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-4 text-center">
-          <div className="text-xs text-gray-500">
-            Connect wallet to check your prizes
+      )}
+
+      {isConnected && hasClaimed && (
+        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-center">
+          <div className="text-sm font-bold text-green-400">
+            Bet Prize Claimed
+          </div>
+          {claimExplorerUrl && (
+            <a
+              href={claimExplorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-[10px] text-gold/80 underline decoration-gold/30 hover:text-gold"
+            >
+              View claim transaction
+            </a>
+          )}
+        </div>
+      )}
+
+      {!isConnected && (
+        <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-surface p-3 text-center">
+          <div className="text-[10px] text-gray-500">
+            Connect wallet to check your bet prizes
           </div>
           <ConnectButton.Custom>
             {({ openConnectModal }) => (
@@ -318,7 +346,7 @@ export default function PrizeClaim({ battleId, winner, agents }: PrizeClaimProps
         </div>
       )}
 
-      {/* Final standings */}
+      {/* ── Final Standings ── */}
       <FinalStandings agents={agents} winnerId={winner.winnerId} />
     </div>
   );

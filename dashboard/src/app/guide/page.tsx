@@ -220,7 +220,7 @@ export default function HowItWorksPage() {
       </section>
 
       {/* Tokenomics */}
-      <section>
+      <section id="tokenomics">
         <SectionTitle>$HNADS Tokenomics</SectionTitle>
         <div className="card space-y-4 text-sm leading-relaxed text-gray-300">
           <p>

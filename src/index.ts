@@ -22,7 +22,11 @@ export interface Env {
   CACHE: KVNamespace;
 
   // Secrets (from .dev.vars / wrangler secrets)
+  GROQ_API_KEYS?: string;
   GROQ_API_KEY?: string;
+  GROQ_2_API_KEY?: string;
+  GROQ_3_API_KEY?: string;
+  GROQ_4_API_KEY?: string;
   GOOGLE_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   MONAD_RPC_URL?: string;

@@ -1,12 +1,12 @@
 /**
  * Multi-Provider LLM Client for HUNGERNADS
- * 
+ *
  * Combines free tiers from multiple providers:
- * - Groq: 1,000 req/day, 100K tokens/day
- * - OpenRouter: 50 req/day (free models)
+ * - Groq: 1,000 req/day per key (comma-separated GROQ_API_KEYS)
  * - Google Gemini: ~1,500 req/day
- * 
- * Total: ~2,500+ requests/day for FREE
+ * - OpenRouter: 50 req/day (free models)
+ *
+ * Keys that hit rate limits are flagged and skipped until daily reset.
  */
 
 import OpenAI from 'openai';
@@ -19,6 +19,8 @@ interface Provider {
   requestsToday: number;
   lastReset: Date;
   dailyLimit: number;
+  /** When set, this provider is skipped until this time passes */
+  exhaustedUntil: Date | null;
 }
 
 interface LLMResponse {
@@ -29,11 +31,17 @@ interface LLMResponse {
 
 /**
  * Explicit API keys for environments without process.env (e.g. Cloudflare Workers).
- * When provided, these take precedence over process.env lookups.
+ *
+ * GROQ_API_KEYS: Comma-separated list of Groq keys (e.g. "gsk_abc,gsk_def,gsk_ghi")
+ * Each key gets its own 1,000 req/day pool.
  */
 export interface LLMKeys {
+  groqApiKeys?: string;        // comma-separated
+  // Legacy single-key fields (still supported for backward compat)
   groqApiKey?: string;
   groq2ApiKey?: string;
+  groq3ApiKey?: string;
+  groq4ApiKey?: string;
   googleApiKey?: string;
   openrouterApiKey?: string;
 }
@@ -45,19 +53,33 @@ export class MultiProviderLLM {
   constructor(keys?: LLMKeys) {
     // Resolve keys: explicit keys take precedence, fall back to process.env
     const env = typeof process !== 'undefined' ? process.env : {};
-    const groqKey = keys?.groqApiKey ?? env.GROQ_API_KEY;
-    const groq2Key = keys?.groq2ApiKey ?? env.GROQ_2_API_KEY;
+
+    // Collect all Groq keys: prefer comma-separated GROQ_API_KEYS, then fall back to individual vars
+    const groqKeysRaw = keys?.groqApiKeys ?? env.GROQ_API_KEYS;
+    let groqKeys: string[] = [];
+
+    if (groqKeysRaw) {
+      groqKeys = groqKeysRaw.split(',').map(k => k.trim()).filter(Boolean);
+    } else {
+      // Legacy: collect individual GROQ_API_KEY, GROQ_2_API_KEY, etc.
+      const candidates = [
+        keys?.groqApiKey ?? env.GROQ_API_KEY,
+        keys?.groq2ApiKey ?? env.GROQ_2_API_KEY,
+        keys?.groq3ApiKey ?? env.GROQ_3_API_KEY,
+        keys?.groq4ApiKey ?? env.GROQ_4_API_KEY,
+      ];
+      groqKeys = candidates.filter((k): k is string => !!k);
+    }
+
     const googleKey = keys?.googleApiKey ?? env.GOOGLE_API_KEY;
     const openrouterKey = keys?.openrouterApiKey ?? env.OPENROUTER_API_KEY;
 
-    // Initialize providers in priority order (best free tiers first)
-
-    // 1. Groq - Best free tier (1,000 req/day)
-    if (groqKey) {
+    // Register Groq providers (1,000 req/day each)
+    groqKeys.forEach((key, i) => {
       this.providers.push({
-        name: 'groq',
+        name: i === 0 ? 'groq' : `groq-${i + 1}`,
         client: new OpenAI({
-          apiKey: groqKey,
+          apiKey: key,
           baseURL: 'https://api.groq.com/openai/v1',
         }),
         model: 'llama-3.3-70b-versatile',
@@ -65,26 +87,11 @@ export class MultiProviderLLM {
         requestsToday: 0,
         lastReset: new Date(),
         dailyLimit: 1000,
+        exhaustedUntil: null,
       });
-    }
+    });
 
-    // 1b. Groq secondary key - Another 1,000 req/day
-    if (groq2Key) {
-      this.providers.push({
-        name: 'groq-2',
-        client: new OpenAI({
-          apiKey: groq2Key,
-          baseURL: 'https://api.groq.com/openai/v1',
-        }),
-        model: 'llama-3.3-70b-versatile',
-        priority: 1,
-        requestsToday: 0,
-        lastReset: new Date(),
-        dailyLimit: 1000,
-      });
-    }
-
-    // 2. Google Gemini - Good free tier (~1,500 req/day)
+    // Google Gemini (~1,500 req/day)
     if (googleKey) {
       this.providers.push({
         name: 'google',
@@ -97,10 +104,11 @@ export class MultiProviderLLM {
         requestsToday: 0,
         lastReset: new Date(),
         dailyLimit: 1500,
+        exhaustedUntil: null,
       });
     }
 
-    // 3. OpenRouter - Smaller free tier (50 req/day) but good fallback
+    // OpenRouter (50 req/day)
     if (openrouterKey) {
       this.providers.push({
         name: 'openrouter',
@@ -113,12 +121,13 @@ export class MultiProviderLLM {
         requestsToday: 0,
         lastReset: new Date(),
         dailyLimit: 50,
+        exhaustedUntil: null,
       });
     }
 
     if (this.providers.length === 0) {
       throw new Error(
-        'No LLM providers configured! Set at least one of: GROQ_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY'
+        'No LLM providers configured! Set GROQ_API_KEYS (comma-separated) or individual GROQ_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY'
       );
     }
 
@@ -128,15 +137,32 @@ export class MultiProviderLLM {
   }
 
   /**
-   * Reset daily counters if new day
+   * Reset daily counters if new day, and clear exhausted flag
    */
   private checkDailyReset(provider: Provider): void {
     const now = new Date();
     if (now.toDateString() !== provider.lastReset.toDateString()) {
       provider.requestsToday = 0;
       provider.lastReset = now;
+      provider.exhaustedUntil = null;
       console.log(`[LLM] Reset daily counter for ${provider.name}`);
     }
+  }
+
+  /**
+   * Check if provider is available (not exhausted, has capacity)
+   */
+  private isAvailable(provider: Provider): boolean {
+    this.checkDailyReset(provider);
+
+    // Skip if flagged as exhausted (from 429 or counter limit)
+    if (provider.exhaustedUntil) {
+      if (new Date() < provider.exhaustedUntil) return false;
+      // Cooldown expired, give it another shot
+      provider.exhaustedUntil = null;
+    }
+
+    return provider.requestsToday < provider.dailyLimit;
   }
 
   /**
@@ -144,22 +170,29 @@ export class MultiProviderLLM {
    */
   private getNextProvider(): Provider | null {
     const startIndex = this.currentIndex;
-    
+
     do {
       const provider = this.providers[this.currentIndex];
       this.currentIndex = (this.currentIndex + 1) % this.providers.length;
-      
-      this.checkDailyReset(provider);
-      
-      // Check if provider has capacity
-      if (provider.requestsToday < provider.dailyLimit) {
+
+      if (this.isAvailable(provider)) {
         return provider;
       }
-      
-      console.log(`[LLM] ${provider.name} at daily limit (${provider.requestsToday}/${provider.dailyLimit})`);
     } while (this.currentIndex !== startIndex);
-    
+
     return null; // All providers exhausted
+  }
+
+  /**
+   * Mark a provider as exhausted until end of day (or a cooldown period)
+   */
+  private markExhausted(provider: Provider): void {
+    // Set exhausted until midnight UTC (Groq resets daily)
+    const tomorrow = new Date();
+    tomorrow.setUTCHours(24, 0, 0, 0);
+    provider.exhaustedUntil = tomorrow;
+    provider.requestsToday = provider.dailyLimit;
+    console.log(`[LLM] ${provider.name} marked exhausted until ${tomorrow.toISOString()}`);
   }
 
   /**
@@ -174,14 +207,12 @@ export class MultiProviderLLM {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const provider = this.getNextProvider();
-      
+
       if (!provider) {
         throw new Error('All LLM providers exhausted their daily limits!');
       }
 
       try {
-        console.log(`[LLM] Calling ${provider.name}/${provider.model}...`);
-        
         const response = await provider.client.chat.completions.create({
           model: provider.model,
           messages,
@@ -190,11 +221,9 @@ export class MultiProviderLLM {
         });
 
         provider.requestsToday++;
-        
+
         const content = response.choices[0]?.message?.content || '';
-        
-        console.log(`[LLM] Success from ${provider.name} (${provider.requestsToday}/${provider.dailyLimit} today)`);
-        
+
         return {
           content,
           provider: provider.name,
@@ -202,14 +231,14 @@ export class MultiProviderLLM {
         };
       } catch (error: any) {
         lastError = error;
-        
-        // Rate limited - try next provider
+
+        // Rate limited — flag exhausted so we skip it immediately next time
         if (error?.status === 429) {
-          console.log(`[LLM] ${provider.name} rate limited, trying next...`);
-          provider.requestsToday = provider.dailyLimit; // Mark as exhausted
+          console.log(`[LLM] ${provider.name} rate limited (429), marking exhausted`);
+          this.markExhausted(provider);
           continue;
         }
-        
+
         // Other error - log and try next
         console.error(`[LLM] ${provider.name} error:`, error.message);
         continue;
@@ -222,14 +251,16 @@ export class MultiProviderLLM {
   /**
    * Get current status of all providers
    */
-  getStatus(): { name: string; used: number; limit: number; available: number }[] {
+  getStatus(): { name: string; used: number; limit: number; available: number; exhausted: boolean }[] {
     return this.providers.map(p => {
       this.checkDailyReset(p);
+      const exhausted = !!p.exhaustedUntil && new Date() < p.exhaustedUntil;
       return {
         name: p.name,
         used: p.requestsToday,
         limit: p.dailyLimit,
-        available: p.dailyLimit - p.requestsToday,
+        available: exhausted ? 0 : p.dailyLimit - p.requestsToday,
+        exhausted,
       };
     });
   }
@@ -248,7 +279,9 @@ let llmInstanceKeyHash: string = '';
 
 function keyHash(keys?: LLMKeys): string {
   if (!keys) return '__env__';
-  return [keys.groqApiKey, keys.groq2ApiKey, keys.googleApiKey, keys.openrouterApiKey]
+  const groqPart = keys.groqApiKeys
+    ?? [keys.groqApiKey, keys.groq2ApiKey, keys.groq3ApiKey, keys.groq4ApiKey].filter(Boolean).join(',');
+  return [groqPart, keys.googleApiKey, keys.openrouterApiKey]
     .map(k => k ? k.slice(0, 8) : '')
     .join('|');
 }
@@ -313,70 +346,44 @@ BTC: $${marketData.btc}
 SOL: $${marketData.sol}
 MON: $${marketData.mon}
 
-YOUR STATUS:
-HP: ${hp}/1000
+YOUR HP: ${hp}/1000
 ${spatialBlock}
 OTHER AGENTS:
-${otherAgents.map(a => `- ${a.name} (${a.class}): ${a.hp} HP`).join('\n')}
+${otherAgents.map(a => `- ${a.name} (${a.class}) - ${a.hp} HP`).join('\n')}
 
-ACTIONS REQUIRED:
-1. PREDICT: Choose asset (ETH/BTC/SOL/MON), direction (UP/DOWN), stake (5-50% of HP)
-2. COMBAT STANCE: Choose ATTACK, SABOTAGE, DEFEND, or NONE
-   - ATTACK beats SABOTAGE (overpower: steal full stake)
-   - SABOTAGE beats DEFEND (bypass: deal 60% stake damage through defense)
-   - DEFEND beats ATTACK (absorb: reflect 50% damage, take only 25%)
-   - ATTACK/SABOTAGE require combatTarget and combatStake
-   - You can ONLY attack/sabotage ADJACENT agents (neighboring hexes)
-3. MOVE: Move to an adjacent empty hex. You SHOULD move every turn. Format: {"q": <num>, "r": <num>}
-   IMPORTANT: Always include a "move" field to reposition. Staying still in the storm = death.
-
-Respond with JSON:
+Decide your action. Respond with JSON:
 {
-  "prediction": {"asset": "ETH", "direction": "UP", "stake": 20},
-  "combatStance": "ATTACK",
-  "combatTarget": "SURVIVOR-01",
-  "combatStake": 50,
-  "move": {"q": 1, "r": 0},
-  "useSkill": false,
-  "skillTarget": "AGENT-NAME",
-  "reasoning": "Brief explanation"
-}`;
+  "prediction": { "asset": "ETH|BTC|SOL|MON", "direction": "UP|DOWN", "stake": 5-50 },
+  "combatStance": "ATTACK|SABOTAGE|DEFEND|NONE",
+  "combatTarget": "agent_name or null",
+  "move": { "q": number, "r": number },
+  "reasoning": "brief explanation"
+}
+
+IMPORTANT:
+- stake is a PERCENTAGE (5-50) of your current HP, NOT a decimal
+- move is your target hex position (axial coordinates)
+- combatTarget must be an exact agent name from the list above, or null`;
 
   const response = await llm.chat([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
-  ], { maxTokens: 400, temperature: 0.7 });
+  ]);
 
+  // Parse JSON from response
   try {
-    // Clean response (remove markdown code blocks if present)
-    let jsonStr = response.content.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
     }
-
-    const parsed = JSON.parse(jsonStr);
-
-    // Normalize: if LLM returns legacy fields, convert to new format
-    if (!parsed.combatStance && (parsed.attack || parsed.defend)) {
-      if (parsed.attack) {
-        parsed.combatStance = 'ATTACK';
-        parsed.combatTarget = parsed.attack.target;
-        parsed.combatStake = parsed.attack.stake;
-      } else if (parsed.defend) {
-        parsed.combatStance = 'DEFEND';
-      } else {
-        parsed.combatStance = 'NONE';
-      }
-    }
-
-    return parsed;
-  } catch (e) {
-    console.error('[LLM] Failed to parse response:', response.content);
-    // Return safe defaults
-    return {
-      prediction: { asset: 'ETH', direction: 'UP', stake: 10 },
-      combatStance: 'NONE',
-      reasoning: 'Failed to parse LLM response, using defaults',
-    };
+  } catch {
+    // Fall through to default
   }
+
+  // Default safe action
+  return {
+    prediction: { asset: 'ETH', direction: 'UP', stake: 5 },
+    combatStance: 'DEFEND',
+    reasoning: `[FALLBACK] ${agentName} defaulted to safe prediction.`,
+  };
 }

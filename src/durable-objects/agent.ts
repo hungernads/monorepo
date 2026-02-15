@@ -120,13 +120,14 @@ export class AgentDO implements DurableObject {
 
     // Extract LLM keys from Cloudflare env bindings
     const llmKeys: LLMKeys = {
+      groqApiKeys: this.env.GROQ_API_KEYS,
       groqApiKey: this.env.GROQ_API_KEY,
       googleApiKey: this.env.GOOGLE_API_KEY,
       openrouterApiKey: this.env.OPENROUTER_API_KEY,
     };
 
     // Check if any LLM keys are available
-    const hasKeys = !!(llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
+    const hasKeys = !!(llmKeys.groqApiKeys || llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
 
     if (!hasKeys) {
       // No LLM keys configured - use class-specific defaults
@@ -290,11 +291,12 @@ export class AgentDO implements DurableObject {
     // Attempt LLM-generated lessons
     let newLessons: Lesson[] = [];
     const llmKeys: LLMKeys = {
+      groqApiKeys: this.env.GROQ_API_KEYS,
       groqApiKey: this.env.GROQ_API_KEY,
       googleApiKey: this.env.GOOGLE_API_KEY,
       openrouterApiKey: this.env.OPENROUTER_API_KEY,
     };
-    const hasKeys = !!(llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
+    const hasKeys = !!(llmKeys.groqApiKeys || llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
 
     if (hasKeys) {
       try {

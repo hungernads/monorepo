@@ -873,6 +873,24 @@ app.get('/battle/:id', async (c) => {
           ({ privateKey, ...agent }) => agent,
         );
       }
+      // Enrich completed battles with settlement tx hashes from D1
+      if (state.status === 'COMPLETED') {
+        try {
+          const battle = await getBattle(c.env.DB, battleId);
+          if (battle?.record_result_tx || battle?.settle_bets_tx || battle?.distribute_prize_tx || battle?.prize_txs) {
+            const settlementTxs: Record<string, unknown> = {};
+            if (battle.record_result_tx) settlementTxs.recordResult = battle.record_result_tx;
+            if (battle.settle_bets_tx) settlementTxs.settleBets = battle.settle_bets_tx;
+            if (battle.distribute_prize_tx) settlementTxs.distributePrize = battle.distribute_prize_tx;
+            if (battle.prize_txs) {
+              try { settlementTxs.prizes = JSON.parse(battle.prize_txs); } catch {}
+            }
+            state.settlementTxs = settlementTxs;
+          }
+        } catch {
+          // Non-fatal: settlement txs are optional display data
+        }
+      }
       return c.json(state);
     }
 

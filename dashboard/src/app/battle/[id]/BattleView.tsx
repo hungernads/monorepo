@@ -916,6 +916,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
   const [battleTier, setBattleTier] = useState<'FREE' | 'IRON' | 'BRONZE' | 'SILVER' | 'GOLD'>('IRON');
   const [bettingPhase, setBettingPhase] = useState<'OPEN' | 'LOCKED' | 'SETTLED'>('OPEN');
   const [prizeData, setPrizeData] = useState<any>(null);
+  const [apiSettlementTxs, setApiSettlementTxs] = useState<any>(null);
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
     fetch(`${API_BASE}/battle/${battleId}`)
@@ -926,6 +927,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
         }
         if (data.bettingPhase) {
           setBettingPhase(data.bettingPhase);
+        }
+        if (data.settlementTxs) {
+          setApiSettlementTxs(data.settlementTxs);
         }
         // If battle is completed, fetch prize distribution
         if (data.status === 'COMPLETED') {
@@ -1247,62 +1251,15 @@ export default function BattleView({ battleId }: BattleViewProps) {
         isComplete={!!winner}
       />
 
-      {/* Winner announcement */}
-      {winner && (() => {
-        const victoryAgent = agents.find((a) => a.id === winner.winnerId);
-        const victoryCfg = victoryAgent
-          ? CLASS_CONFIG[victoryAgent.class as AgentClass] ?? CLASS_CONFIG.WARRIOR
-          : CLASS_CONFIG.WARRIOR;
-        const isMutualRekt = winner.reason?.toLowerCase().includes("mutual rekt");
-        return (
-          <div className="mb-3 rounded-lg border border-gold/40 bg-gold/10 p-3 text-center sm:mb-4 sm:p-4">
-            <div className="font-cinzel text-xl font-black tracking-widest text-gold sm:text-2xl">
-              {isMutualRekt ? "ALL REKT" : "VICTORY"}
-            </div>
-            <div className="mt-3 flex items-center justify-center gap-3">
-              <AgentPortrait
-                image={victoryCfg.image}
-                emoji={victoryCfg.emoji}
-                alt={winner.winnerName}
-                size="w-14 h-14 sm:w-16 sm:h-16"
-                className="text-4xl ring-2 ring-gold/40"
-              />
-              <div className="text-left">
-                <div className="text-sm font-bold text-white sm:text-base">
-                  {winner.winnerName}
-                </div>
-                <div className="text-[10px] text-gray-400 sm:text-xs">
-                  {isMutualRekt
-                    ? `Wins by tiebreak after ${winner.totalEpochs} epochs!`
-                    : `Last nad standing after ${winner.totalEpochs} epoch${winner.totalEpochs !== 1 ? "s" : ""}`}
-                </div>
-              </div>
-            </div>
-            {winner.reason && (
-              <div className="mt-1.5 text-[10px] uppercase tracking-wider text-gold/70 sm:text-xs">
-                {winner.reason}
-              </div>
-            )}
-            <div className="mt-3 flex justify-center">
-              <ShareButton
-                battleId={battleId}
-                winner={winner}
-                agents={agents}
-              />
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Prize claim section (shown after battle completes) */}
+      {/* Winner announcement + prize claim (unified) */}
       {winner && (
-        <div className="mb-3 sm:mb-4">
-          <PrizeClaim
-            battleId={battleId}
-            winner={winner}
-            agents={agents}
-          />
-        </div>
+        <PrizeClaim
+          battleId={battleId}
+          winner={winner}
+          agents={agents}
+          settlementTxs={winner?.settlementTxs ?? apiSettlementTxs}
+          shareButton={<ShareButton battleId={battleId} winner={winner} agents={agents} />}
+        />
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
@@ -1431,7 +1388,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
           <div className={`${mobileSidebarTab !== "bets" ? "hidden md:block" : ""}`}>
             <CollapsiblePanel title="Bets" defaultOpen={false}>
               <div className="p-3">
-                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} bettingPhase={bettingPhase} events={events} settlementTxs={winner?.settlementTxs} />
+                <BettingPanel agents={agents} battleId={battleId} winner={winner} tier={battleTier} bettingPhase={bettingPhase} events={events} settlementTxs={winner?.settlementTxs ?? apiSettlementTxs} />
               </div>
             </CollapsiblePanel>
           </div>

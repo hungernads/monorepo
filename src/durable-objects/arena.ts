@@ -458,6 +458,7 @@ export class ArenaDO implements DurableObject {
 
     // Extract LLM keys from Cloudflare env bindings
     const llmKeys: LLMKeys = {
+      groqApiKeys: this.env.GROQ_API_KEYS,
       groqApiKey: this.env.GROQ_API_KEY,
       googleApiKey: this.env.GOOGLE_API_KEY,
       openrouterApiKey: this.env.OPENROUTER_API_KEY,
@@ -825,6 +826,26 @@ export class ArenaDO implements DurableObject {
         }
       }
 
+      // ── Insert battle_records for each agent (feeds leaderboard) ──
+      try {
+        const memory = new AgentMemory(this.env.DB);
+        for (const agent of Object.values(battleState.agents)) {
+          const result: 'win' | 'loss' | 'rekt' =
+            agent.id === winnerId ? 'win' : agent.isAlive ? 'loss' : 'rekt';
+          await memory.recordBattle(
+            agent.id,
+            battleState.battleId,
+            result,
+            agent.epochsSurvived,
+            agent.class,
+            agent.kills,
+          );
+        }
+        console.log(`[ArenaDO] Battle records inserted for ${Object.keys(battleState.agents).length} agents`);
+      } catch (err) {
+        console.error(`[ArenaDO] Failed to insert battle_records for ${battleState.battleId}:`, err);
+      }
+
       // ── Record prize amounts in battle_records ──
       // Update each agent's battle record with the MON and HNADS prizes they won.
       // Winner MON prize: from prizeDistribution.pool.winnerPayout.
@@ -1026,11 +1047,12 @@ export class ArenaDO implements DurableObject {
    */
   private async generateAgentLessons(battleState: BattleState): Promise<void> {
     const llmKeys: LLMKeys = {
+      groqApiKeys: this.env.GROQ_API_KEYS,
       groqApiKey: this.env.GROQ_API_KEY,
       googleApiKey: this.env.GOOGLE_API_KEY,
       openrouterApiKey: this.env.OPENROUTER_API_KEY,
     };
-    const hasKeys = !!(llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
+    const hasKeys = !!(llmKeys.groqApiKeys || llmKeys.groqApiKey || llmKeys.googleApiKey || llmKeys.openrouterApiKey);
     if (!hasKeys) {
       console.log(`[ArenaDO] No LLM keys — skipping lesson generation for battle ${battleState.battleId}`);
       return;

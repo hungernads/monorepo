@@ -763,7 +763,18 @@ export default function TokenPage() {
               isConnected={isConnected}
             />
           )}
-          <TokenUtility />
+          <Link
+            href="/guide#tokenomics"
+            className="card flex items-center justify-between transition-colors hover:border-gold/30"
+          >
+            <div className="flex items-center gap-2">
+              <Gift size={18} className="text-gold" />
+              <span className="text-sm font-bold uppercase tracking-wider text-gray-400">
+                Token Utility &amp; Burn Mechanics
+              </span>
+            </div>
+            <span className="text-gold">&rarr;</span>
+          </Link>
         </div>
       </div>
 
