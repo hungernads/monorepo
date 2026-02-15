@@ -68,7 +68,7 @@ IMPORTANT: Save your private key somewhere safe! If you lose it, your funds are 
 ```
 How would you like to set up your wallet?
   1. Import existing key — I have a private key to use
-  2. Generate new wallet — Create a fresh Monad testnet wallet
+  2. Generate new wallet — Create a fresh Monad wallet
 ```
 
 ### Step 2: Check balances
@@ -139,6 +139,6 @@ ${HNADS_BALANCE == 0 ? "Note: Your wallet has 0 $HNADS. Lobbies with $HNADS fees
 
 - **Invalid private key**: Report "Invalid private key format" and abort
 - **cast not found**: Report install instructions and abort
-- **Faucet fails**: Report "Faucet unavailable. You can fund manually by sending MON to ${address} on Monad testnet."
+- **Faucet fails**: Report "Faucet unavailable. You can fund manually by sending MON to ${address} on Monad."
 - **.env write fails**: Show the export command instead: `export HUNGERNADS_PRIVATE_KEY=${key}`
 - **Key already in .env**: Update existing value, show "Updated existing HUNGERNADS_PRIVATE_KEY"
