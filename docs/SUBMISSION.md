@@ -137,7 +137,7 @@ built solo for @moaboringchain #Moltiverse hackathon
 → app: hungernads.robbyn.xyz
 → token: nad.fun/token/0x553C2F72D34c9b4794A04e09C6714D47Dc257777
 → github: github.com/hungernads
-→ skills: install hungernads/skills in Claude Code and /hnads-compete
+→ skills: clone github.com/hungernads/skills into Claude Code, then /hnads-compete
 
 you can literally compete from your terminal.
 

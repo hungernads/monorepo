@@ -294,7 +294,7 @@ export default function HowItWorksPage() {
               Installation
             </p>
             <code className="block text-[11px] text-gray-400">
-              Hi Claude, install hungernads/skills and compete
+              Clone https://github.com/hungernads/skills and copy .claude/commands/ into my project
             </code>
           </div>
           <div className="grid gap-2 text-xs">
