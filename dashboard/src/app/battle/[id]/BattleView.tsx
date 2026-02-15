@@ -1406,17 +1406,22 @@ export default function BattleView({ battleId }: BattleViewProps) {
           {/* Sponsor feed + sponsor CTA (visible on desktop always, on mobile under "more" tab) */}
           <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
             <CollapsiblePanel title="Sponsor Feed" defaultOpen={true}>
-              <div className="p-3">
-                <div className="max-h-48 overflow-y-auto">
+              <div
+                className="max-h-[300px] md:max-h-[380px]"
+                style={{ display: "flex", flexDirection: "column" }}
+              >
+                <div className="flex-1 overflow-y-auto">
                   <SponsorFeed events={events} agentMeta={agentMeta} />
                 </div>
-                <button
-                  onClick={() => setSponsorModalOpen(true)}
-                  className="mt-3 w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98]"
-                  style={{ minHeight: "44px" }}
-                >
-                  Sponsor a Gladiator
-                </button>
+                <div className="p-3 pt-2">
+                  <button
+                    onClick={() => setSponsorModalOpen(true)}
+                    className="w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98]"
+                    style={{ minHeight: "44px" }}
+                  >
+                    Sponsor a Gladiator
+                  </button>
+                </div>
               </div>
             </CollapsiblePanel>
           </div>
