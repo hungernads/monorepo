@@ -517,7 +517,7 @@ function BattleTopBar({
   winner,
   connected,
   isComplete,
-  epochDuration = 300,
+  epochDuration = 30,
 }: {
   battleId: string;
   currentEpoch: number;
@@ -912,6 +912,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
   const [bettingPhase, setBettingPhase] = useState<'OPEN' | 'LOCKED' | 'SETTLED'>('OPEN');
   const [prizeData, setPrizeData] = useState<any>(null);
   const [apiSettlementTxs, setApiSettlementTxs] = useState<any>(null);
+  const [epochDurationSec, setEpochDurationSec] = useState(30);
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
     fetch(`${API_BASE}/battle/${battleId}`)
@@ -925,6 +926,9 @@ export default function BattleView({ battleId }: BattleViewProps) {
         }
         if (data.settlementTxs) {
           setApiSettlementTxs(data.settlementTxs);
+        }
+        if (data.epochIntervalMs) {
+          setEpochDurationSec(Math.round(data.epochIntervalMs / 1000));
         }
         // If battle is completed, fetch prize distribution
         if (data.status === 'COMPLETED') {
@@ -1276,6 +1280,7 @@ export default function BattleView({ battleId }: BattleViewProps) {
         winner={winner}
         connected={connected}
         isComplete={!!winner}
+        epochDuration={epochDurationSec}
       />
 
       {/* Winner announcement + prize claim (unified) */}

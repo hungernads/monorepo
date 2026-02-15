@@ -30,7 +30,7 @@ id = "3192200538f2415dac3e7ab3b5916030"
 [vars]
 ENVIRONMENT = "production"
 PYTH_ENDPOINT = "https://hermes.pyth.network"
-EPOCH_INTERVAL_MS = "45000"
+EPOCH_INTERVAL_MS = "30000"
 
 # ─── Secrets (set via `wrangler secret put`) ──────────────────────
 # MONAD_RPC_URL              = Monad mainnet RPC endpoint

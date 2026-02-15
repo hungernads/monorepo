@@ -14,7 +14,7 @@ interface EpochTimerProps {
 
 export default function EpochTimer({
   currentEpoch,
-  epochDuration = 300,
+  epochDuration = 30,
   isComplete = false,
   winnerName,
 }: EpochTimerProps) {
