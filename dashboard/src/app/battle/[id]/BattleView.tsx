@@ -754,11 +754,6 @@ function BattleTopBar({
           <span className="text-white">{aliveCount}</span>/{totalAgents} alive
         </span>
 
-        {/* Pool */}
-        <span className="hidden text-[10px] text-gray-600 lg:inline">
-          Pool: <span className="font-bold text-gold">-- $HNADS</span>
-        </span>
-
         {/* Share button */}
         <ShareButton
           battleId={battleId}
@@ -941,6 +936,21 @@ export default function BattleView({ battleId }: BattleViewProps) {
       })
       .catch((err) => console.warn('Failed to fetch battle metadata:', err));
   }, [battleId]);
+
+  // Re-fetch settlement txs after winner is determined (chain calls may take a few seconds)
+  useEffect(() => {
+    if (!winner) return;
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
+    const timeout = setTimeout(() => {
+      fetch(`${API_BASE}/battle/${battleId}`)
+        .then((res) => res.json())
+        .then((data: any) => {
+          if (data.settlementTxs) setApiSettlementTxs(data.settlementTxs);
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [winner, battleId]);
 
   // Listen for betting_phase_change WebSocket events
   useEffect(() => {
@@ -1393,11 +1403,20 @@ export default function BattleView({ battleId }: BattleViewProps) {
             </CollapsiblePanel>
           </div>
 
-          {/* Sponsor feed (visible on desktop always, on mobile under "more" tab) */}
+          {/* Sponsor feed + sponsor CTA (visible on desktop always, on mobile under "more" tab) */}
           <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
-            <CollapsiblePanel title="Sponsor Feed" defaultOpen={false}>
+            <CollapsiblePanel title="Sponsor Feed" defaultOpen={true}>
               <div className="p-3">
-                <SponsorFeed events={events} agentMeta={agentMeta} />
+                <div className="max-h-48 overflow-y-auto">
+                  <SponsorFeed events={events} agentMeta={agentMeta} />
+                </div>
+                <button
+                  onClick={() => setSponsorModalOpen(true)}
+                  className="mt-3 w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98]"
+                  style={{ minHeight: "44px" }}
+                >
+                  Sponsor a Gladiator
+                </button>
               </div>
             </CollapsiblePanel>
           </div>
@@ -1411,32 +1430,6 @@ export default function BattleView({ battleId }: BattleViewProps) {
                   isConnected={walletConnected}
                   userDisplayName={userDisplayName}
                 />
-              </div>
-            </CollapsiblePanel>
-          </div>
-
-          {/* Pool + Sponsor CTA (visible on desktop always, on mobile under "more" tab) */}
-          <div className={`${mobileSidebarTab !== "more" ? "hidden md:block" : ""}`}>
-            <CollapsiblePanel title="Prize Pool" defaultOpen={true}>
-              <div className="p-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">
-                    Pool
-                  </h2>
-                  <span className="text-lg font-bold text-gold">-- $HNADS</span>
-                </div>
-                <div className="mt-2 h-px w-full bg-colosseum-surface-light" />
-                <div className="mt-2 flex justify-between text-[10px] text-gray-600">
-                  <span>Bettors: --</span>
-                  <span>Sponsors: --</span>
-                </div>
-                <button
-                  onClick={() => setSponsorModalOpen(true)}
-                  className="mt-3 w-full rounded border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold uppercase tracking-wider text-gold transition-all hover:bg-gold/20 active:scale-[0.98]"
-                  style={{ minHeight: "44px" }}
-                >
-                  Sponsor a Gladiator
-                </button>
               </div>
             </CollapsiblePanel>
           </div>

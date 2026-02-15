@@ -111,6 +111,7 @@ export interface BattleEndEvent {
     settlementTxs?: {
       recordResult?: string;
       settleBets?: string;
+      distributePrize?: string;
     };
   };
 }

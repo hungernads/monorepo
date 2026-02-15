@@ -239,6 +239,17 @@ export class BettingPool {
       return emptyResult;
     }
 
+    // Same-side refund: if all unsettled bets are on the same agent, refund everyone fully.
+    // No opposing market = no real bet. Solo bettors or all-same-side shouldn't lose to protocol fees.
+    const distinctAgents = new Set(unsettledBets.map(b => b.agent_id));
+    if (distinctAgents.size <= 1) {
+      console.log(`[BettingPool] All bets on same agent for battle ${battleId} — full refund`);
+      for (const bet of unsettledBets) {
+        await settleBet(this.db, bet.id, bet.amount);
+      }
+      return emptyResult;
+    }
+
     const totalPool = bets.reduce((sum, b) => sum + b.amount, 0);
 
     // ── Pool split: 85/5/5/3/2 ──────────────────────────────────
