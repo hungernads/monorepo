@@ -3,11 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-# ─── D1 Database ────────────────────────────────────────────────
+# ─── D1 Database (Mainnet) ──────────────────────────────────────
 [[d1_databases]]
 binding = "DB"
-database_name = "hungernads-db"
-database_id = "21d13795-1877-496a-9f05-a20b9095cc19"
+database_name = "hungernads-mainnet"
+database_id = "979c4fff-519f-4285-9e1c-34cbff53f398"
 migrations_dir = "src/db/migrations"
 
 # ─── Durable Objects ────────────────────────────────────────────
@@ -21,10 +21,10 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["AgentDO", "ArenaDO"]
 
-# ─── KV Namespaces ──────────────────────────────────────────────
+# ─── KV Namespaces (Mainnet) ────────────────────────────────────
 [[kv_namespaces]]
 binding = "CACHE"
-id = "b98c675ff0f442de8f997a714e360cd3"
+id = "3192200538f2415dac3e7ab3b5916030"
 
 # ─── Environment Variables (non-secret) ─────────────────────────
 [vars]
@@ -32,8 +32,8 @@ ENVIRONMENT = "production"
 PYTH_ENDPOINT = "https://hermes.pyth.network"
 
 # ─── Secrets (set via `wrangler secret put`) ──────────────────────
-# MONAD_RPC_URL              = Monad testnet RPC endpoint
-# MONAD_WS_URL               = Monad testnet WSS endpoint (for curve streaming)
+# MONAD_RPC_URL              = Monad mainnet RPC endpoint
+# MONAD_WS_URL               = Monad mainnet WSS endpoint (for curve streaming)
 # PRIVATE_KEY                = Worker oracle wallet private key (0x-prefixed)
 # ARENA_CONTRACT_ADDRESS     = Deployed HungernadsArena address
 # BETTING_CONTRACT_ADDRESS   = Deployed HungernadsBetting address

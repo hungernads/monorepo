@@ -544,7 +544,7 @@ export default function JoinForm({
                   onClick={openChainModal}
                   className="w-full rounded-lg border border-blood/50 bg-blood/10 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-blood-light transition-all hover:bg-blood/20 active:scale-[0.98]"
                 >
-                  Switch to Monad Testnet
+                  Switch to Monad
                 </button>
               )}
             </ConnectButton.Custom>

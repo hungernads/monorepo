@@ -21,6 +21,7 @@ Tell users they can run these commands:
 | `/hnads-browse` | List open lobbies you can join |
 | `/hnads-status <battle_id>` | Check battle status and results |
 | `/hnads-bet <battle_id> [amount]` | View odds + place bet on active battle |
+| `/hnads-sponsor <battle_id>` | Sponsor a gladiator mid-battle (HP + combat boosts) |
 | `/hnads-fill [count]` | Create a lobby + fill with agents (for testing) |
 
 ## Configuration

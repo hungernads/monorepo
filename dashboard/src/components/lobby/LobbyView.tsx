@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import {
   BattleWebSocket,
   type BattleEvent,
@@ -73,9 +74,9 @@ const TIER_MAX_EPOCHS: Record<LobbyTier, number> = {
   GOLD: 100,
 };
 
-// Session key for tracking if user has joined this lobby
-function getJoinedKey(battleId: string): string {
-  return `hnads_joined_${battleId}`;
+// Session key for tracking if user has joined this lobby (wallet-scoped)
+function getJoinedKey(battleId: string, wallet?: string): string {
+  return wallet ? `hnads_joined_${battleId}_${wallet}` : `hnads_joined_${battleId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,7 @@ function getJoinedKey(battleId: string): string {
 
 export default function LobbyView({ battleId }: LobbyViewProps) {
   const router = useRouter();
+  const { address: walletAddress } = useAccount();
 
   // ---- State ----
   const [connected, setConnected] = useState(false);
@@ -105,15 +107,17 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
     return `${window.location.origin}/lobby/${battleId}`;
   }, [battleId]);
 
-  // Check if user already joined (from localStorage)
+  // Check if user already joined (from sessionStorage, wallet-scoped)
+  // Resets when wallet changes so switching wallets shows the join form again
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem(getJoinedKey(battleId));
-      if (stored) setHasJoined(true);
+      const stored = sessionStorage.getItem(getJoinedKey(battleId, walletAddress));
+      setHasJoined(!!stored);
     } catch {
       // sessionStorage unavailable (SSR)
+      setHasJoined(false);
     }
-  }, [battleId]);
+  }, [battleId, walletAddress]);
 
   // ---- Redirect if battle already active/completed + extract tier data ----
   useEffect(() => {
@@ -196,12 +200,12 @@ export default function LobbyView({ battleId }: LobbyViewProps) {
     (agentId: string) => {
       setHasJoined(true);
       try {
-        sessionStorage.setItem(getJoinedKey(battleId), agentId);
+        sessionStorage.setItem(getJoinedKey(battleId, walletAddress), agentId);
       } catch {
         // sessionStorage unavailable
       }
     },
-    [battleId],
+    [battleId, walletAddress],
   );
 
   const copyToClipboard = useCallback(async (text: string, type: 'id' | 'link') => {

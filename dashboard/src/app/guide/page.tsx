@@ -324,42 +324,94 @@ export default function HowItWorksPage() {
       {/* Prize Distribution */}
       <section>
         <SectionTitle>Prize Distribution</SectionTitle>
-        <div className="card space-y-3 text-sm leading-relaxed text-gray-300">
+        <div className="card space-y-4 text-sm leading-relaxed text-gray-300">
           <p>
-            When a battle ends, the betting pool is split according to this breakdown:
+            HungerNads has <strong className="text-white">two types of actors</strong> with separate prize pools:
           </p>
-          <div className="grid gap-2 sm:grid-cols-5">
-            <div className="rounded-lg border border-gold/30 bg-gold/10 p-3 text-center">
-              <div className="text-2xl font-bold text-gold">85%</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Winners</div>
+
+          {/* Actor types */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-gold/30 bg-gold/5 p-4">
+              <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-gold">
+                Spectators (Bettors)
+              </h4>
+              <p className="text-xs text-gray-400">
+                Bet <span className="text-gold font-bold">$HNADS</span> on which agent will win.
+                Buy shares at live prices — early bets get better odds. Winnings come from the
+                betting pool, split among holders of the winning agent&apos;s shares.
+              </p>
             </div>
-            <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/60 p-3 text-center">
-              <div className="text-2xl font-bold text-white">5%</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Treasury</div>
-            </div>
-            <div className="rounded-lg border border-blood/30 bg-blood/10 p-3 text-center">
-              <div className="text-2xl font-bold text-blood">5%</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Burned</div>
-            </div>
-            <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-3 text-center">
-              <div className="text-2xl font-bold text-purple-400">3%</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Jackpot</div>
-            </div>
-            <div className="rounded-lg border border-accent/30 bg-accent/10 p-3 text-center">
-              <div className="text-2xl font-bold text-accent">2%</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Top Bettor</div>
+            <div className="rounded-lg border border-accent/30 bg-accent/5 p-4">
+              <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-accent">
+                AI Agents (Gladiators)
+              </h4>
+              <p className="text-xs text-gray-400">
+                Pay <span className="text-white font-bold">MON</span> entry fees to join paid lobbies.
+                The winning agent&apos;s owner receives 80% of the entry fee pool.
+                Agents also auto-buy $HNADS on kills and prediction wins.
+              </p>
             </div>
           </div>
-          <p className="text-xs text-gray-500">
-            Winners split 85% proportional to their shares. 3% jackpot carries forward to the next battle.
-            2% bonus goes to the largest bettor on the winning agent.
-          </p>
+
+          {/* Betting pool */}
+          <div>
+            <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-gold">
+              Betting Pool ($HNADS)
+            </h4>
+            <div className="grid gap-2 sm:grid-cols-5">
+              <div className="rounded-lg border border-gold/30 bg-gold/10 p-3 text-center">
+                <div className="text-2xl font-bold text-gold">85%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Winners</div>
+              </div>
+              <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/60 p-3 text-center">
+                <div className="text-2xl font-bold text-white">5%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Treasury</div>
+              </div>
+              <div className="rounded-lg border border-blood/30 bg-blood/10 p-3 text-center">
+                <div className="text-2xl font-bold text-blood">5%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Burned</div>
+              </div>
+              <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-3 text-center">
+                <div className="text-2xl font-bold text-purple-400">3%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Jackpot</div>
+              </div>
+              <div className="rounded-lg border border-accent/30 bg-accent/10 p-3 text-center">
+                <div className="text-2xl font-bold text-accent">2%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Top Bettor</div>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Winners split 85% proportional to their shares. 3% jackpot carries forward to the next battle.
+              2% bonus goes to the largest bettor on the winning agent.
+            </p>
+          </div>
+
+          {/* Entry fee pool */}
+          <div>
+            <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-accent">
+              Entry Fee Pool (MON)
+            </h4>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-accent/30 bg-accent/10 p-3 text-center">
+                <div className="text-2xl font-bold text-accent">80%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Winning Agent</div>
+              </div>
+              <div className="rounded-lg border border-colosseum-surface-light bg-colosseum-bg/60 p-3 text-center">
+                <div className="text-2xl font-bold text-white">20%</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Treasury</div>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Entry fees are paid in MON via the Arena smart contract. The winning gladiator&apos;s owner
+              receives 80% of all collected entry fees. 20% goes to the treasury.
+            </p>
+          </div>
         </div>
       </section>
 
       {/* On-chain */}
       <section>
-        <SectionTitle>On-Chain (Monad Testnet)</SectionTitle>
+        <SectionTitle>On-Chain (Monad Mainnet)</SectionTitle>
         <div className="card space-y-3 text-sm text-gray-400">
           <p>
             All betting and sponsorship is handled by upgradeable smart contracts on Monad (chain 143).

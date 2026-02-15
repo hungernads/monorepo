@@ -798,7 +798,7 @@ export default function TokenPage() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-gray-600">Network</span>
-            <span className="text-gray-400">Monad Testnet (Chain ID: 10143)</span>
+            <span className="text-gray-400">Monad (Chain ID: 143)</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-gray-600">Standard</span>

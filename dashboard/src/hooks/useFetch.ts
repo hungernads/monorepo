@@ -35,10 +35,13 @@ export function useFetch<T>(
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
+  const hasFetchedRef = useRef(false);
+
   const fetchData = useCallback(async () => {
     if (options?.skip) return;
 
-    setLoading(true);
+    // Only show loading skeleton on first fetch, not on re-polls
+    if (!hasFetchedRef.current) setLoading(true);
     setError(null);
 
     try {
@@ -64,6 +67,7 @@ export function useFetch<T>(
       }
     } finally {
       if (mountedRef.current) {
+        hasFetchedRef.current = true;
         setLoading(false);
       }
     }

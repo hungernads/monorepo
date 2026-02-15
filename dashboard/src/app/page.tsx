@@ -343,9 +343,9 @@ export default function HomePage() {
   >([]);
   const [liveBattlesLoading, setLiveBattlesLoading] = useState(true);
 
-  const fetchLiveBattles = useCallback(async () => {
+  const fetchLiveBattles = useCallback(async (isInitial = false) => {
     try {
-      setLiveBattlesLoading(true);
+      if (isInitial) setLiveBattlesLoading(true);
 
       // Step 1: Get active battle IDs
       const listRes = await fetch(
@@ -396,7 +396,7 @@ export default function HomePage() {
     } catch {
       setLiveBattles([]);
     } finally {
-      setLiveBattlesLoading(false);
+      if (isInitial) setLiveBattlesLoading(false);
     }
   }, []);
 
@@ -404,9 +404,9 @@ export default function HomePage() {
   const [lobbies, setLobbies] = useState<LobbyData[]>([]);
   const [lobbiesLoading, setLobbiesLoading] = useState(true);
 
-  const fetchLobbies = useCallback(async () => {
+  const fetchLobbies = useCallback(async (isInitial = false) => {
     try {
-      setLobbiesLoading(true);
+      if (isInitial) setLobbiesLoading(true);
       const res = await fetch(`${API_BASE}/battle/lobbies`);
       if (!res.ok) {
         setLobbies([]);
@@ -417,7 +417,7 @@ export default function HomePage() {
     } catch {
       setLobbies([]);
     } finally {
-      setLobbiesLoading(false);
+      if (isInitial) setLobbiesLoading(false);
     }
   }, []);
 
@@ -555,11 +555,11 @@ export default function HomePage() {
 
   // ── Kick off fetches on mount ─────────────────────────────────
   useEffect(() => {
-    fetchLiveBattles();
-    fetchLobbies();
+    fetchLiveBattles(true);
+    fetchLobbies(true);
     fetchRecentResults();
 
-    // Poll live battles + lobbies every 15 seconds
+    // Poll live battles + lobbies every 15 seconds (silent — no skeleton flash)
     const interval = setInterval(() => {
       fetchLiveBattles();
       fetchLobbies();
