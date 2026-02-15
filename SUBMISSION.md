@@ -14,12 +14,12 @@
 | **Team Size** | 1 |
 | **Track** | Agent + Token |
 | **GitHub Repo** | https://github.com/hungernads/monorepo |
-| **Live Dashboard** | https://dashboard-xi-nine-82.vercel.app |
+| **Live Dashboard** | https://hungernads.robbyn.xyz |
 | **Live API** | https://hungernads.amr-robb.workers.dev |
 | **Demo Video** | *(fill in after recording)* |
-| **$HNADS Token** | `0xe19fd60f5117Df0F23659c7bc16e2249b8dE7777` (nad.fun) |
-| **Arena Contract** | [`0x45B9151BD350F26eE0ad44395B5555cbA5364DC8`](https://testnet.monadexplorer.com/address/0x45B9151BD350F26eE0ad44395B5555cbA5364DC8) (Monad testnet) |
-| **Betting Contract** | [`0xEfA79f90A2a9400A32De384b742d22524c4A69d5`](https://testnet.monadexplorer.com/address/0xEfA79f90A2a9400A32De384b742d22524c4A69d5) (Monad testnet) |
+| **$HNADS Token** | `0x553C2F72D34c9b4794A04e09C6714D47Dc257777` (nad.fun) |
+| **Arena Contract** | [`0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db`](https://monadexplorer.com/address/0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db) (Monad mainnet) |
+| **Betting Contract** | [`0x6F677989784Cc214E4Ee02257Fad3fc4374dD383`](https://monadexplorer.com/address/0x6F677989784Cc214E4Ee02257Fad3fc4374dD383) (Monad mainnet) |
 | **Skills Repo** | https://github.com/hungernads/skills |
 | **OpenClaw Skill** | https://hungernads.amr-robb.workers.dev/skill.md |
 
@@ -80,11 +80,11 @@ HUNGERNADS is an AI gladiator colosseum on Monad where autonomous AI agents figh
 
 ### Scene 6: Smart Contracts (2:00 - 2:15)
 **Action:**
-1. Show Monad testnet explorer with Arena contract
+1. Show Monad explorer with Arena contract
 2. Highlight UUPS proxy architecture
 3. Show 153/153 Foundry tests passing (terminal)
 
-**Say:** "On-chain betting and sponsorship via UUPS-upgradeable contracts on Monad testnet. 153 Foundry tests passing across 6 test suites."
+**Say:** "On-chain betting and sponsorship via UUPS-upgradeable contracts on Monad. 153 Foundry tests passing across 6 test suites."
 
 ### Scene 7: Claude Code Skills (2:15 - 2:35)
 **Action:**
@@ -112,7 +112,7 @@ Before recording the demo:
 - [ ] Verify API endpoints work: `curl https://hungernads.amr-robb.workers.dev/battle/lobbies`
 - [ ] Have at least 1 active or recently completed battle for show
 - [ ] Create a fresh lobby right before recording
-- [ ] Have Monad testnet explorer open with Arena contract
+- [ ] Have Monad explorer open with Arena contract
 - [ ] Have terminal with Claude Code ready for skills demo
 - [ ] Have `forge test` ready to show passing tests
 - [ ] $HNADS token visible on nad.fun
@@ -146,7 +146,7 @@ Before recording the demo:
 - **5 AI agent classes** with LLM-driven decisions (multi-provider: Groq, Google, OpenAI)
 - **37-tile hex grid** with items, storm mechanics, and proximity combat
 - **Real-time WebSocket** streaming via Cloudflare Durable Objects
-- **UUPS proxy contracts** on Monad testnet (153/153 tests pass)
+- **UUPS proxy contracts** on Monad mainnet (153/153 tests pass)
 - **Lobby system** with 60s countdown + spectator mode
 - **Claude Code skills** for external agent participation
 - **$HNADS token** on nad.fun for the spectator economy

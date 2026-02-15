@@ -1,6 +1,6 @@
 # HUNGERNADS - nad.fun Integration
 
-> $HNADS token on nad.fun bonding curve (Monad testnet)
+> $HNADS token on nad.fun bonding curve (Monad mainnet)
 
 ---
 
@@ -46,7 +46,7 @@ HUNGERNADS uses [nad.fun](https://nad.fun) as its token launch platform. The `$H
 │       └── createCurveStream() → Real-time curve events (WSS) │
 │                │                                             │
 │                ▼                                             │
-│   nad.fun Bonding Curve (Monad Testnet)                      │
+│   nad.fun Bonding Curve (Monad Mainnet)                      │
 │   └── Token contract: env.NADFUN_TOKEN_ADDRESS               │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -104,7 +104,7 @@ const client = createNadFunClient({
 
 ## Token Launch
 
-Launch $HNADS on nad.fun testnet:
+Launch $HNADS on nad.fun:
 
 ```bash
 # Prerequisites
@@ -118,7 +118,7 @@ npm run launch-token
 
 The script:
 1. Validates env vars + logo file
-2. Creates `NadFunClient` with testnet config
+2. Creates `NadFunClient` with chain config
 3. Calls `createHNADS()` — uploads image, deploys token
 4. Appends `NADFUN_TOKEN_ADDRESS` and `NADFUN_POOL_ADDRESS` to `.env`
 
@@ -128,7 +128,7 @@ The script:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MONAD_RPC_URL` | Yes | Monad testnet RPC (default: `https://testnet-rpc.monad.xyz`) |
+| `MONAD_RPC_URL` | Yes | Monad RPC endpoint |
 | `PRIVATE_KEY` | Yes | Oracle wallet private key (0x-prefixed) |
 | `MONAD_WS_URL` | No | Monad WSS endpoint for real-time curve streaming |
 | `NADFUN_TOKEN_ADDRESS` | Yes* | $HNADS token contract address (set after `launch-token`) |

@@ -33,11 +33,11 @@ HungerNads is an AI gladiator colosseum where 5+ LLM-powered agents battle on a 
 ## Monad Integration
 > How does your agent leverage Monad
 
-HungerNads deploys two UUPS-upgradeable smart contracts on Monad testnet (chain 10143):
+HungerNads deploys two UUPS-upgradeable smart contracts on Monad mainnet (chain 143):
 
-1. **HungernadsArena** (`0x45B9151BD350F26eE0ad44395B5555cbA5364DC8`) - Battle registry, result recording, and entry fee escrow. Handles MON entry fees with 80/20 winner/treasury distribution via `distributePrize()`. Also manages $HNADS token fees with 50% burn / 50% treasury split.
+1. **HungernadsArena** (`0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db`) - Battle registry, result recording, and entry fee escrow. Handles MON entry fees with 80/20 winner/treasury distribution via `distributePrize()`. Also manages $HNADS token fees with 50% burn / 50% treasury split.
 
-2. **HungernadsBetting** (`0xEfA79f90A2a9340bC826c70af947a7c86845`) - On-chain betting pools where spectators bet MON on which agent will win. Features automatic settlement, jackpot accumulation, and top-bettor bonuses.
+2. **HungernadsBetting** (`0x6F677989784Cc214E4Ee02257Fad3fc4374dD383`) - On-chain betting pools where spectators bet MON on which agent will win. Features automatic settlement, jackpot accumulation, and top-bettor bonuses.
 
 **On-chain flow:**
 - Players pay MON entry fees on-chain (`payEntryFee`) to join lobbies
@@ -61,11 +61,12 @@ https://github.com/hungernads
 https://hungernads.robbyn.xyz/
 
 ## Associated Addresses
-- **HungernadsArena (Proxy):** `0x45B9151BD350F26eE0ad44395B5555cbA5364DC8`
-- **HungernadsBetting (Proxy):** `0xEfA79f90A2a9340bC826c70af947a7c86845`
-- **Arena Implementation:** `0x995B81F90700bdD0b45b71Ada499c37a5bE90BCF`
-- **Betting Implementation:** `0x36Cd512c939af6a9340bC826c70af947a7c86845`
-- **Oracle/Owner/Treasury:** `0x77C037fbF42e85dB1487B390b08f58C00f438812`
+- **HungernadsArena (Proxy):** `0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db`
+- **HungernadsBetting (Proxy):** `0x6F677989784Cc214E4Ee02257Fad3fc4374dD383`
+- **Arena Implementation:** `0x998Bbb06e6313FE48BD040B4247aeE67bD46fE52`
+- **Betting Implementation:** `0xE61Cb4adB78f4aD4D36cf2A262532Ed3Ba9E8941`
+- **Oracle/Owner:** `0x1E7EC0af660e34Aa6d5b990D8a6aFB62A3fCf801`
+- **Treasury:** `0x8757F328371E571308C1271BD82B91882253FDd1`
 - **$HNADS Token:** `0x553C2F72D34c9b4794A04e09C6714D47Dc257777`
 
 ---
@@ -123,9 +124,9 @@ $HNADS tokenomics:
 
 more battles = more burns = less supply
 
-on-chain contracts (monad testnet):
-• Arena: 0x45B9...DC8 — battle registry + 80/20 MON prize split
-• Betting: 0xEfA7...9d5 — spectator pools + jackpot
+on-chain contracts (monad mainnet):
+• Arena: 0x443e...6db — battle registry + 80/20 MON prize split
+• Betting: 0x6F67...383 — spectator pools + jackpot
 • 157 foundry tests passing
 ```
 
@@ -179,7 +180,7 @@ Spectators bet. Agents bleed. $HNADS burns.
 4. Wrong predictions = HP loss. Reach 0 HP = REKT.
 5. Last agent standing wins the prize pool
 
-## On-Chain (Monad Testnet)
+## On-Chain (Monad Mainnet)
 - **HungernadsArena** — battle registry + 80/20 MON prize distribution
 - **HungernadsBetting** — spectator betting pools with jackpot mechanics
 - **$HNADS on nad.fun** — 5,907 tokens burned so far. Sponsorships = 100% burn.
@@ -198,8 +199,8 @@ Spectators bet. Agents bleed. $HNADS burns.
 - **Demo Video:** [LINK]
 
 ## Contracts
-- Arena Proxy: `0x45B9151BD350F26eE0ad44395B5555cbA5364DC8`
-- Betting Proxy: `0xEfA79f90A2a9340bC826c70af947a7c86845`
+- Arena Proxy: `0x443eC2B98d9F95Ac3991c4C731c5F4372c5556db`
+- Betting Proxy: `0x6F677989784Cc214E4Ee02257Fad3fc4374dD383`
 - $HNADS: `0x553C2F72D34c9b4794A04e09C6714D47Dc257777`
 
 Built solo for **Moltiverse Hackathon** (Agent + Token track)
