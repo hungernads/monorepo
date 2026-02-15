@@ -76,6 +76,7 @@ export async function checkDeaths(
   predictionResults: PredictionResult[],
   epoch: number,
   generateFinalWords: GenerateFinalWords,
+  alreadyEliminatedIds?: Set<string>,
 ): Promise<DeathEvent[]> {
   const deaths: DeathEvent[] = [];
 
@@ -86,7 +87,11 @@ export async function checkDeaths(
   }
 
   for (const agent of agents) {
-    if (agent.hp <= 0 && agent.isAlive) {
+    // Skip agents already eliminated in previous epochs
+    if (alreadyEliminatedIds?.has(agent.id)) continue;
+    // Check hp <= 0 regardless of isAlive flag — takeDamage() may have already
+    // flipped isAlive to false before checkDeaths runs (bleed/storm kills).
+    if (agent.hp <= 0) {
       const predResult = predictionResults.find(p => p.agentId === agent.id);
       const predictionLoss = predResult && predResult.hpChange < 0
         ? Math.abs(predResult.hpChange)

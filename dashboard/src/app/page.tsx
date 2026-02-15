@@ -451,7 +451,7 @@ export default function HomePage() {
           }
 
           return {
-            battleId: b.id.slice(0, 6),
+            battleId: b.id,
             winnerName,
             winnerClass,
             killCount: b.winner_kills ?? 0,

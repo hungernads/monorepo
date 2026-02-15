@@ -588,12 +588,17 @@ export async function processEpoch(
   const agentStatesForDeath = arena.getAllAgents().map(a => a.getState());
 
   // death.ts PredictionResult is a subset of prediction.ts PredictionResult — compatible
+  // Pass already-eliminated agent IDs so checkDeaths doesn't re-process them.
+  // This is critical because takeDamage() sets isAlive=false before checkDeaths runs,
+  // making it impossible to distinguish "died this epoch" from "died previously" via isAlive alone.
+  const alreadyEliminatedIds = new Set(arena.getEliminations().map(e => e.agentId));
   const deaths = await checkDeaths(
     agentStatesForDeath,
     combatResults,
     predictionResults,
     epochNumber,
     finalWordsCallback,
+    alreadyEliminatedIds,
   );
 
   // Eliminate dead agents on the arena and track kills

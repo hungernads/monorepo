@@ -48,7 +48,7 @@ export default function RecentResults({ results }: RecentResultsProps) {
                 href={`/battle/${r.battleId}`}
                 className="text-xs text-gray-600 flex-shrink-0 hover:text-gold transition-colors"
               >
-                #{r.battleId}
+                #{r.battleId.slice(0, 8)}
               </Link>
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-sm font-bold text-gray-200 truncate">
